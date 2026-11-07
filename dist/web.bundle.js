@@ -14288,6 +14288,7 @@ function DomainList({ healthMap }) {
   const nodes = useGraphStore((s) => s.nodes);
   const bookmarks = useGraphStore((s) => s.bookmarks);
   const validationResults = useGraphStore((s) => s.validationResults);
+  const panelNodeId = useGraphStore((s) => s.panelNodeId);
   const { index } = useModelIndex();
   const { goto } = useNavigation();
   const storeQuery = useGraphStore((s) => s.listSearchQuery);
@@ -15201,7 +15202,7 @@ function DomainList({ healthMap }) {
             DomainTableRow,
             {
               domain: d,
-              isActive: useGraphStore.getState().panelNodeId === d.node.id,
+              isActive: panelNodeId === d.node.id,
               isFocused: i === focusedIdx,
               isChecked: selectedForBulk.has(d.node.id),
               onSelect: () => onSelect(d),
@@ -15239,7 +15240,7 @@ function DomainList({ healthMap }) {
               DomainListRow,
               {
                 domain: d,
-                isActive: useGraphStore.getState().panelNodeId === d.node.id,
+                isActive: panelNodeId === d.node.id,
                 isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === d.node.id,
                 compact: viewPrefs.density === "compact",
                 onSelect: () => onSelect(d)
@@ -15256,7 +15257,7 @@ function DomainList({ healthMap }) {
               DomainListRow,
               {
                 domain: d,
-                isActive: useGraphStore.getState().panelNodeId === d.node.id,
+                isActive: panelNodeId === d.node.id,
                 isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === d.node.id,
                 compact: viewPrefs.density === "compact",
                 onSelect: () => onSelect(d)
@@ -58096,70 +58097,70 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
         });
       }
     }
-    const seenForSystemId = /* @__PURE__ */ new Set();
-    for (const eb2 of entityBlocks) {
-      for (const a of eb2.attrIdList) {
-        if (!SYSTEM_ATTRIBUTE_IDS.has(a.id))
-          continue;
-        const key = `${eb2.id.toLowerCase()}:${a.id.toLowerCase()}`;
-        if (seenForSystemId.has(key))
-          continue;
-        seenForSystemId.add(key);
-        const line = lines[a.idLine - 1];
-        const startCol = line.indexOf(a.id) + 1;
-        markers.push({
-          severity: monaco.MarkerSeverity.Error,
-          message: `\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \xAB${eb2.id}.${a.id}\xBB \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043E\u0432\u0430\u043D \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0440\u0443\u0433\u043E\u0435 \u0438\u043C\u044F.`,
-          startLineNumber: a.idLine,
-          startColumn: startCol > 0 ? startCol : 1,
-          endLineNumber: a.idLine,
-          endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
-          source: "attribute-validator"
-        });
-      }
+  }
+  const seenForSystemId = /* @__PURE__ */ new Set();
+  for (const eb of entityBlocks) {
+    for (const a of eb.attrIdList) {
+      if (!SYSTEM_ATTRIBUTE_IDS.has(a.id))
+        continue;
+      const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+      if (seenForSystemId.has(key))
+        continue;
+      seenForSystemId.add(key);
+      const line = lines[a.idLine - 1];
+      const startCol = line.indexOf(a.id) + 1;
+      markers.push({
+        severity: monaco.MarkerSeverity.Error,
+        message: `\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \xAB${eb.id}.${a.id}\xBB \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043E\u0432\u0430\u043D \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0440\u0443\u0433\u043E\u0435 \u0438\u043C\u044F.`,
+        startLineNumber: a.idLine,
+        startColumn: startCol > 0 ? startCol : 1,
+        endLineNumber: a.idLine,
+        endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
+        source: "attribute-validator"
+      });
     }
-    const RE_ATTRIBUTE_CAMEL = /^[a-z][a-zA-Z0-9]*$/;
-    const seenForCamel = /* @__PURE__ */ new Set();
-    for (const eb2 of entityBlocks) {
-      for (const a of eb2.attrIdList) {
-        if (RE_ATTRIBUTE_CAMEL.test(a.id))
-          continue;
-        const key = `${eb2.id.toLowerCase()}:${a.id.toLowerCase()}`;
-        if (seenForCamel.has(key))
-          continue;
-        seenForCamel.add(key);
-        const lineText = lines[a.idLine - 1] || "";
-        const startCol = lineText.indexOf(a.id) + 1;
-        markers.push({
-          severity: monaco.MarkerSeverity.Warning,
-          message: `attribute.id \xAB${eb2.id}.${a.id}\xBB \u043D\u0435 \u0432 camelCase (\u043F\u0435\u0440\u0432\u0430\u044F \u0431\u0443\u043A\u0432\u0430 \u0441\u0442\u0440\u043E\u0447\u043D\u0430\u044F, \u0440\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u0435\u043B\u0435\u0439 \u043D\u0435\u0442)`,
-          startLineNumber: a.idLine,
-          startColumn: startCol > 0 ? startCol : 1,
-          endLineNumber: a.idLine,
-          endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
-          source: "attribute-validator"
-        });
-      }
+  }
+  const RE_ATTRIBUTE_CAMEL = /^[a-z][a-zA-Z0-9]*$/;
+  const seenForCamel = /* @__PURE__ */ new Set();
+  for (const eb of entityBlocks) {
+    for (const a of eb.attrIdList) {
+      if (RE_ATTRIBUTE_CAMEL.test(a.id))
+        continue;
+      const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+      if (seenForCamel.has(key))
+        continue;
+      seenForCamel.add(key);
+      const lineText = lines[a.idLine - 1] || "";
+      const startCol = lineText.indexOf(a.id) + 1;
+      markers.push({
+        severity: monaco.MarkerSeverity.Warning,
+        message: `attribute.id \xAB${eb.id}.${a.id}\xBB \u043D\u0435 \u0432 camelCase (\u043F\u0435\u0440\u0432\u0430\u044F \u0431\u0443\u043A\u0432\u0430 \u0441\u0442\u0440\u043E\u0447\u043D\u0430\u044F, \u0440\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u0435\u043B\u0435\u0439 \u043D\u0435\u0442)`,
+        startLineNumber: a.idLine,
+        startColumn: startCol > 0 ? startCol : 1,
+        endLineNumber: a.idLine,
+        endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
+        source: "attribute-validator"
+      });
     }
-    const seenForDescription = /* @__PURE__ */ new Set();
-    for (const eb2 of entityBlocks) {
-      for (const a of eb2.attrIdList) {
-        if (a.description && a.description.trim())
-          continue;
-        const key = `${eb2.id.toLowerCase()}:${a.id.toLowerCase()}`;
-        if (seenForDescription.has(key))
-          continue;
-        seenForDescription.add(key);
-        markers.push({
-          severity: monaco.MarkerSeverity.Info,
-          message: `\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \xAB${eb2.id}.${a.id}\xBB \u043D\u0435\u0442 description`,
-          startLineNumber: a.idLine,
-          startColumn: 1,
-          endLineNumber: a.idLine,
-          endColumn: 1e6,
-          source: "attribute-validator"
-        });
-      }
+  }
+  const seenForDescription = /* @__PURE__ */ new Set();
+  for (const eb of entityBlocks) {
+    for (const a of eb.attrIdList) {
+      if (a.description && a.description.trim())
+        continue;
+      const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+      if (seenForDescription.has(key))
+        continue;
+      seenForDescription.add(key);
+      markers.push({
+        severity: monaco.MarkerSeverity.Info,
+        message: `\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \xAB${eb.id}.${a.id}\xBB \u043D\u0435\u0442 description`,
+        startLineNumber: a.idLine,
+        startColumn: 1,
+        endLineNumber: a.idLine,
+        endColumn: 1e6,
+        source: "attribute-validator"
+      });
     }
   }
 }
@@ -78459,42 +78460,90 @@ function computePublishDiff(oldYaml, newYaml) {
       newAttrs.map((a) => [String(a.id), a])
     );
     const attrChanges = [];
-    let isBreaking = false;
+    let attrBreaking = false;
     oldAttrMap.forEach((a, aid) => {
-      if (!newAttrMap.has(aid)) {
-        attrChanges.push({
-          id: aid,
-          typeA: a.dataType || "String",
-          typeB: "",
-          kind: "removed"
-        });
-        isBreaking = true;
-      }
+      if (newAttrMap.has(aid))
+        return;
+      attrChanges.push({
+        id: aid,
+        field: "attribute",
+        typeA: a.dataType || "String",
+        typeB: "",
+        kind: "removed"
+      });
+      attrBreaking = true;
     });
     newAttrMap.forEach((a, aid) => {
       const oldA = oldAttrMap.get(aid);
       if (!oldA) {
         attrChanges.push({
           id: aid,
+          field: "attribute",
           typeA: "",
           typeB: a.dataType || "String",
           kind: "added"
         });
-      } else if (oldA.dataType !== a.dataType) {
+        return;
+      }
+      const dtA = oldA.dataType || null;
+      const dtB = a.dataType || null;
+      if (dtA !== dtB) {
         attrChanges.push({
           id: aid,
-          typeA: oldA.dataType,
-          typeB: a.dataType,
+          field: "dataType",
+          typeA: dtA || "",
+          typeB: dtB || "",
           kind: "changed"
         });
-        isBreaking = true;
+        attrBreaking = true;
+      }
+      const itemDtA = oldA.itemDataType || null;
+      const itemDtB = a.itemDataType || null;
+      if (itemDtA !== itemDtB) {
+        attrChanges.push({
+          id: aid,
+          field: "itemDataType",
+          typeA: itemDtA || "",
+          typeB: itemDtB || "",
+          kind: "changed"
+        });
+        attrBreaking = true;
+      }
+      const refA = oldA.referenceEntity || null;
+      const refB = a.referenceEntity || null;
+      if (refA !== refB) {
+        attrChanges.push({
+          id: aid,
+          field: "referenceEntity",
+          typeA: refA || "",
+          typeB: refB || "",
+          kind: "changed"
+        });
+        attrBreaking = true;
+      }
+      const itemRefA = oldA.itemReferenceEntity || null;
+      const itemRefB = a.itemReferenceEntity || null;
+      if (itemRefA !== itemRefB) {
+        attrChanges.push({
+          id: aid,
+          field: "itemReferenceEntity",
+          typeA: itemRefA || "",
+          typeB: itemRefB || "",
+          kind: "changed"
+        });
+        attrBreaking = true;
       }
     });
-    if (attrChanges.length > 0) {
+    const inheritsA = typeof oldE.inherits === "string" ? oldE.inherits : null;
+    const inheritsB = typeof newE.inherits === "string" ? newE.inherits : null;
+    const inheritsChanged = inheritsA !== inheritsB;
+    if (attrChanges.length > 0 || inheritsChanged) {
+      const isBreaking = attrBreaking || inheritsChanged;
       result.changedEntities.push({
         id,
         name: newE.name || id,
         attributes: attrChanges,
+        inheritsChange: inheritsChanged ? { from: inheritsA, to: inheritsB } : void 0,
         isBreaking
       });
       if (isBreaking)
@@ -83763,6 +83812,292 @@ var init_model_snapshot_pure = __esm({
   }
 });
 
+// src/web/lib/model/changelog.ts
+function parseSemVer(v) {
+  const m = v.match(/^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-.]+)?/);
+  if (!m)
+    return null;
+  return {
+    major: parseInt(m[1], 10),
+    minor: parseInt(m[2], 10),
+    patch: parseInt(m[3], 10),
+    prerelease: m[4] ? m[4].slice(1) : null
+  };
+}
+function classifyDiffForBump(diff) {
+  const s = diff.stats;
+  const removals = [];
+  if (s.entitiesRemoved > 0)
+    removals.push(`\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${s.entitiesRemoved}`);
+  if (s.attributesRemoved > 0)
+    removals.push(`\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ${s.attributesRemoved}`);
+  if (s.dataTypesRemoved > 0)
+    removals.push(`\u0442\u0438\u043F\u043E\u0432: ${s.dataTypesRemoved}`);
+  if (s.domainsRemoved > 0)
+    removals.push(`\u0434\u043E\u043C\u0435\u043D\u043E\u0432: ${s.domainsRemoved}`);
+  const breaking = [];
+  for (const c of diff.entities.changed) {
+    for (const a of c.attributesChanged) {
+      if (a.changes.dataType)
+        breaking.push(`${c.entityId}.${a.id}.dataType`);
+      if (a.changes.itemDataType)
+        breaking.push(`${c.entityId}.${a.id}.itemDataType`);
+      if (a.changes.referenceEntity)
+        breaking.push(`${c.entityId}.${a.id}.referenceEntity`);
+      if (a.changes.itemReferenceEntity)
+        breaking.push(`${c.entityId}.${a.id}.itemReferenceEntity`);
+    }
+    if (c.inheritsChange)
+      breaking.push(`${c.entityId}.inherits`);
+  }
+  if (removals.length > 0 || breaking.length > 0) {
+    const parts = [];
+    if (removals.length > 0)
+      parts.push(`\u0443\u0434\u0430\u043B\u0435\u043D\u043E (${removals.join(", ")})`);
+    if (breaking.length > 0) {
+      const head = breaking.slice(0, 3).join(", ");
+      const suffix = breaking.length > 3 ? `, \u2026\u0438 \u0435\u0449\u0451 ${breaking.length - 3}` : "";
+      parts.push(`\u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043E (${head}${suffix})`);
+    }
+    return { level: "major", reason: parts.join("; ") };
+  }
+  const additions = [];
+  if (s.entitiesAdded > 0)
+    additions.push(`\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${s.entitiesAdded}`);
+  if (s.attributesAdded > 0)
+    additions.push(`\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ${s.attributesAdded}`);
+  if (s.dataTypesAdded > 0)
+    additions.push(`\u0442\u0438\u043F\u043E\u0432: ${s.dataTypesAdded}`);
+  if (s.mixinsAdded > 0)
+    additions.push(`\u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432: ${s.mixinsAdded}`);
+  if (s.domainsAdded > 0)
+    additions.push(`\u0434\u043E\u043C\u0435\u043D\u043E\u0432: ${s.domainsAdded}`);
+  if (additions.length > 0) {
+    return { level: "minor", reason: `\u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E (${additions.join(", ")})` };
+  }
+  const changes = [];
+  if (s.attributesChanged > 0)
+    changes.push(`\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ${s.attributesChanged}`);
+  if (s.entitiesChanged > 0)
+    changes.push(`\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${s.entitiesChanged}`);
+  if (s.inheritanceChanged > 0)
+    changes.push(`\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F: ${s.inheritanceChanged}`);
+  if (s.mixinsRemoved > 0)
+    changes.push(`\u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432: ${s.mixinsRemoved}`);
+  if ((s.genericChanged ?? 0) > 0)
+    changes.push(`\u043F\u0440\u043E\u0447\u0438\u0445: ${s.genericChanged}`);
+  if ((s.genericAdded ?? 0) > 0)
+    changes.push(`generic+: ${s.genericAdded}`);
+  if ((s.genericRemoved ?? 0) > 0)
+    changes.push(`generic\u2212: ${s.genericRemoved}`);
+  if (s.domainsChanged > 0)
+    changes.push(`\u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0445: ${s.domainsChanged}`);
+  if (changes.length > 0) {
+    return { level: "patch", reason: `\u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043E (${changes.join(", ")})` };
+  }
+  return null;
+}
+function suggestBump(diff) {
+  return classifyDiffForBump(diff)?.level ?? "patch";
+}
+function applyBump(version, bump) {
+  const p = parseSemVer(version);
+  if (!p)
+    return null;
+  if (bump === "major")
+    return `${p.major + 1}.0.0`;
+  if (bump === "minor")
+    return `${p.major}.${p.minor + 1}.0`;
+  return `${p.major}.${p.minor}.${p.patch + 1}`;
+}
+function buildChangelogBlocks(diff) {
+  const breaking = [];
+  const features = [];
+  const fixes = [];
+  for (const d of diff.domains.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0434\u043E\u043C\u0435\u043D ${d.domainId}`,
+      domainId: d.domainId
+    });
+  }
+  for (const d of diff.domains.removed) {
+    breaking.push({
+      kind: "breaking",
+      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u0434\u043E\u043C\u0435\u043D ${d.domainId}`,
+      domainId: d.domainId
+    });
+  }
+  for (const d of diff.domains.changed) {
+    for (const ch of d.changes) {
+      if (ch.field === "version")
+        continue;
+      fixes.push({
+        kind: "fix",
+        text: `${d.domainId}: ${ch.field} \u2192 ${String(ch.to)}`,
+        domainId: d.domainId
+      });
+    }
+  }
+  for (const e of diff.entities.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${e.entityId}`,
+      domainId: e.domainId,
+      entityId: e.entityId
+    });
+  }
+  for (const e of diff.entities.removed) {
+    breaking.push({
+      kind: "breaking",
+      text: `\u0423\u0434\u0430\u043B\u0435\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${e.entityId}`,
+      domainId: e.domainId,
+      entityId: e.entityId
+    });
+  }
+  for (const c of diff.entities.changed) {
+    if (c.inheritsChange) {
+      breaking.push({
+        kind: "breaking",
+        text: `${c.entityId}: inherits ${c.inheritsChange.from ?? "\u2014"} \u2192 ${c.inheritsChange.to ?? "\u2014"}`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    if (c.nameChange) {
+      fixes.push({
+        kind: "fix",
+        text: `${c.entityId}: \u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043E \xAB${c.nameChange.from}\xBB \u2192 \xAB${c.nameChange.to}\xBB`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    for (const a of c.attributesAdded) {
+      features.push({
+        kind: "feature",
+        text: `${c.entityId}.${a.id}: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (${a.dataType})`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    for (const a of c.attributesRemoved) {
+      breaking.push({
+        kind: "breaking",
+        text: `${c.entityId}.${a.id}: \u0443\u0434\u0430\u043B\u0451\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (${a.dataType})`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    for (const ac of c.attributesChanged) {
+      const fields = Object.keys(ac.changes);
+      const isBreaking = fields.some(
+        (f) => f === "dataType" || f === "referenceEntity" || f === "itemReferenceEntity"
+      );
+      const text = `${c.entityId}.${ac.id}: ${fields.join(", ")}`;
+      if (isBreaking)
+        breaking.push({
+          kind: "breaking",
+          text,
+          domainId: c.domainId,
+          entityId: c.entityId
+        });
+      else
+        fixes.push({
+          kind: "fix",
+          text,
+          domainId: c.domainId,
+          entityId: c.entityId
+        });
+    }
+  }
+  for (const d of diff.dataTypes.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0442\u0438\u043F ${d.id} (${d.kind})`,
+      domainId: d.domainId
+    });
+  }
+  for (const d of diff.dataTypes.removed) {
+    breaking.push({
+      kind: "breaking",
+      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u0442\u0438\u043F ${d.id} (${d.kind})`,
+      domainId: d.domainId
+    });
+  }
+  for (const m of diff.mixins.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u043C\u0438\u043A\u0441\u0438\u043D ${m.id} \u2192 ${m.targetEntityFqid}`,
+      domainId: m.domainId
+    });
+  }
+  for (const m of diff.mixins.removed) {
+    fixes.push({
+      kind: "fix",
+      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u043C\u0438\u043A\u0441\u0438\u043D ${m.id}`,
+      domainId: m.domainId
+    });
+  }
+  if (diff.genericSections) {
+    for (const [section, d] of Object.entries(diff.genericSections)) {
+      for (const e of d.added) {
+        features.push({
+          kind: "feature",
+          text: `${section}: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E ${e.id}`,
+          domainId: e.domainId
+        });
+      }
+      for (const e of d.removed) {
+        fixes.push({
+          kind: "fix",
+          text: `${section}: \u0443\u0434\u0430\u043B\u0435\u043D\u043E ${e.id}`,
+          domainId: e.domainId
+        });
+      }
+    }
+  }
+  const blocks = [];
+  if (breaking.length > 0)
+    blocks.push({ title: "\u26A0\uFE0F Breaking changes", entries: breaking });
+  if (features.length > 0)
+    blocks.push({ title: "\u2728 \u041D\u043E\u0432\u044B\u0435 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438", entries: features });
+  if (fixes.length > 0)
+    blocks.push({ title: "\u{1F527} \u041F\u0440\u043E\u0447\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F", entries: fixes });
+  return blocks;
+}
+function buildChangelogMarkdown(blocks, opts) {
+  const lines = [];
+  lines.push(`# CHANGELOG`);
+  lines.push("");
+  lines.push(
+    `## [${opts.version}] \u2014 ${opts.takenAt}${opts.server ? ` @ ${opts.server}` : ""}`
+  );
+  lines.push("");
+  if (opts.previousVersion && opts.previousVersion !== opts.version) {
+    lines.push(`_\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F: ${opts.previousVersion}_`);
+    lines.push("");
+  }
+  if (blocks.length === 0) {
+    lines.push("_\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442._");
+    return lines.join("\n");
+  }
+  for (const b of blocks) {
+    lines.push(`### ${b.title}`);
+    lines.push("");
+    for (const e of b.entries) {
+      const prefix = e.domainId ? `**\`${e.domainId}\`** \u2014 ` : "";
+      lines.push(`- ${prefix}${e.text}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+var init_changelog = __esm({
+  "src/web/lib/model/changelog.ts"() {
+    "use strict";
+  }
+});
+
 // src/web/lib/version-impact.ts
 function parseSemver(v) {
   const m = v.match(/^(\d+)\.(\d+)\.(\d+)$/);
@@ -83798,16 +84133,6 @@ function buildSnapshotFromYaml(domainId, rawData) {
   const index = buildModelIndex(rawDomains);
   return createSnapshotFromModelIndex(index);
 }
-function hasBreakingAttributeChange(diff) {
-  for (const changed of diff.entities.changed) {
-    for (const attr of changed.attributesChanged) {
-      if (attr.changes.dataType || attr.changes.referenceEntity || attr.changes.itemDataType || attr.changes.itemReferenceEntity) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
 function computeVersionImpact(oldYaml, newYaml, domainId) {
   let oldData;
   let newData;
@@ -83826,64 +84151,14 @@ function computeVersionImpact(oldYaml, newYaml, domainId) {
   } catch {
     return null;
   }
-  const s = diff.stats;
-  const removals = [];
-  if (s.entitiesRemoved > 0)
-    removals.push(`\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${s.entitiesRemoved}`);
-  if (s.attributesRemoved > 0)
-    removals.push(`\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ${s.attributesRemoved}`);
-  if (s.dataTypesRemoved > 0)
-    removals.push(`\u0442\u0438\u043F\u043E\u0432: ${s.dataTypesRemoved}`);
-  const breakingAttr = hasBreakingAttributeChange(diff);
-  if (removals.length > 0 || breakingAttr) {
-    const parts = [];
-    if (removals.length > 0)
-      parts.push(`\u0443\u0434\u0430\u043B\u0435\u043D\u043E (${removals.join(", ")})`);
-    if (breakingAttr)
-      parts.push("\u0438\u0437\u043C\u0435\u043D\u0451\u043D \u0442\u0438\u043F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430");
-    return { level: "major", reason: parts.join("; "), diff };
-  }
-  const additions = [];
-  if (s.entitiesAdded > 0)
-    additions.push(`\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${s.entitiesAdded}`);
-  if (s.attributesAdded > 0)
-    additions.push(`\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ${s.attributesAdded}`);
-  if (s.dataTypesAdded > 0)
-    additions.push(`\u0442\u0438\u043F\u043E\u0432: ${s.dataTypesAdded}`);
-  if (s.mixinsAdded > 0)
-    additions.push(`\u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432: ${s.mixinsAdded}`);
-  if (additions.length > 0) {
-    return {
-      level: "minor",
-      reason: `\u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E (${additions.join(", ")})`,
-      diff
-    };
-  }
-  const changes = [];
-  if (s.attributesChanged > 0)
-    changes.push(`\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ${s.attributesChanged}`);
-  if (s.entitiesChanged > 0)
-    changes.push(`\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${s.entitiesChanged}`);
-  if (s.inheritanceChanged > 0)
-    changes.push(`\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F: ${s.inheritanceChanged}`);
-  if (s.mixinsRemoved > 0)
-    changes.push(`\u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432: ${s.mixinsRemoved}`);
-  if ((s.genericChanged ?? 0) > 0)
-    changes.push(`\u043F\u0440\u043E\u0447\u0438\u0445: ${s.genericChanged}`);
-  if ((s.genericAdded ?? 0) > 0)
-    changes.push(`generic+: ${s.genericAdded}`);
-  if ((s.genericRemoved ?? 0) > 0)
-    changes.push(`generic\u2212: ${s.genericRemoved}`);
-  if (s.domainsChanged > 0)
-    changes.push(`\u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0445: ${s.domainsChanged}`);
-  if (changes.length > 0) {
-    return {
-      level: "patch",
-      reason: `\u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043E (${changes.join(", ")})`,
-      diff
-    };
-  }
-  return null;
+  const classification = classifyDiffForBump(diff);
+  if (!classification)
+    return null;
+  return {
+    level: classification.level,
+    reason: classification.reason,
+    diff
+  };
 }
 function suggestVersionBump(currentVersion, oldYaml, newYaml, domainId) {
   const impact = computeVersionImpact(oldYaml, newYaml, domainId);
@@ -83906,6 +84181,7 @@ var init_version_impact = __esm({
     init_model_builder();
     init_semantic_diff();
     init_model_snapshot_pure();
+    init_changelog();
   }
 });
 
@@ -85093,6 +85369,169 @@ var init_YamlViewerNavPanel = __esm({
   }
 });
 
+// src/web/lib/storage/idb.ts
+function openDb() {
+  if (dbPromise)
+    return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D"));
+      return;
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      for (const store of STORES) {
+        if (!db.objectStoreNames.contains(store.name)) {
+          db.createObjectStore(store.name, { keyPath: store.keyPath });
+        }
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => {
+      dbPromise = null;
+      reject(req.error ?? new Error("IDB open failed"));
+    };
+    req.onblocked = () => {
+      dbPromise = null;
+      reject(new Error("IDB blocked by another tab"));
+    };
+  });
+  return dbPromise;
+}
+async function idbGet(store, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbPut(store, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("IDB tx aborted"));
+  });
+}
+async function idbDelete(store, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetAll(store) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+var DB_NAME, DB_VERSION, STORES, dbPromise;
+var init_idb = __esm({
+  "src/web/lib/storage/idb.ts"() {
+    "use strict";
+    DB_NAME = "dg-storage";
+    DB_VERSION = 1;
+    STORES = [
+      { name: "yaml-backups", keyPath: "filePath" },
+      // Задел под будущую миграцию снимков
+      { name: "snapshots", keyPath: "slot" }
+    ];
+    dbPromise = null;
+  }
+});
+
+// src/web/lib/storage/yaml-backup.ts
+async function migrateFromSessionStorage(filePath) {
+  const key = LEGACY_PREFIX + filePath;
+  let raw = null;
+  try {
+    raw = sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw)
+    return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.content !== "string" || typeof parsed?.savedContentHash !== "string" || typeof parsed?.savedAt !== "number") {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    const record = {
+      filePath,
+      content: parsed.content,
+      savedContentHash: parsed.savedContentHash,
+      savedAt: parsed.savedAt
+    };
+    await idbPut(STORE, record);
+    sessionStorage.removeItem(key);
+    return record;
+  } catch {
+    sessionStorage.removeItem(key);
+    return null;
+  }
+}
+var STORE, LEGACY_PREFIX, yamlBackups;
+var init_yaml_backup = __esm({
+  "src/web/lib/storage/yaml-backup.ts"() {
+    "use strict";
+    init_idb();
+    STORE = "yaml-backups";
+    LEGACY_PREFIX = "dg-yaml-backup:";
+    yamlBackups = {
+      async get(filePath) {
+        const fromIdb = await idbGet(STORE, filePath);
+        if (fromIdb)
+          return fromIdb;
+        return migrateFromSessionStorage(filePath);
+      },
+      async put(record) {
+        await idbPut(STORE, record);
+      },
+      async delete(filePath) {
+        await idbDelete(STORE, filePath);
+        try {
+          sessionStorage.removeItem(LEGACY_PREFIX + filePath);
+        } catch {
+        }
+      },
+      async has(filePath) {
+        return await this.get(filePath) !== null;
+      },
+      /**
+       * Удаляет старые бэкапы. Раньше этим занимался сам браузер (sessionStorage
+       * чистился при закрытии вкладки). С IDB бэкапы переживают перезапуск,
+       * поэтому нужен явный TTL, иначе мусор копится.
+       *
+       * Вызывать один раз при старте приложения.
+       */
+      async cleanup(maxAgeDays = 30) {
+        const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1e3;
+        const all = await idbGetAll(STORE);
+        let removed = 0;
+        for (const rec of all) {
+          if (rec.savedAt < cutoff) {
+            await idbDelete(STORE, rec.filePath);
+            removed++;
+          }
+        }
+        return removed;
+      }
+    };
+  }
+});
+
 // src/web/components/modals/editor/YamlViewerModal.tsx
 import React60, { startTransition, useCallback as useCallback36, useDeferredValue as useDeferredValue5, useEffect as useEffect53, useLayoutEffect as useLayoutEffect6, useMemo as useMemo54, useRef as useRef34, useState as useState53 } from "react";
 import { Fragment as Fragment31, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
@@ -85398,61 +85837,54 @@ function YamlViewerModal() {
       setBackupResolved(true);
       return;
     }
-    const hasBackupNow = !!sessionStorage.getItem(
-      `dg-yaml-backup:${filePath}`
-    );
-    if (!fetchedContent && hasBackupNow)
-      return;
     const key = `${filePath}#${hashPayload(normalizeEol(fetchedContent || ""))}`;
     if (resolvedKeyRef.current === key)
       return;
-    resolvedKeyRef.current = key;
-    setBackupResolved(false);
-    setBackupContent(null);
     let cancelled = false;
     (async () => {
-      const backupKey = `dg-yaml-backup:${filePath}`;
-      const backupStr = sessionStorage.getItem(backupKey);
-      if (!backupStr) {
+      const backup = await yamlBackups.get(filePath);
+      if (cancelled)
+        return;
+      if (resolvedKeyRef.current === key)
+        return;
+      if (!fetchedContent && backup)
+        return;
+      resolvedKeyRef.current = key;
+      setBackupResolved(false);
+      setBackupContent(null);
+      if (!backup) {
+        setBackupResolved(true);
+        return;
+      }
+      const currentHash = hashPayload(normalizeEol(fetchedContent || ""));
+      if (backup.savedContentHash !== currentHash) {
+        await yamlBackups.delete(filePath);
         if (!cancelled)
           setBackupResolved(true);
         return;
       }
-      try {
-        const backup = JSON.parse(backupStr);
-        const currentHash = hashPayload(normalizeEol(fetchedContent || ""));
-        if (backup.savedContentHash !== currentHash) {
-          sessionStorage.removeItem(backupKey);
-          if (!cancelled)
-            setBackupResolved(true);
-          return;
-        }
-        const ok = await confirmDialog(
-          "\u041D\u0430\u0439\u0434\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438",
-          {
-            detail: `\u0424\u0430\u0439\u043B \xAB${filePath.split(/[\\/]/).pop()}\xBB \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043E\u0442 ${new Date(backup.savedAt).toLocaleTimeString()}.
+      const ok = await confirmDialog(
+        "\u041D\u0430\u0439\u0434\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438",
+        {
+          detail: `\u0424\u0430\u0439\u043B \xAB${filePath.split(/[\\/]/).pop()}\xBB \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043E\u0442 ${new Date(backup.savedAt).toLocaleTimeString()}.
 
 \u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0438\u0445 \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438?`,
-            confirmLabel: "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C",
-            cancelLabel: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0438",
-            variant: "warning"
-          }
-        );
-        if (cancelled)
-          return;
-        if (ok) {
-          setBackupContent(backup.content);
-          setIsLocked(false);
-          isLockedRef.current = false;
-        } else {
-          sessionStorage.removeItem(backupKey);
+          confirmLabel: "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C",
+          cancelLabel: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0438",
+          variant: "warning"
         }
-      } catch {
-        sessionStorage.removeItem(backupKey);
-      } finally {
-        if (!cancelled)
-          setBackupResolved(true);
+      );
+      if (cancelled)
+        return;
+      if (ok) {
+        setBackupContent(backup.content);
+        setIsLocked(false);
+        isLockedRef.current = false;
+      } else {
+        await yamlBackups.delete(filePath);
       }
+      if (!cancelled)
+        setBackupResolved(true);
     })();
     return () => {
       cancelled = true;
@@ -85496,13 +85928,14 @@ function YamlViewerModal() {
         if (filePath) {
           const currentSaved = savedContentRef.current;
           if (normalizeEol(val) !== normalizeEol(currentSaved)) {
-            sessionStorage.setItem(`dg-yaml-backup:${filePath}`, JSON.stringify({
+            void yamlBackups.put({
+              filePath,
               content: val,
               savedContentHash: hashPayload(normalizeEol(currentSaved)),
               savedAt: Date.now()
-            }));
+            });
           } else {
-            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            void yamlBackups.delete(filePath);
           }
         }
       }, 1e3);
@@ -87676,7 +88109,7 @@ ${label.message}` : ""),
         }
         setContent(savedContent);
         if (filePath) {
-          sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+          void yamlBackups.delete(filePath);
         }
       }
       setIsLocked(true);
@@ -87704,17 +88137,12 @@ ${label.message}` : ""),
       setContent(newContent);
       setLiveVersion((v) => v + 1);
       if (filePath) {
-        try {
-          sessionStorage.setItem(
-            `dg-yaml-backup:${filePath}`,
-            JSON.stringify({
-              content: newContent,
-              savedContentHash: hashPayload(normalizeEol(savedContent)),
-              savedAt: Date.now()
-            })
-          );
-        } catch {
-        }
+        void yamlBackups.put({
+          filePath,
+          content: newContent,
+          savedContentHash: hashPayload(normalizeEol(savedContent)),
+          savedAt: Date.now()
+        });
       }
       useGraphStore.getState().showSnackbar("\u0421\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0437\u0430\u043C\u0435\u043D\u0435\u043D\u043E \u0432\u0435\u0440\u0441\u0438\u0435\u0439 \u0438\u0437 \u0438\u0441\u0442\u043E\u0440\u0438\u0438");
     },
@@ -87792,7 +88220,7 @@ ${label.message}` : ""),
       setSavedContent(valueToSave);
       setContent(valueToSave);
       setLiveVersion((v) => v + 1);
-      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+      void yamlBackups.delete(filePath);
       refreshPreviousContent();
       if (pendingManifest) {
         useGraphStore.getState().setYamlViewerPendingManifest(null);
@@ -87865,7 +88293,7 @@ ${draftInfo.hint}` : "";
       saveAbortRef.current = null;
       setIsSaving(false);
       setSaveStage("idle");
-      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+      void yamlBackups.delete(filePath);
     }
   }, [isLocked, savedContent, filePath, mode, isSaving]);
   const handleDiffPublished = useCallback36(async () => {
@@ -87969,7 +88397,7 @@ ${draftInfo.hint}` : "";
       if (!ok)
         return;
       if (filePath) {
-        sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+        void yamlBackups.delete(filePath);
       }
     }
     useGraphStore.getState().setYamlViewerOpen(false);
@@ -88847,7 +89275,7 @@ ${draftInfo.hint}` : "";
       setSavedContent(valueToSave);
       setContent(valueToSave);
       setLiveVersion((v) => v + 1);
-      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+      void yamlBackups.delete(filePath);
       refreshPreviousContent();
       if (pendingManifest) {
         useGraphStore.getState().setYamlViewerPendingManifest(null);
@@ -93015,6 +93443,7 @@ var init_YamlViewerModal = __esm({
     init_dialogs();
     init_SchemaHistoryModal();
     init_YamlViewerNavPanel();
+    init_yaml_backup();
     EMPTY_BOOKMARKS = [];
     normalizeEol = (s) => s.replace(/\r\n/g, "\n");
     EXT_KIND_META = {
@@ -93810,7 +94239,11 @@ var init_YamlViewerModal = __esm({
       };
       const target = backlinks.target;
       if (!target) {
-        return /* @__PURE__ */ jsx82("div", { className: "yaml-issues yaml-backlinks", onKeyDown, children: /* @__PURE__ */ jsxs79("div", { className: "yaml-issues-empty", children: [
+        return /* @__PURE__ */ jsx82("div", { className: "yaml-issues yaml-backlinks", onKeyDown, children: /* @__PURE__ */ jsxs79("div", { className: "yaml-issues-empty", style: {
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center"
+        }, children: [
           /* @__PURE__ */ jsx82("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F3AF}" }),
           /* @__PURE__ */ jsx82("div", { style: { color: "var(--text-300)", fontSize: 13 }, children: "\u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0430 \u044D\u043B\u0435\u043C\u0435\u043D\u0442" }),
           /* @__PURE__ */ jsx82(
@@ -94919,9 +95352,275 @@ var init_block_resolver = __esm({
   }
 });
 
+// src/web/components/modals/DomainContextCard.tsx
+import { jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
+function DomainContextCard({ domainId, index }) {
+  if (!index)
+    return null;
+  const schema2 = index.schemasByDomain[domainId];
+  const entities2 = index.entities.filter((e) => e.domainId === domainId);
+  const stats = [
+    {
+      icon: "data_object",
+      label: "\u0441\u0443\u0449.",
+      value: entities2.length,
+      warn: entities2.length === 0,
+      title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435"
+    },
+    {
+      icon: "view_quilt",
+      label: "views",
+      value: schema2?.sections.views.count ?? 0,
+      title: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439"
+    },
+    {
+      icon: "bolt",
+      label: "actions",
+      value: schema2?.sections.actions.count ?? 0,
+      title: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0439"
+    },
+    {
+      icon: "menu",
+      label: "\u043C\u0435\u043D\u044E",
+      value: schema2?.sections.menus.count ?? 0,
+      warn: (schema2?.sections.menus.count ?? 0) === 0,
+      title: "\u041A\u043E\u0440\u043D\u0435\u0432\u044B\u0445 \u043F\u0443\u043D\u043A\u0442\u043E\u0432 \u043C\u0435\u043D\u044E"
+    },
+    {
+      icon: "category",
+      label: "\u0442\u0438\u043F\u044B",
+      value: schema2?.sections.dataTypes.count ?? 0,
+      title: "\u0422\u0438\u043F\u043E\u0432 \u0434\u0430\u043D\u043D\u044B\u0445"
+    }
+  ];
+  return /* @__PURE__ */ jsxs81("div", { className: "generate-schema-domain-context", children: [
+    /* @__PURE__ */ jsxs81("div", { className: "generate-schema-domain-context__title", children: [
+      /* @__PURE__ */ jsx84(MIcon, { name: "folder", size: "sm" }),
+      /* @__PURE__ */ jsx84("span", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+      /* @__PURE__ */ jsx84("code", { children: domainId })
+    ] }),
+    /* @__PURE__ */ jsx84("div", { className: "generate-schema-domain-context__stats", children: stats.map((s) => /* @__PURE__ */ jsxs81(
+      "div",
+      {
+        className: "generate-schema-domain-context__stat" + (s.warn ? " generate-schema-domain-context__stat--warn" : ""),
+        title: s.title,
+        children: [
+          /* @__PURE__ */ jsx84(MIcon, { name: s.icon, size: "sm" }),
+          /* @__PURE__ */ jsx84("strong", { children: s.value }),
+          /* @__PURE__ */ jsx84("span", { children: s.label })
+        ]
+      },
+      s.label
+    )) })
+  ] });
+}
+var init_DomainContextCard = __esm({
+  "src/web/components/modals/DomainContextCard.tsx"() {
+    "use strict";
+    init_MIcon();
+  }
+});
+
+// src/web/components/modals/GenerateSchemaPresets.ts
+function availablePresetsForProfile(profile, ctx2) {
+  return QUICK_PRESETS.filter((p) => {
+    if (!p.forProfiles.includes(profile))
+      return false;
+    if (p.scope === "entity" && !ctx2.entity)
+      return false;
+    if (p.isAvailable && !p.isAvailable(ctx2))
+      return false;
+    return true;
+  });
+}
+var QUICK_PRESETS;
+var init_GenerateSchemaPresets = __esm({
+  "src/web/components/modals/GenerateSchemaPresets.ts"() {
+    "use strict";
+    QUICK_PRESETS = [
+      {
+        id: "preset-full-crud",
+        label: "CRUD \u0446\u0435\u043B\u0438\u043A\u043E\u043C",
+        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F, \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F, \u043C\u0435\u043D\u044E, \u0441\u0432\u044F\u0437\u0438 \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 \u0436\u0438\u0437\u043D\u0435\u043D\u043D\u044B\u0439 \u0446\u0438\u043A\u043B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+        icon: "checklist",
+        forProfiles: ["crud", "crud-with-page", "auto"],
+        scope: "entity",
+        apply: {
+          profile: "crud",
+          options: {
+            includeBulk: true,
+            includeLinkageWidgets: true,
+            skipExisting: true
+          }
+        }
+      },
+      {
+        id: "preset-only-actions",
+        label: "\u0422\u043E\u043B\u044C\u043A\u043E actions",
+        description: "\u041A\u043D\u043E\u043F\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u0442\u044C/\u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C/\u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0431\u0435\u0437 views \u0438 \u043C\u0435\u043D\u044E",
+        icon: "bolt",
+        forProfiles: ["crud", "crud-with-page", "dictionary", "no-modals", "auto"],
+        scope: "entity",
+        apply: {
+          profile: "crud",
+          options: {
+            includeBulk: true,
+            includeLinkageWidgets: false,
+            includePage: false
+          }
+        },
+        isAvailable: (ctx2) => !!ctx2.entity
+      },
+      {
+        id: "preset-only-views",
+        label: "\u0422\u043E\u043B\u044C\u043A\u043E views",
+        description: "Entity-view, list-view, \u043F\u0430\u043D\u0435\u043B\u044C \u0438 \u043C\u043E\u0434\u0430\u043B\u043A\u0438 \u0431\u0435\u0437 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F actions",
+        icon: "view_quilt",
+        forProfiles: ["crud", "crud-with-page", "dictionary", "no-modals", "auto"],
+        scope: "entity",
+        apply: {
+          profile: "crud",
+          options: {
+            includeBulk: false,
+            includeLinkageWidgets: true,
+            includePage: false
+          }
+        },
+        isAvailable: (ctx2) => !!ctx2.entity
+      },
+      {
+        id: "preset-only-menu",
+        label: "\u0422\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u043D\u044E",
+        description: "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0432 \u043F\u0435\u0440\u0432\u043E\u043C root_group \u0434\u043B\u044F \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0433\u043E view",
+        icon: "menu",
+        forProfiles: ["crud", "crud-with-page", "auto"],
+        scope: "entity",
+        apply: {
+          profile: "crud",
+          options: {
+            includeBulk: false,
+            includePage: false,
+            includeLinkageWidgets: false
+          }
+        },
+        isAvailable: (ctx2) => {
+          if (!ctx2.entity || !ctx2.index)
+            return false;
+          const views2 = ctx2.index.viewWidgets.filter(
+            (w) => w.domainId === ctx2.domainId && w.type === "attribute"
+            // грубая проверка, что entity-view уже есть
+          );
+          return views2.length > 0;
+        }
+      },
+      {
+        id: "preset-sorting-searching",
+        label: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 / \u043F\u043E\u0438\u0441\u043A",
+        description: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C sorting[] \u0438 searching[] \u043A \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+        icon: "sort",
+        forProfiles: ["sorting-searching"],
+        scope: "entity",
+        apply: {
+          profile: "sorting-searching",
+          options: {
+            includeSorting: true,
+            includeSearching: true
+          }
+        }
+      },
+      {
+        id: "preset-linkages",
+        label: "\u0421\u0432\u044F\u0437\u0438 (linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B)",
+        description: "\u0422\u043E\u043B\u044C\u043A\u043E linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B \u0432 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 entity-view",
+        icon: "link",
+        forProfiles: ["crud", "crud-with-page", "auto"],
+        scope: "entity",
+        apply: {
+          profile: "crud",
+          options: {
+            includeBulk: false,
+            includePage: false,
+            includeLinkageWidgets: true
+          }
+        },
+        isAvailable: (ctx2) => {
+          if (!ctx2.entity || !ctx2.index)
+            return false;
+          return ctx2.index.entityLinkages.some(
+            (l) => l.domainId === ctx2.domainId && (l.side1Fqid === ctx2.entity.fqid || l.side2Fqid === ctx2.entity.fqid)
+          );
+        }
+      }
+    ];
+  }
+});
+
+// src/web/components/modals/GenerateSchemaRecommendations.ts
+function recommendProfile(entity, index, domainId) {
+  if (!entity || !index)
+    return null;
+  const hints = [];
+  const readonlyCount = entity.attributes.filter((a) => a.readonly).length;
+  const readonlyRatio = entity.attributes.length > 0 ? readonlyCount / entity.attributes.length : 0;
+  if (readonlyRatio >= 0.7 && entity.attributes.length >= 3) {
+    return {
+      profileId: "no-modals",
+      reason: `${readonlyCount} \u0438\u0437 ${entity.attributes.length} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 readonly \u2014 \u0444\u043E\u0440\u043C\u0430 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u0431\u0435\u0441\u0441\u043C\u044B\u0441\u043B\u0435\u043D\u043D\u0430`,
+      hints: ["\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435\xBB \u2014 \u0432\u0435\u0440\u043E\u044F\u0442\u043D\u043E, \u043F\u043E\u043D\u0430\u0434\u043E\u0431\u0438\u0442\u0441\u044F"],
+      confidence: "high"
+    };
+  }
+  const hasIdentifier = entity.attributes.some(
+    (a) => a.dataType === "Identifier" || a.id === "id" || a.id === "code"
+  );
+  const hasName = entity.attributes.some(
+    (a) => a.id === "name" || a.id === "title" || a.id === "label"
+  );
+  if (entity.attributes.length >= 2 && entity.attributes.length <= 10 && hasIdentifier && hasName) {
+    return {
+      profileId: "dictionary",
+      reason: "\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441 identifier \u0438 name \u2014 \u0442\u0438\u043F\u0438\u0447\u043D\u044B\u0439 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A (\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u0443\u0435\u0442\u0441\u044F \u0440\u0435\u0434\u043A\u043E)",
+      hints: [
+        "\u0415\u0441\u043B\u0438 \u0432 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A \u0431\u0443\u0434\u0443\u0442 \u043F\u043E\u043F\u0430\u0434\u0430\u0442\u044C \u0441\u043E\u0442\u043D\u0438 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u2014 \u043F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \xAB\u0411\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A\xBB"
+      ],
+      confidence: "medium"
+    };
+  }
+  const fqid = entity.fqid.toLowerCase();
+  const hasTreeLinkage = index.entityLinkages.some(
+    (l) => l.domainId === index.entitiesByFqid[fqid]?.domainId && (l.side1Fqid === fqid || l.side2Fqid === fqid) && (l.type === "1_n" || l.type === "n_n")
+  );
+  if (hasTreeLinkage) {
+    hints.push("\u0415\u0441\u0442\u044C 1_n/n_n \u0441\u0432\u044F\u0437\u0438 \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u0421\u0432\u044F\u0437\u0438 (linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B)\xBB");
+  }
+  const hasMenuRoot = (index.schemasByDomain[domainId]?.sections.menus.items || []).some((m) => m.type === "root_group" || m.type === "root_menu");
+  if (!hasMenuRoot) {
+    hints.push(
+      "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0433\u043E \u043C\u0435\u043D\u044E \u2014 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u043D\u0435 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F (\u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u0438\u043B\u0438 \u0447\u0435\u0440\u0435\u0437 \xABdomain-extras\xBB)"
+    );
+  }
+  const existingActions = (index.schemasByDomain[domainId]?.sections.actions.items || []).filter((a) => a.entity === fqid);
+  if (existingActions.length > 0) {
+    hints.push(
+      `\u0423 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0443\u0436\u0435 ${existingActions.length} actions \u2014 \u0432\u043A\u043B\u044E\u0447\u0451\u043D \xAB\u041F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435\xBB`
+    );
+  }
+  return {
+    profileId: "crud",
+    reason: "\u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0439 \u0436\u0438\u0437\u043D\u0435\u043D\u043D\u044B\u0439 \u0446\u0438\u043A\u043B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+    hints,
+    confidence: "low"
+  };
+}
+var init_GenerateSchemaRecommendations = __esm({
+  "src/web/components/modals/GenerateSchemaRecommendations.ts"() {
+    "use strict";
+  }
+});
+
 // src/web/components/modals/GenerateSchemaModal.tsx
 import { useCallback as useCallback38, useEffect as useEffect55, useLayoutEffect as useLayoutEffect7, useMemo as useMemo56, useRef as useRef35, useState as useState55 } from "react";
-import { jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
+import { Fragment as Fragment33, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
 function getSkipQuickFix(reason, handlers) {
   switch (reason) {
     case "no-menu-root":
@@ -95035,7 +95734,7 @@ function statusBadge(status) {
   if (!status || status === "new")
     return null;
   if (status === "unchanged") {
-    return /* @__PURE__ */ jsx84(
+    return /* @__PURE__ */ jsx85(
       "span",
       {
         className: "generate-schema-block-badge generate-schema-block-badge--unchanged",
@@ -95045,7 +95744,7 @@ function statusBadge(status) {
     );
   }
   if (status === "outdated") {
-    return /* @__PURE__ */ jsx84(
+    return /* @__PURE__ */ jsx85(
       "span",
       {
         className: "generate-schema-block-badge generate-schema-block-badge--outdated",
@@ -95055,7 +95754,7 @@ function statusBadge(status) {
     );
   }
   if (status === "modified") {
-    return /* @__PURE__ */ jsx84(
+    return /* @__PURE__ */ jsx85(
       "span",
       {
         className: "generate-schema-block-badge generate-schema-block-badge--modified",
@@ -95065,7 +95764,7 @@ function statusBadge(status) {
     );
   }
   if (status === "orphaned") {
-    return /* @__PURE__ */ jsx84(
+    return /* @__PURE__ */ jsx85(
       "span",
       {
         className: "generate-schema-block-badge generate-schema-block-badge--orphaned",
@@ -95141,6 +95840,35 @@ function GenerateSchemaModal() {
     scaffoldCreateMenuRoot: false,
     scaffoldCreateMedias: false
   });
+  const [recommendationDismissed, setRecommendationDismissed] = useState55(false);
+  const entityRecord = useMemo56(() => {
+    if (!index || !entityId || !domainId)
+      return null;
+    return index.entitiesByFqid[`${domainId}/${entityId}`.toLowerCase()] || null;
+  }, [index, entityId, domainId]);
+  const recommendation = useMemo56(() => {
+    if (recommendationDismissed)
+      return null;
+    return recommendProfile(entityRecord, index, domainId || "");
+  }, [recommendationDismissed, entityRecord, index, domainId]);
+  const availablePresets = useMemo56(() => {
+    return availablePresetsForProfile(profile, {
+      index,
+      domainId: domainId || "",
+      entity: entityRecord
+    });
+  }, [profile, index, domainId, entityRecord]);
+  const applyPreset = useCallback38(
+    (preset) => {
+      setProfile(preset.apply.profile);
+      setOptions((prev) => ({
+        ...prev,
+        ...preset.apply.options
+      }));
+      setTab("blocks");
+    },
+    []
+  );
   const yamlViewerOpen = useGraphStore((s) => s.yamlViewerOpen);
   const yamlViewerLocked = useGraphStore((s) => s.yamlViewerLocked);
   const yamlViewerFilePath = useGraphStore((s) => s.yamlViewerFilePath);
@@ -95547,6 +96275,37 @@ function GenerateSchemaModal() {
     entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
     sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" }
   };
+  const [blockFilter, setBlockFilter] = useState55("all");
+  const [blockQuery, setBlockQuery] = useState55("");
+  const filteredGroupedBlocks = useMemo56(() => {
+    if (!gen.result)
+      return [];
+    const status = gen.result.manifestStatus ?? {};
+    const q = blockQuery.trim().toLowerCase();
+    const matchFilter = (blockId) => {
+      if (blockFilter === "all")
+        return true;
+      const st = status[blockId] ?? "new";
+      return st === blockFilter;
+    };
+    const matchQuery = (b) => {
+      if (!q)
+        return true;
+      const id = String(b.blockId ?? "").toLowerCase();
+      const title = String(b.title ?? "").toLowerCase();
+      const section = String(b.section ?? "").toLowerCase();
+      return id.includes(q) || title.includes(q) || section.includes(q);
+    };
+    const result = [];
+    for (const [section, blocks] of groupedBlocks) {
+      const filtered = blocks.filter(
+        (b) => matchFilter(b.blockId) && matchQuery(b)
+      );
+      if (filtered.length > 0)
+        result.push([section, filtered]);
+    }
+    return result;
+  }, [groupedBlocks, gen.result, blockFilter, blockQuery]);
   const yamlSections = useMemo56(() => {
     if (!gen.result)
       return [];
@@ -95583,6 +96342,38 @@ function GenerateSchemaModal() {
     (s) => s.reason === "widget-view-ambiguous" || s.reason === "column-view-ambiguous"
   );
   const finalCanApply = canApply && !hasAmbiguousView;
+  const applySummary = useMemo56(() => {
+    if (!gen.result)
+      return null;
+    const status = gen.result.manifestStatus ?? {};
+    const counts = {};
+    let total = 0;
+    for (const b of gen.result.blocks) {
+      if (!selected.has(b.blockId))
+        continue;
+      if (status[b.blockId] === "unchanged")
+        continue;
+      if (dependentsMissing.has(b.blockId))
+        continue;
+      counts[b.section] = (counts[b.section] || 0) + 1;
+      total++;
+    }
+    return { total, bySection: counts };
+  }, [gen.result, selected, dependentsMissing]);
+  const SECTION_SHORT_LABELS = {
+    actions: "actions",
+    views: "views",
+    menus: "menus",
+    medias: "medias",
+    dataRules: "rules",
+    dataTypes: "types",
+    trees: "trees",
+    linkages: "linkages",
+    entities: "entities",
+    sequences: "seq",
+    transitiveLinkages: "transitive",
+    columns: "columns"
+  };
   const apply = useCallback38(async () => {
     if (!gen.result || !domainId)
       return;
@@ -95680,27 +96471,27 @@ function GenerateSchemaModal() {
       severity: errorCount > 0 ? "error" : "warning"
     }] : []
   ];
-  return /* @__PURE__ */ jsx84(
+  return /* @__PURE__ */ jsx85(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 450 },
       onMouseDown: () => useGraphStore.getState().setGenerateSchemaOpen(false),
-      children: /* @__PURE__ */ jsxs81(
+      children: /* @__PURE__ */ jsxs82(
         "div",
         {
           className: "help-modal generate-schema-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs81("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs81("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx84(MIcon, { name: "auto_fix_high", size: "sm" }),
-                /* @__PURE__ */ jsx84("span", { className: "icon-label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u0441\u0445\u0435\u043C\u044B" }),
-                /* @__PURE__ */ jsx84("span", { className: "help-modal__badge", children: domainId }),
-                profileInfo && /* @__PURE__ */ jsx84("span", { className: "generate-schema-profile-badge", children: profileInfo.label })
+            /* @__PURE__ */ jsxs82("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs82("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx85(MIcon, { name: "auto_fix_high", size: "sm" }),
+                /* @__PURE__ */ jsx85("span", { className: "icon-label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u0441\u0445\u0435\u043C\u044B" }),
+                /* @__PURE__ */ jsx85("span", { className: "help-modal__badge", children: domainId }),
+                profileInfo && /* @__PURE__ */ jsx85("span", { className: "generate-schema-profile-badge", children: profileInfo.label })
               ] }),
-              /* @__PURE__ */ jsxs81("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx84(
+              /* @__PURE__ */ jsxs82("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx85(
                   HelpButton,
                   {
                     open: showHelp,
@@ -95708,7 +96499,7 @@ function GenerateSchemaModal() {
                     label: "\u041A\u0430\u043A \u044D\u0442\u043E \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442?"
                   }
                 ),
-                /* @__PURE__ */ jsx84(
+                /* @__PURE__ */ jsx85(
                   "button",
                   {
                     className: "help-modal__close",
@@ -95718,10 +96509,10 @@ function GenerateSchemaModal() {
                 )
               ] })
             ] }),
-            !isDomainScope ? /* @__PURE__ */ jsxs81("div", { className: "generate-schema-entity-bar", children: [
-              /* @__PURE__ */ jsx84(MIcon, { name: "data_object", size: "sm" }),
-              /* @__PURE__ */ jsx84("span", { className: "generate-schema-entity-bar__label", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
-              /* @__PURE__ */ jsx84(
+            !isDomainScope ? /* @__PURE__ */ jsxs82("div", { className: "generate-schema-entity-bar", children: [
+              /* @__PURE__ */ jsx85(MIcon, { name: "data_object", size: "sm" }),
+              /* @__PURE__ */ jsx85("span", { className: "generate-schema-entity-bar__label", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
+              /* @__PURE__ */ jsx85(
                 EntityCombobox,
                 {
                   value: entityId,
@@ -95730,14 +96521,14 @@ function GenerateSchemaModal() {
                   disabled: allEntities.length === 0
                 }
               ),
-              /* @__PURE__ */ jsx84("span", { className: "generate-schema-entity-bar__domain", children: domainId }),
-              profileInfo && /* @__PURE__ */ jsx84("span", { className: "generate-schema-profile-badge", children: profileInfo.label })
-            ] }) : /* @__PURE__ */ jsxs81("div", { className: "generate-schema-entity-bar generate-schema-entity-bar--domain", children: [
-              /* @__PURE__ */ jsx84(MIcon, { name: "folder", size: "sm" }),
-              /* @__PURE__ */ jsx84("span", { className: "generate-schema-entity-bar__label", children: "\u0414\u043E\u043C\u0435\u043D" }),
-              /* @__PURE__ */ jsx84("span", { className: "generate-schema-entity-bar__domain", children: domainId }),
-              profileInfo && /* @__PURE__ */ jsx84("span", { className: "generate-schema-profile-badge", children: profileInfo.label }),
-              /* @__PURE__ */ jsx84(
+              /* @__PURE__ */ jsx85("span", { className: "generate-schema-entity-bar__domain", children: domainId }),
+              profileInfo && /* @__PURE__ */ jsx85("span", { className: "generate-schema-profile-badge", children: profileInfo.label })
+            ] }) : /* @__PURE__ */ jsxs82("div", { className: "generate-schema-entity-bar generate-schema-entity-bar--domain", children: [
+              /* @__PURE__ */ jsx85(MIcon, { name: "folder", size: "sm" }),
+              /* @__PURE__ */ jsx85("span", { className: "generate-schema-entity-bar__label", children: "\u0414\u043E\u043C\u0435\u043D" }),
+              /* @__PURE__ */ jsx85("span", { className: "generate-schema-entity-bar__domain", children: domainId }),
+              profileInfo && /* @__PURE__ */ jsx85("span", { className: "generate-schema-profile-badge", children: profileInfo.label }),
+              /* @__PURE__ */ jsx85(
                 "span",
                 {
                   style: {
@@ -95750,42 +96541,42 @@ function GenerateSchemaModal() {
                 }
               )
             ] }),
-            gen.result?.skipped?.some((s) => s.reason === "ambiguous-view") && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-id-conflict", children: [
-              /* @__PURE__ */ jsxs81("div", { className: "generate-schema-id-conflict__head", children: [
-                /* @__PURE__ */ jsx84(MIcon, { name: "warning", size: "sm" }),
-                /* @__PURE__ */ jsx84("strong", { children: "\u041D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E view \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" })
+            gen.result?.skipped?.some((s) => s.reason === "ambiguous-view") && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-id-conflict", children: [
+              /* @__PURE__ */ jsxs82("div", { className: "generate-schema-id-conflict__head", children: [
+                /* @__PURE__ */ jsx85(MIcon, { name: "warning", size: "sm" }),
+                /* @__PURE__ */ jsx85("strong", { children: "\u041D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E view \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" })
               ] }),
-              /* @__PURE__ */ jsxs81("div", { className: "generate-schema-id-conflict__body", children: [
+              /* @__PURE__ */ jsxs82("div", { className: "generate-schema-id-conflict__body", children: [
                 "\u0414\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ",
-                /* @__PURE__ */ jsx84("code", { children: entityId }),
+                /* @__PURE__ */ jsx85("code", { children: entityId }),
                 " \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E view \u043D\u0443\u0436\u043D\u043E\u0433\u043E \u0442\u0438\u043F\u0430 (entity-view \u0438\u043B\u0438 list-view). \u0413\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440 \u043D\u0435 \u0443\u0433\u0430\u0434\u044B\u0432\u0430\u0435\u0442, \u043A\u0430\u043A\u043E\u0439 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C.",
-                /* @__PURE__ */ jsxs81("ul", { children: [
-                  /* @__PURE__ */ jsxs81("li", { children: [
+                /* @__PURE__ */ jsxs82("ul", { children: [
+                  /* @__PURE__ */ jsxs82("li", { children: [
                     "\u041E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 ",
-                    /* @__PURE__ */ jsx84("strong", { children: "\u043E\u0434\u0438\u043D" }),
+                    /* @__PURE__ */ jsx85("strong", { children: "\u043E\u0434\u0438\u043D" }),
                     " entity-view \u0438",
                     " ",
-                    /* @__PURE__ */ jsx84("strong", { children: "\u043E\u0434\u0438\u043D" }),
+                    /* @__PURE__ */ jsx85("strong", { children: "\u043E\u0434\u0438\u043D" }),
                     " list-view \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
+                  /* @__PURE__ */ jsxs82("li", { children: [
                     "\u0418\u043B\u0438 \u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u0443\u0439\u0442\u0435 \u0438\u0445 \u0432 \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0435:",
                     " ",
-                    /* @__PURE__ */ jsxs81("code", { children: [
+                    /* @__PURE__ */ jsxs82("code", { children: [
                       "view",
                       entityId
                     ] }),
                     ",",
                     " ",
-                    /* @__PURE__ */ jsxs81("code", { children: [
+                    /* @__PURE__ */ jsxs82("code", { children: [
                       "lists_",
                       entityId?.toLowerCase()
                     ] }),
                     "."
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs81("details", { style: { marginTop: 8 }, children: [
-                  /* @__PURE__ */ jsx84(
+                /* @__PURE__ */ jsxs82("details", { style: { marginTop: 8 }, children: [
+                  /* @__PURE__ */ jsx85(
                     "summary",
                     {
                       style: {
@@ -95796,9 +96587,9 @@ function GenerateSchemaModal() {
                       children: "\u041A\u0430\u043A\u0438\u0435 \u0438\u043C\u0435\u043D\u043D\u043E view \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u0443\u044E\u0442"
                     }
                   ),
-                  /* @__PURE__ */ jsx84("ul", { style: { marginTop: 4, paddingLeft: 20 }, children: (gen.result?.skipped || []).filter((s) => s.reason === "ambiguous-view").map((s, i) => /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("code", { children: s.id }),
-                    s.hint && /* @__PURE__ */ jsxs81("span", { style: { color: "var(--text-500)", marginLeft: 6 }, children: [
+                  /* @__PURE__ */ jsx85("ul", { style: { marginTop: 4, paddingLeft: 20 }, children: (gen.result?.skipped || []).filter((s) => s.reason === "ambiguous-view").map((s, i) => /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("code", { children: s.id }),
+                    s.hint && /* @__PURE__ */ jsxs82("span", { style: { color: "var(--text-500)", marginLeft: 6 }, children: [
                       "\u2014 ",
                       s.hint
                     ] })
@@ -95806,212 +96597,389 @@ function GenerateSchemaModal() {
                 ] })
               ] })
             ] }),
-            crudWithPageNoMenu && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-id-conflict", children: [
-              /* @__PURE__ */ jsxs81("div", { className: "generate-schema-id-conflict__head", children: [
-                /* @__PURE__ */ jsx84(MIcon, { name: "warning", size: "sm" }),
-                /* @__PURE__ */ jsx84("strong", { children: "\u041D\u0435\u0442 \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0433\u043E \u043C\u0435\u043D\u044E" })
+            crudWithPageNoMenu && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-id-conflict", children: [
+              /* @__PURE__ */ jsxs82("div", { className: "generate-schema-id-conflict__head", children: [
+                /* @__PURE__ */ jsx85(MIcon, { name: "warning", size: "sm" }),
+                /* @__PURE__ */ jsx85("strong", { children: "\u041D\u0435\u0442 \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0433\u043E \u043C\u0435\u043D\u044E" })
               ] }),
-              /* @__PURE__ */ jsxs81("div", { className: "generate-schema-id-conflict__body", children: [
+              /* @__PURE__ */ jsxs82("div", { className: "generate-schema-id-conflict__body", children: [
                 "\u041F\u0440\u043E\u0444\u0438\u043B\u044C ",
-                /* @__PURE__ */ jsx84("strong", { children: "\xABCRUD + \u043F\u043E\u043B\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430\xBB" }),
+                /* @__PURE__ */ jsx85("strong", { children: "\xABCRUD + \u043F\u043E\u043B\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430\xBB" }),
                 " \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442",
-                /* @__PURE__ */ jsx84("code", { children: "pages_infoX" }),
+                /* @__PURE__ */ jsx85("code", { children: "pages_infoX" }),
                 ", \u043A\u043E\u0442\u043E\u0440\u044B\u0439 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 ",
-                /* @__PURE__ */ jsx84("code", { children: "menuItem" }),
+                /* @__PURE__ */ jsx85("code", { children: "menuItem" }),
                 " \u2014 \u0430 \u0437\u043D\u0430\u0447\u0438\u0442, ",
-                /* @__PURE__ */ jsx84("code", { children: "root_group" }),
+                /* @__PURE__ */ jsx85("code", { children: "root_group" }),
                 " \u0432 ",
-                /* @__PURE__ */ jsx84("code", { children: "menus[]" }),
+                /* @__PURE__ */ jsx85("code", { children: "menus[]" }),
                 ".",
-                /* @__PURE__ */ jsx84("br", {}),
-                /* @__PURE__ */ jsxs81("ul", { children: [
-                  /* @__PURE__ */ jsxs81("li", { children: [
+                /* @__PURE__ */ jsx85("br", {}),
+                /* @__PURE__ */ jsxs82("ul", { children: [
+                  /* @__PURE__ */ jsxs82("li", { children: [
                     "\u0421\u043E\u0437\u0434\u0430\u0439\u0442\u0435 root_group \u0432 \u0441\u0435\u043A\u0446\u0438\u0438 ",
-                    /* @__PURE__ */ jsx84("code", { children: "menus" }),
+                    /* @__PURE__ */ jsx85("code", { children: "menus" }),
                     " \u0432\u0440\u0443\u0447\u043D\u0443\u044E, \u0438\u043B\u0438"
                   ] }),
-                  /* @__PURE__ */ jsx84("li", { children: "\u0412 \u043F\u0430\u043A\u0435\u0442\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)\xBB, \u0438\u043B\u0438" }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
+                  /* @__PURE__ */ jsx85("li", { children: "\u0412 \u043F\u0430\u043A\u0435\u0442\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)\xBB, \u0438\u043B\u0438" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
                     "\u0421\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u0440\u043E\u0444\u0438\u043B\u044C \u043D\u0430 \u043E\u0431\u044B\u0447\u043D\u044B\u0439 ",
-                    /* @__PURE__ */ jsx84("strong", { children: "CRUD" }),
+                    /* @__PURE__ */ jsx85("strong", { children: "CRUD" }),
                     "."
                   ] })
                 ] })
               ] })
             ] }),
-            /* @__PURE__ */ jsx84("div", { className: "generate-schema-tabs", children: tabs.map((t) => /* @__PURE__ */ jsxs81(
+            /* @__PURE__ */ jsx85(DomainContextCard, { domainId, index }),
+            recommendation && recommendation.confidence !== "low" && /* @__PURE__ */ jsxs82(
+              "div",
+              {
+                style: {
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 12,
+                  padding: "12px 20px",
+                  borderBottom: "1px solid var(--border)",
+                  background: recommendation.confidence === "high" ? "rgba(16,185,129,0.06)" : "rgba(99,102,241,0.06)",
+                  borderLeft: recommendation.confidence === "high" ? "3px solid var(--success)" : "3px solid var(--accent)"
+                },
+                children: [
+                  /* @__PURE__ */ jsx85(
+                    MIcon,
+                    {
+                      name: "lightbulb",
+                      size: "sm",
+                      style: { color: "var(--accent-hover)", marginTop: 2 }
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs82("div", { style: { flex: 1, minWidth: 0 }, children: [
+                    /* @__PURE__ */ jsxs82(
+                      "div",
+                      {
+                        style: {
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: "var(--text-100)",
+                          marginBottom: 4
+                        },
+                        children: [
+                          "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u043C: ",
+                          getProfileInfo(recommendation.profileId)?.label || recommendation.profileId
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsx85(
+                      "div",
+                      {
+                        style: {
+                          fontSize: 12,
+                          color: "var(--text-400)",
+                          marginBottom: recommendation.hints.length > 0 ? 6 : 0
+                        },
+                        children: recommendation.reason
+                      }
+                    ),
+                    recommendation.hints.length > 0 && /* @__PURE__ */ jsx85(
+                      "ul",
+                      {
+                        style: {
+                          margin: 0,
+                          paddingLeft: 18,
+                          fontSize: 11,
+                          color: "var(--text-500)"
+                        },
+                        children: recommendation.hints.map((h, i) => /* @__PURE__ */ jsx85("li", { children: h }, i))
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs82(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 6
+                      },
+                      children: [
+                        profile !== recommendation.profileId ? /* @__PURE__ */ jsx85(
+                          "button",
+                          {
+                            className: "btn btn--small btn--primary",
+                            onClick: () => {
+                              setProfile(recommendation.profileId);
+                              setTab("options");
+                            },
+                            children: "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C"
+                          }
+                        ) : /* @__PURE__ */ jsx85(
+                          "span",
+                          {
+                            style: {
+                              fontSize: 11,
+                              color: "var(--success)",
+                              fontWeight: 600
+                            },
+                            children: "\u2713 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u043E"
+                          }
+                        ),
+                        /* @__PURE__ */ jsx85(
+                          "button",
+                          {
+                            onClick: () => setRecommendationDismissed(true),
+                            title: "\u0421\u043A\u0440\u044B\u0442\u044C",
+                            style: {
+                              background: "transparent",
+                              border: "none",
+                              color: "var(--text-500)",
+                              cursor: "pointer",
+                              padding: 0,
+                              fontSize: 12
+                            },
+                            children: "\u2715"
+                          }
+                        )
+                      ]
+                    }
+                  )
+                ]
+              }
+            ),
+            availablePresets.length > 0 && /* @__PURE__ */ jsxs82(
+              "div",
+              {
+                style: {
+                  padding: "10px 20px",
+                  borderBottom: "1px solid var(--border)",
+                  background: "var(--bg-800)"
+                },
+                children: [
+                  /* @__PURE__ */ jsxs82(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 11,
+                        color: "var(--text-500)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                        marginBottom: 8
+                      },
+                      children: [
+                        /* @__PURE__ */ jsx85(MIcon, { name: "bolt", size: "sm" }),
+                        /* @__PURE__ */ jsx85("span", { children: "\u0411\u044B\u0441\u0442\u0440\u044B\u0435 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0438" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsx85(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8
+                      },
+                      children: availablePresets.map((p) => /* @__PURE__ */ jsxs82(
+                        "button",
+                        {
+                          type: "button",
+                          className: "btn btn--small",
+                          onClick: () => applyPreset(p),
+                          title: p.description,
+                          style: {
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "4px 12px",
+                            fontSize: 12
+                          },
+                          children: [
+                            /* @__PURE__ */ jsx85(MIcon, { name: p.icon, size: "sm" }),
+                            /* @__PURE__ */ jsx85("span", { children: p.label })
+                          ]
+                        },
+                        p.id
+                      ))
+                    }
+                  )
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsx85("div", { className: "generate-schema-tabs", children: tabs.map((t) => /* @__PURE__ */ jsxs82(
               "button",
               {
                 className: "generate-schema-tab" + (tab === t.key ? " active" : "") + (t.severity === "error" ? " generate-schema-tab--error" : t.severity === "warning" ? " generate-schema-tab--warning" : ""),
                 onClick: () => setTab(t.key),
                 children: [
                   t.label,
-                  t.count != null && t.count > 0 && /* @__PURE__ */ jsx84("span", { className: "generate-schema-tab__count", children: t.count })
+                  t.count != null && t.count > 0 && /* @__PURE__ */ jsx85("span", { className: "generate-schema-tab__count", children: t.count })
                 ]
               },
               t.key
             )) }),
-            /* @__PURE__ */ jsxs81("div", { className: "generate-schema-content", children: [
-              showHelp && /* @__PURE__ */ jsxs81(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx84(HelpSection, { title: "\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0435\u0442 \u0433\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440", children: /* @__PURE__ */ jsxs81(HelpText, { children: [
+            /* @__PURE__ */ jsxs82("div", { className: "generate-schema-content", children: [
+              showHelp && /* @__PURE__ */ jsxs82(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx85(HelpSection, { title: "\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0435\u0442 \u0433\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440", children: /* @__PURE__ */ jsxs82(HelpText, { children: [
                   "\u0421\u043E\u0437\u0434\u0430\u0451\u0442 \u0442\u0438\u043F\u043E\u0432\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u0441\u0445\u0435\u043C\u044B \u0434\u043E\u043C\u0435\u043D\u0430 \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438: \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F, \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F, \u043C\u0435\u043D\u044E, \u0438\u043A\u043E\u043D\u043A\u0438. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u043A\u0430\u043A ",
-                  /* @__PURE__ */ jsx84("strong", { children: "append" }),
+                  /* @__PURE__ */ jsx85("strong", { children: "append" }),
                   ": \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0431\u043B\u043E\u043A\u0438 \u043D\u0435 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u0430 \u043E\u043F\u0446\u0438\u044F \xAB\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E\xBB."
                 ] }) }),
-                /* @__PURE__ */ jsx84(HelpSection, { title: "\u041F\u0440\u043E\u0444\u0438\u043B\u0438", children: /* @__PURE__ */ jsxs81(HelpList, { children: [
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "CRUD" }),
+                /* @__PURE__ */ jsx85(HelpSection, { title: "\u041F\u0440\u043E\u0444\u0438\u043B\u0438", children: /* @__PURE__ */ jsxs82(HelpList, { children: [
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "CRUD" }),
                     " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 \u0436\u0438\u0437\u043D\u0435\u043D\u043D\u044B\u0439 \u0446\u0438\u043A\u043B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "CRUD + \u043F\u043E\u043B\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "CRUD + \u043F\u043E\u043B\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430" }),
                     " \u2014 \u043F\u043B\u044E\u0441 pages_infoX (\u0442\u0440\u0435\u0431\u0443\u0435\u0442 menus[])."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A" }),
                     " \u2014 \u0442\u043E\u043B\u044C\u043A\u043E entity-view \u0441 editors, \u0431\u0435\u0437 actions/menu/list."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u0411\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u0411\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A" }),
                     " \u2014 readonly: list + \u043F\u0430\u043D\u0435\u043B\u044C, \u0431\u0435\u0437 \u0444\u043E\u0440\u043C."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u0414\u0435\u0440\u0435\u0432\u043E" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u0414\u0435\u0440\u0435\u0432\u043E" }),
                     " \u2014 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u043E side-1 \u0441\u0432\u044F\u0437\u044F\u043C."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F" }),
                     " \u2014 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442, \u043F\u043E\u043C\u0435\u0447\u0430\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043A\u0430\u043A \xAB\u0431\u0435\u0437 UI\xBB."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsxs81(HelpSection, { title: "\u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 view", children: [
-                  /* @__PURE__ */ jsxs81(HelpText, { children: [
+                /* @__PURE__ */ jsxs82(HelpSection, { title: "\u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 view", children: [
+                  /* @__PURE__ */ jsxs82(HelpText, { children: [
                     "\u0413\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440 \u0443\u043C\u0435\u0435\u0442 \u043D\u0430\u0445\u043E\u0434\u0438\u0442\u044C \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 view, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u043E\u043D\u0438 \u043D\u0430\u0437\u0432\u0430\u043D\u044B \u043D\u0435\u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u043E (\u043D\u0435",
                     " ",
-                    /* @__PURE__ */ jsx84("code", { children: "view{Entity}" }),
+                    /* @__PURE__ */ jsx85("code", { children: "view{Entity}" }),
                     " \u0438\u043B\u0438",
                     " ",
-                    /* @__PURE__ */ jsx84("code", { children: "lists_{entity}" }),
+                    /* @__PURE__ */ jsx85("code", { children: "lists_{entity}" }),
                     "). \u0414\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F."
                   ] }),
-                  /* @__PURE__ */ jsxs81(HelpList, { children: [
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "\u0420\u043E\u0432\u043D\u043E \u043E\u0434\u0438\u043D" }),
+                  /* @__PURE__ */ jsxs82(HelpList, { children: [
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "\u0420\u043E\u0432\u043D\u043E \u043E\u0434\u0438\u043D" }),
                       " entity-view / list-view \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u043E\u0434 \u043B\u044E\u0431\u044B\u043C id) \u2192 \u0433\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440 ",
-                      /* @__PURE__ */ jsx84("strong", { children: "\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0435\u0433\u043E" }),
+                      /* @__PURE__ */ jsx85("strong", { children: "\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0435\u0433\u043E" }),
                       ": \u0432\u0438\u0434\u0436\u0435\u0442\u044B, \u0433\u0440\u0443\u043F\u043F\u044B, \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 \u0438 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0432 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 view."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "\u041D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "\u041D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E" }),
                       " view \u043D\u0443\u0436\u043D\u043E\u0433\u043E \u0442\u0438\u043F\u0430 \u2192 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u044D\u0442\u0438\u0445 \u0431\u043B\u043E\u043A\u043E\u0432 \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0435\u0442\u0441\u044F \u0441 \u043F\u0440\u0438\u0447\u0438\u043D\u043E\u0439",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "ambiguous-view" }),
+                      /* @__PURE__ */ jsx85("code", { children: "ambiguous-view" }),
                       ". \u041E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043E\u0434\u0438\u043D view \u0438\u043B\u0438 \u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u0443\u0439\u0442\u0435 \u0435\u0433\u043E \u0432 \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0439 id."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "\u041D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "\u041D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E" }),
                       " \u2192 \u0441\u043E\u0437\u0434\u0430\u0451\u0442\u0441\u044F \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0439",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "view{Entity}" }),
+                      /* @__PURE__ */ jsx85("code", { children: "view{Entity}" }),
                       " \u0438\u043B\u0438",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "lists_{entity}" }),
+                      /* @__PURE__ */ jsx85("code", { children: "lists_{entity}" }),
                       "."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "skipExisting" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "skipExisting" }),
                       " \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043A",
                       " ",
-                      /* @__PURE__ */ jsx84("em", { children: "\u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u043C\u0443" }),
+                      /* @__PURE__ */ jsx85("em", { children: "\u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u043C\u0443" }),
                       " view (widgets, groups, actions), \u0430 \u043D\u0435 \u043A \u0441\u0430\u043C\u043E\u043C\u0443 root-view. Root-view \u043B\u0438\u0431\u043E \u0441\u043E\u0437\u0434\u0430\u0451\u0442\u0441\u044F (\u0435\u0441\u043B\u0438 \u0435\u0433\u043E \u043D\u0435\u0442), \u043B\u0438\u0431\u043E \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F (\u0435\u0441\u043B\u0438 \u043E\u043D \u0435\u0441\u0442\u044C \u043E\u0434\u0438\u043D), \u043B\u0438\u0431\u043E \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F (\u0435\u0441\u043B\u0438 \u0438\u0445 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E)."
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx84(HelpSection, { title: "\u0421\u0442\u0430\u0442\u0443\u0441\u044B \u0431\u043B\u043E\u043A\u043E\u0432", children: /* @__PURE__ */ jsxs81(HelpList, { children: [
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u0411\u0435\u0437 \u0441\u0442\u0430\u0442\u0443\u0441\u0430" }),
+                /* @__PURE__ */ jsx85(HelpSection, { title: "\u0421\u0442\u0430\u0442\u0443\u0441\u044B \u0431\u043B\u043E\u043A\u043E\u0432", children: /* @__PURE__ */ jsxs82(HelpList, { children: [
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u0411\u0435\u0437 \u0441\u0442\u0430\u0442\u0443\u0441\u0430" }),
                     " \u2014 \u043D\u043E\u0432\u044B\u0439 \u0431\u043B\u043E\u043A, \u0431\u0443\u0434\u0435\u0442 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u2713 \u0435\u0441\u0442\u044C" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u2713 \u0435\u0441\u0442\u044C" }),
                     " \u2014 \u0443\u0436\u0435 \u0432 YAML \u0438 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 \u043C\u043E\u0434\u0435\u043B\u044C\u044E. \u041D\u0435 \u0430\u043F\u043F\u0435\u043D\u0434\u0438\u0442\u0441\u044F."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u26A0 \u043C\u043E\u0434\u0435\u043B\u044C \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u26A0 \u043C\u043E\u0434\u0435\u043B\u044C \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C" }),
                     " \u2014 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E \u0440\u0430\u043D\u0435\u0435, \u043D\u043E \u043C\u043E\u0434\u0435\u043B\u044C \u043F\u043E\u043C\u0435\u043D\u044F\u043B\u0430\u0441\u044C. \u0411\u0443\u0434\u0435\u0442 ",
-                    /* @__PURE__ */ jsx84("strong", { children: "\u0437\u0430\u043C\u0435\u043D\u0451\u043D" }),
+                    /* @__PURE__ */ jsx85("strong", { children: "\u0437\u0430\u043C\u0435\u043D\u0451\u043D" }),
                     "."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u270E \u043F\u0440\u0430\u0432\u043A\u0430 \u0432\u0440\u0443\u0447\u043D\u0443\u044E" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u270E \u043F\u0440\u0430\u0432\u043A\u0430 \u0432\u0440\u0443\u0447\u043D\u0443\u044E" }),
                     " \u2014 YAML \u043F\u0440\u0430\u0432\u0438\u043B\u0438 \u043F\u043E\u0441\u043B\u0435 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438. \u041D\u0435 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0435\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u043D\u0435 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \xAB\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs81("li", { children: [
-                    /* @__PURE__ */ jsx84("strong", { children: "\u2298 \u0443\u0434\u0430\u043B\u0451\u043D \u0438\u0437 YAML" }),
+                  /* @__PURE__ */ jsxs82("li", { children: [
+                    /* @__PURE__ */ jsx85("strong", { children: "\u2298 \u0443\u0434\u0430\u043B\u0451\u043D \u0438\u0437 YAML" }),
                     " \u2014 \u0431\u044B\u043B \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D, \u043D\u043E \u0443\u0434\u0430\u043B\u0451\u043D. \u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0433\u0430\u043B\u043A\u0443, \u0447\u0442\u043E\u0431\u044B \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsx84(HelpSection, { title: "\u0417\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0438 \u043A\u043D\u043E\u043F\u043A\u0430 \xAB\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438\xBB", children: /* @__PURE__ */ jsxs81(HelpText, { children: [
+                /* @__PURE__ */ jsx85(HelpSection, { title: "\u0417\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0438 \u043A\u043D\u043E\u043F\u043A\u0430 \xAB\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438\xBB", children: /* @__PURE__ */ jsxs82(HelpText, { children: [
                   "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 (\u043A\u043D\u043E\u043F\u043A\u0430 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435, \u043C\u043E\u0434\u0430\u043B\u043A\u0430 \u2014 \u0444\u043E\u0440\u043C\u0443). \u041F\u0440\u0438 \u0441\u043D\u044F\u0442\u0438\u0438 \u0431\u043B\u043E\u043A\u0430-\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043D\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u0441\u044F. \u041A\u043D\u043E\u043F\u043A\u0430 ",
-                  /* @__PURE__ */ jsx84("strong", { children: "\xAB\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438\xBB" }),
+                  /* @__PURE__ */ jsx85("strong", { children: "\xAB\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438\xBB" }),
                   " \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0441\u0442\u0430\u0432\u0438\u0442 \u0433\u0430\u043B\u043A\u0438 \u043D\u0430 \u0432\u0441\u0451, \u043E\u0442 \u0447\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435."
                 ] }) }),
-                /* @__PURE__ */ jsx84(HelpSection, { title: "Preflight", children: /* @__PURE__ */ jsx84(HelpText, { children: "\u041F\u0435\u0440\u0435\u0434 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0435\u043C \u0433\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440 \u043F\u0440\u043E\u0433\u043E\u043D\u044F\u0435\u0442 \u043B\u0438\u043D\u0442\u0435\u0440 \u043D\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 + \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u0430\u0445. \u0412\u0438\u0434\u0438\u0442\u0435 0 \u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u2014 \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C. \u0415\u0441\u0442\u044C errors \u2014 \u043A\u043D\u043E\u043F\u043A\u0430 Apply \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F. Warnings \u2014 \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C, \u043D\u043E \u0441\u0442\u043E\u0438\u0442 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C." }) }),
-                /* @__PURE__ */ jsxs81(HelpSection, { title: "\u041F\u043E\u0447\u0435\u043C\u0443 \u0431\u043B\u043E\u043A\u0438 \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u044E\u0442\u0441\u044F", children: [
-                  /* @__PURE__ */ jsx84(HelpText, { children: "\u041D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E\xBB \u043A\u0430\u0436\u0434\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C \u043E\u0431\u044A\u044F\u0441\u043D\u044F\u0435\u0442 \u043F\u0440\u0438\u0447\u0438\u043D\u0443 \u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443. \u0421\u0430\u043C\u044B\u0435 \u0447\u0430\u0441\u0442\u044B\u0435:" }),
-                  /* @__PURE__ */ jsxs81(HelpList, { children: [
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "already-exists" }),
+                /* @__PURE__ */ jsx85(HelpSection, { title: "Preflight", children: /* @__PURE__ */ jsx85(HelpText, { children: "\u041F\u0435\u0440\u0435\u0434 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0435\u043C \u0433\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440 \u043F\u0440\u043E\u0433\u043E\u043D\u044F\u0435\u0442 \u043B\u0438\u043D\u0442\u0435\u0440 \u043D\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 + \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u0430\u0445. \u0412\u0438\u0434\u0438\u0442\u0435 0 \u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u2014 \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C. \u0415\u0441\u0442\u044C errors \u2014 \u043A\u043D\u043E\u043F\u043A\u0430 Apply \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F. Warnings \u2014 \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C, \u043D\u043E \u0441\u0442\u043E\u0438\u0442 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C." }) }),
+                /* @__PURE__ */ jsxs82(HelpSection, { title: "\u041F\u043E\u0447\u0435\u043C\u0443 \u0431\u043B\u043E\u043A\u0438 \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u044E\u0442\u0441\u044F", children: [
+                  /* @__PURE__ */ jsx85(HelpText, { children: "\u041D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E\xBB \u043A\u0430\u0436\u0434\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C \u043E\u0431\u044A\u044F\u0441\u043D\u044F\u0435\u0442 \u043F\u0440\u0438\u0447\u0438\u043D\u0443 \u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443. \u0421\u0430\u043C\u044B\u0435 \u0447\u0430\u0441\u0442\u044B\u0435:" }),
+                  /* @__PURE__ */ jsxs82(HelpList, { children: [
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "already-exists" }),
                       " \u2014 \u0431\u043B\u043E\u043A \u0441 \u0442\u0430\u043A\u0438\u043C id \u0443\u0436\u0435 \u0435\u0441\u0442\u044C \u0432 YAML. \u041B\u0438\u0431\u043E \u043E\u043D \u0430\u043A\u0442\u0443\u0430\u043B\u0435\u043D (\u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 \u043C\u043E\u0434\u0435\u043B\u044C\u044E), \u043B\u0438\u0431\u043E \u044D\u0442\u043E \u0432\u0430\u0448\u0430 \u043F\u0440\u0430\u0432\u043A\u0430 (\u0435\u0441\u043B\u0438 \u043E\u043D\u0430 \u0437\u0430\u0449\u0438\u0449\u0435\u043D\u0430 \u043E\u043F\u0446\u0438\u0435\u0439 \xAB\u041D\u0435 \u0442\u0440\u043E\u0433\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E\xBB)."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "ambiguous-view" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "ambiguous-view" }),
                       " \u2014 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E entity-view \u0438\u043B\u0438 list-view \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043E\u0434\u0438\u043D."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "no-menu-root" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "no-menu-root" }),
                       " \u2014 \u043D\u0435\u0442",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "root_group" }),
+                      /* @__PURE__ */ jsx85("code", { children: "root_group" }),
                       " \u0432 ",
-                      /* @__PURE__ */ jsx84("code", { children: "menus[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "menus[]" }),
                       ". \u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E\xBB (\u043F\u0440\u043E\u0444\u0438\u043B\u0438 CRUD / domain-extras) \u0438\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 root \u0432\u0440\u0443\u0447\u043D\u0443\u044E."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "no-list-view / no-entity-view" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "no-list-view / no-entity-view" }),
                       " \u2014 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 list/entity-view (\u043F\u0440\u043E\u0444\u0438\u043B\u044C CRUD \u0438\u043B\u0438 \u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A) \u2014 \u044D\u0442\u0438 \u0431\u043B\u043E\u043A\u0438 \u0434\u043E\u0431\u0430\u0432\u044F\u0442\u0441\u044F \u043F\u0440\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "no-suitable-attributes / nothing-to-generate" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "no-suitable-attributes / nothing-to-generate" }),
                       " ",
                       "\u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0438 \u043D\u0435 \u043D\u0430\u0448\u043B\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043F\u043E\u0434\u0445\u043E\u0434\u044F\u0449\u0435\u0433\u043E. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043E\u043F\u0446\u0438\u0438 \u043F\u0440\u043E\u0444\u0438\u043B\u044F."
                     ] }),
-                    /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "dictionary" }),
+                    /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "dictionary" }),
                       " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u0430 \u043A\u0430\u043A",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "ui: { list: false, modals: false }" }),
+                      /* @__PURE__ */ jsx85("code", { children: "ui: { list: false, modals: false }" }),
                       ". \u0414\u043B\u044F \u043D\u0435\u0451 UI \u043D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F (\u043D\u043E actions/widgets, \u0435\u0441\u043B\u0438 \u043E\u043D\u0438 \u043D\u0443\u0436\u043D\u044B, \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E)."
                     ] })
                   ] })
                 ] })
               ] }),
-              tab === "options" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-options", children: [
-                /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "tune", size: "sm" }),
+              tab === "options" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-options", children: [
+                /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "tune", size: "sm" }),
                     "\u041F\u0440\u043E\u0444\u0438\u043B\u044C"
                   ] }),
-                  /* @__PURE__ */ jsx84("div", { className: "generate-schema-profile-picker", children: /* @__PURE__ */ jsxs81(
+                  /* @__PURE__ */ jsx85("div", { className: "generate-schema-profile-picker", children: /* @__PURE__ */ jsxs82(
                     "select",
                     {
                       value: profile,
                       onChange: (e) => setProfile(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx84("optgroup", { label: "\u0414\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", children: ENTITY_PROFILES.map((id) => {
+                        /* @__PURE__ */ jsx85("optgroup", { label: "\u0414\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", children: ENTITY_PROFILES.map((id) => {
                           const info = id;
                           const disabled = id.id === "tree-view" && !hasTreeCandidates;
-                          return /* @__PURE__ */ jsxs81(
+                          return /* @__PURE__ */ jsxs82(
                             "option",
                             {
                               value: id.id,
@@ -96024,36 +96992,36 @@ function GenerateSchemaModal() {
                             id.id
                           );
                         }) }),
-                        /* @__PURE__ */ jsx84("optgroup", { label: "\u0414\u043B\u044F \u0432\u0441\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430", children: DOMAIN_PROFILES2.map((info) => /* @__PURE__ */ jsx84("option", { value: info.id, children: info.label }, info.id)) })
+                        /* @__PURE__ */ jsx85("optgroup", { label: "\u0414\u043B\u044F \u0432\u0441\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430", children: DOMAIN_PROFILES2.map((info) => /* @__PURE__ */ jsx85("option", { value: info.id, children: info.label }, info.id)) })
                       ]
                     }
                   ) }),
-                  profileInfo && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-profile-card", children: [
-                    /* @__PURE__ */ jsx84("div", { className: "generate-schema-profile-card__short", children: profileInfo.short }),
-                    /* @__PURE__ */ jsx84("ul", { className: "generate-schema-profile-card__list", children: profileInfo.details.map((d, i) => /* @__PURE__ */ jsxs81("li", { children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: d.icon, size: "sm" }),
-                      /* @__PURE__ */ jsx84("span", { children: d.text })
+                  profileInfo && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-profile-card", children: [
+                    /* @__PURE__ */ jsx85("div", { className: "generate-schema-profile-card__short", children: profileInfo.short }),
+                    /* @__PURE__ */ jsx85("ul", { className: "generate-schema-profile-card__list", children: profileInfo.details.map((d, i) => /* @__PURE__ */ jsxs82("li", { children: [
+                      /* @__PURE__ */ jsx85(MIcon, { name: d.icon, size: "sm" }),
+                      /* @__PURE__ */ jsx85("span", { children: d.text })
                     ] }, i)) }),
-                    /* @__PURE__ */ jsxs81("div", { className: "generate-schema-profile-card__when", children: [
-                      /* @__PURE__ */ jsx84("strong", { children: "\u041A\u043E\u0433\u0434\u0430 \u0432\u044B\u0431\u0438\u0440\u0430\u0442\u044C:" }),
+                    /* @__PURE__ */ jsxs82("div", { className: "generate-schema-profile-card__when", children: [
+                      /* @__PURE__ */ jsx85("strong", { children: "\u041A\u043E\u0433\u0434\u0430 \u0432\u044B\u0431\u0438\u0440\u0430\u0442\u044C:" }),
                       " ",
                       profileInfo.when
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs81("div", { className: "generate-schema-settings-grid" + (!profileAllowsIncludeOptions || !profileAllowsBehaviorOptions ? "generate-schema-settings-grid--single" : ""), children: [
-                  profileAllowsIncludeOptions && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                    /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: "checklist", size: "sm" }),
+                /* @__PURE__ */ jsxs82("div", { className: "generate-schema-settings-grid" + (!profileAllowsIncludeOptions || !profileAllowsBehaviorOptions ? "generate-schema-settings-grid--single" : ""), children: [
+                  profileAllowsIncludeOptions && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                    /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                      /* @__PURE__ */ jsx85(MIcon, { name: "checklist", size: "sm" }),
                       "\u0427\u0442\u043E \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C"
                     ] }),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         title: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u2014 action + \u043A\u043D\u043E\u043F\u043A\u0430 + \u043F\u0443\u043D\u043A\u0442 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u043C \u043C\u0435\u043D\u044E list-view",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96064,17 +97032,17 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option" + (menuRoots.length === 0 ? " generate-schema-option--disabled" : ""),
                         title: options.includePage === void 0 ? "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438: \u0432\u043A\u043B\u044E\u0447\u0430\u0435\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ui.page: true" : menuRoots.length === 0 ? "\u0421\u043E\u0437\u0434\u0430\u0439\u0442\u0435 root_group \u0432 menus[] \u2014 pages_infoX \u043D\u0443\u0436\u0435\u043D menuItem" : "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 (pages_infoX + action open_page)",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96083,9 +97051,9 @@ function GenerateSchemaModal() {
                               onChange: (e) => setOptions({ ...options, includePage: e.target.checked })
                             }
                           ),
-                          /* @__PURE__ */ jsxs81("span", { children: [
+                          /* @__PURE__ */ jsxs82("span", { children: [
                             "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430",
-                            options.includePage === void 0 && /* @__PURE__ */ jsx84(
+                            options.includePage === void 0 && /* @__PURE__ */ jsx85(
                               "span",
                               {
                                 className: "generate-schema-option__hint",
@@ -96103,13 +97071,13 @@ function GenerateSchemaModal() {
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         title: "Linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B \u0434\u043B\u044F \u0441\u0432\u044F\u0437\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0414\u043B\u044F n_n \u0438 side-1 1_n \u2014 linkage_list \u0441 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u043D\u043E\u0439 \u0432\u043A\u043B\u0430\u0434\u043A\u043E\u0439; \u0434\u043B\u044F side-2 1_n \u0438 1_1 \u2014 \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 linkage \u0432\u043D\u0443\u0442\u0440\u0438 blocks_infoX",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96120,17 +97088,17 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u0421\u0432\u044F\u0437\u0438 (linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B)" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u0421\u0432\u044F\u0437\u0438 (linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B)" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         title: "\u0412\u043A\u043B\u044E\u0447\u0430\u0442\u044C readonly-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0444\u043E\u0440\u043C\u0443 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F. \u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E \u2014 \u0434\u0430 (\u043A\u0430\u043A \u0432 \u0442\u0438\u043F\u043E\u0432\u044B\u0445 \u0441\u0445\u0435\u043C\u0430\u0445). \u0421\u043D\u0438\u043C\u0438\u0442\u0435, \u0435\u0441\u043B\u0438 readonly-\u043F\u043E\u043B\u044F \u0434\u043E\u043B\u0436\u043D\u044B \u0437\u0430\u043F\u043E\u043B\u043D\u044F\u0442\u044C\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0438\u0441\u0442\u0435\u043C\u043E\u0439",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96141,23 +97109,23 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0430\u0442\u044C readonly \u0438\u0437 \u0444\u043E\u0440\u043C\u044B \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0430\u0442\u044C readonly \u0438\u0437 \u0444\u043E\u0440\u043C\u044B \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F" })
                         ]
                       }
                     )
                   ] }),
-                  profileAllowsBehaviorOptions && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                    /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: "history", size: "sm" }),
+                  profileAllowsBehaviorOptions && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                    /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                      /* @__PURE__ */ jsx85(MIcon, { name: "history", size: "sm" }),
                       "\u041F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u0435"
                     ] }),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         title: "\u041D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0431\u043B\u043E\u043A\u0438, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C \u0432 YAML. \u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F \u0434\u0435\u0440\u0436\u0430\u0442\u044C \u0432\u043A\u043B\u044E\u0447\u0451\u043D\u043D\u044B\u043C \u2014 \u0438\u043D\u0430\u0447\u0435 \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u0435 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96168,17 +97136,17 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u041F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u041F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         title: "\u0411\u043B\u043E\u043A\u0438, \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u043F\u043E\u0441\u043B\u0435 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438, \u043D\u0435 \u0432\u043A\u043B\u044E\u0447\u0430\u044E\u0442\u0441\u044F \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E. \u0415\u0441\u043B\u0438 \u0433\u0430\u043B\u043A\u0430 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u0430 \u2014 \u0442\u0430\u043A\u0438\u0435 \u0431\u043B\u043E\u043A\u0438 \u0442\u043E\u0436\u0435 auto-check \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96189,17 +97157,17 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u041D\u0435 \u0442\u0440\u043E\u0433\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u041D\u0435 \u0442\u0440\u043E\u0433\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option" + (profile === "ui-status-colors" ? " generate-schema-option--disabled" : ""),
                         title: profile === "ui-status-colors" ? "\u0414\u043B\u044F \u043F\u0440\u043E\u0444\u0438\u043B\u044F ui-status-colors \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044C \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u0430 \u2014 view[] \u0434\u043E\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F" : "\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0442\u044C \u0431\u043B\u043E\u043A\u0438, \u043E\u0442\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96208,26 +97176,26 @@ function GenerateSchemaModal() {
                               onChange: (e) => setOptions({ ...options, replaceModified: e.target.checked })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E" })
                         ]
                       }
                     )
                   ] })
                 ] }),
-                profile === "tree-view" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "account_tree", size: "sm" }),
+                profile === "tree-view" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "account_tree", size: "sm" }),
                     "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0434\u0435\u0440\u0435\u0432\u0430"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tree-grid", children: [
-                    /* @__PURE__ */ jsxs81(
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tree-grid", children: [
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-field",
                         title: "ordinary \u2014 \u043E\u0431\u044B\u0447\u043D\u043E\u0435 \u0434\u0435\u0440\u0435\u0432\u043E. orderable \u2014 \u0441 \u043F\u0435\u0440\u0435\u0442\u0430\u0441\u043A\u0438\u0432\u0430\u043D\u0438\u0435\u043C \u0443\u0437\u043B\u043E\u0432. multiparent \u2014 \u0443\u0437\u0435\u043B \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0432 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F\u0445 (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F n_n)",
                         children: [
-                          /* @__PURE__ */ jsx84("span", { children: "\u0422\u0438\u043F \u0434\u0435\u0440\u0435\u0432\u0430:" }),
-                          /* @__PURE__ */ jsxs81(
+                          /* @__PURE__ */ jsx85("span", { children: "\u0422\u0438\u043F \u0434\u0435\u0440\u0435\u0432\u0430:" }),
+                          /* @__PURE__ */ jsxs82(
                             "select",
                             {
                               value: options.treeType,
@@ -96236,23 +97204,23 @@ function GenerateSchemaModal() {
                                 treeType: e.target.value
                               }),
                               children: [
-                                /* @__PURE__ */ jsx84("option", { value: "ordinary", children: "\u041E\u0431\u044B\u0447\u043D\u043E\u0435" }),
-                                /* @__PURE__ */ jsx84("option", { value: "orderable", children: "\u0421 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439" }),
-                                /* @__PURE__ */ jsx84("option", { value: "multiparent", children: "\u041C\u0443\u043B\u044C\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044C (n_n)" })
+                                /* @__PURE__ */ jsx85("option", { value: "ordinary", children: "\u041E\u0431\u044B\u0447\u043D\u043E\u0435" }),
+                                /* @__PURE__ */ jsx85("option", { value: "orderable", children: "\u0421 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439" }),
+                                /* @__PURE__ */ jsx85("option", { value: "multiparent", children: "\u041C\u0443\u043B\u044C\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044C (n_n)" })
                               ]
                             }
                           )
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-field",
                         title: "merged \u2014 \u0434\u0435\u0440\u0435\u0432\u043E + \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u0432 \u043E\u0434\u043D\u043E\u043C \u043E\u043A\u043D\u0435. splitted \u2014 \u0434\u0432\u0430 \u043E\u043A\u043D\u0430: \u0441\u043B\u0435\u0432\u0430 \u0434\u0435\u0440\u0435\u0432\u043E, \u0441\u043F\u0440\u0430\u0432\u0430 \u0441\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432. Splitted \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E list-view",
                         children: [
-                          /* @__PURE__ */ jsx84("span", { children: "\u0412\u0430\u0440\u0438\u0430\u043D\u0442:" }),
-                          /* @__PURE__ */ jsxs81(
+                          /* @__PURE__ */ jsx85("span", { children: "\u0412\u0430\u0440\u0438\u0430\u043D\u0442:" }),
+                          /* @__PURE__ */ jsxs82(
                             "select",
                             {
                               value: options.treeVariant,
@@ -96261,22 +97229,22 @@ function GenerateSchemaModal() {
                                 treeVariant: e.target.value
                               }),
                               children: [
-                                /* @__PURE__ */ jsx84("option", { value: "merged", children: "\u041E\u0434\u043D\u0438\u043C \u043E\u043A\u043D\u043E\u043C" }),
-                                /* @__PURE__ */ jsx84("option", { value: "splitted", children: "\u0414\u0432\u0430 \u043E\u043A\u043D\u0430" })
+                                /* @__PURE__ */ jsx85("option", { value: "merged", children: "\u041E\u0434\u043D\u0438\u043C \u043E\u043A\u043D\u043E\u043C" }),
+                                /* @__PURE__ */ jsx85("option", { value: "splitted", children: "\u0414\u0432\u0430 \u043E\u043A\u043D\u0430" })
                               ]
                             }
                           )
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-field",
                         title: "\u0421\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u0445 \u0443\u0437\u043B\u043E\u0432 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u043F\u0440\u0438 \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u0438\u0438. \u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F \u0432 \u0434\u0435\u0440\u0435\u0432\u0435",
                         children: [
-                          /* @__PURE__ */ jsx84("span", { children: "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F \u0443\u0437\u043B\u043E\u0432:" }),
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85("span", { children: "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F \u0443\u0437\u043B\u043E\u0432:" }),
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "number",
@@ -96302,13 +97270,13 @@ function GenerateSchemaModal() {
                         ]
                       }
                     ),
-                    options.treeType === "orderable" && /* @__PURE__ */ jsxs81(
+                    options.treeType === "orderable" && /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         title: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044E \u043F\u0435\u0440\u0435\u0442\u0430\u0441\u043A\u0438\u0432\u0430\u0442\u044C \u0443\u0437\u043B\u044B \u0432 \u0434\u0435\u0440\u0435\u0432\u0435",
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96319,12 +97287,12 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u043F\u0435\u0440\u0435\u0442\u0430\u0441\u043A\u0438\u0432\u0430\u043D\u0438\u0435" })
+                          /* @__PURE__ */ jsx85("span", { children: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u043F\u0435\u0440\u0435\u0442\u0430\u0441\u043A\u0438\u0432\u0430\u043D\u0438\u0435" })
                         ]
                       }
                     )
                   ] }),
-                  entityId && /* @__PURE__ */ jsx84(
+                  entityId && /* @__PURE__ */ jsx85(
                     TreeChainBuilder,
                     {
                       index,
@@ -96338,19 +97306,19 @@ function GenerateSchemaModal() {
                     }
                   )
                 ] }),
-                profile === "tabs-list" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "tab", size: "sm" }),
+                profile === "tabs-list" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "tab", size: "sm" }),
                     "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B tabs-list"
                   ] }),
-                  !entityId && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsx84("span", { children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432\u044B\u0448\u0435 \u2014 \u043E\u043D\u0430 \u043D\u0443\u0436\u043D\u0430 \u043A\u0430\u043A anchor \u0434\u043B\u044F route \u0438 label \u043F\u0443\u043D\u043A\u0442\u0430 \u043C\u0435\u043D\u044E." })
+                  !entityId && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsx85("span", { children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432\u044B\u0448\u0435 \u2014 \u043E\u043D\u0430 \u043D\u0443\u0436\u043D\u0430 \u043A\u0430\u043A anchor \u0434\u043B\u044F route \u0438 label \u043F\u0443\u043D\u043A\u0442\u0430 \u043C\u0435\u043D\u044E." })
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tree-grid", children: [
-                    /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", children: [
-                      /* @__PURE__ */ jsx84("span", { children: "ID view:" }),
-                      /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tree-grid", children: [
+                    /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", children: [
+                      /* @__PURE__ */ jsx85("span", { children: "ID view:" }),
+                      /* @__PURE__ */ jsx85(
                         "input",
                         {
                           type: "text",
@@ -96363,9 +97331,9 @@ function GenerateSchemaModal() {
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", children: [
-                      /* @__PURE__ */ jsx84("span", { children: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A:" }),
-                      /* @__PURE__ */ jsx84(
+                    /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", children: [
+                      /* @__PURE__ */ jsx85("span", { children: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A:" }),
+                      /* @__PURE__ */ jsx85(
                         "input",
                         {
                           type: "text",
@@ -96379,23 +97347,23 @@ function GenerateSchemaModal() {
                       )
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsx84("span", { children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 \u2014 \u044D\u0442\u043E \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 list-view \u0434\u043E\u043C\u0435\u043D\u0430. \u0415\u0441\u043B\u0438 \u043D\u0443\u0436\u043D\u043E\u0433\u043E \u043D\u0435\u0442 \u2014 \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 \u0435\u0433\u043E \u0434\u043B\u044F \u043D\u0443\u0436\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u0440\u043E\u0444\u0438\u043B\u044C CRUD)." })
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsx85("span", { children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 \u2014 \u044D\u0442\u043E \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 list-view \u0434\u043E\u043C\u0435\u043D\u0430. \u0415\u0441\u043B\u0438 \u043D\u0443\u0436\u043D\u043E\u0433\u043E \u043D\u0435\u0442 \u2014 \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 \u0435\u0433\u043E \u0434\u043B\u044F \u043D\u0443\u0436\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u0440\u043E\u0444\u0438\u043B\u044C CRUD)." })
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
                     "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 (",
                     listViews.length,
                     " list-view \u0432 \u0434\u043E\u043C\u0435\u043D\u0435)"
                   ] }),
-                  listViews.length === 0 ? /* @__PURE__ */ jsx84("div", { className: "generate-schema-empty", children: "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E list-view. \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 CRUD \u0434\u043B\u044F \u043D\u0443\u0436\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u2014 \u043F\u043E\u0442\u043E\u043C \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u0441\u044E\u0434\u0430." }) : /* @__PURE__ */ jsx84("div", { className: "generate-schema-tabs-list", children: listViews.map((v) => {
+                  listViews.length === 0 ? /* @__PURE__ */ jsx85("div", { className: "generate-schema-empty", children: "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E list-view. \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 CRUD \u0434\u043B\u044F \u043D\u0443\u0436\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u2014 \u043F\u043E\u0442\u043E\u043C \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u0441\u044E\u0434\u0430." }) : /* @__PURE__ */ jsx85("div", { className: "generate-schema-tabs-list", children: listViews.map((v) => {
                     const selected2 = (options.tabsListIds || []).includes(v.id);
-                    return /* @__PURE__ */ jsxs81(
+                    return /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-tab-option" + (selected2 ? " generate-schema-tab-option--selected" : ""),
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "checkbox",
@@ -96411,16 +97379,16 @@ function GenerateSchemaModal() {
                               }
                             }
                           ),
-                          /* @__PURE__ */ jsx84("code", { className: "generate-schema-tab-option__id", children: v.id }),
-                          v.label && v.label !== v.id && /* @__PURE__ */ jsx84("span", { className: "generate-schema-tab-option__label", children: v.label })
+                          /* @__PURE__ */ jsx85("code", { className: "generate-schema-tab-option__id", children: v.id }),
+                          v.label && v.label !== v.id && /* @__PURE__ */ jsx85("span", { className: "generate-schema-tab-option__label", children: v.label })
                         ]
                       },
                       v.id
                     );
                   }) }),
-                  /* @__PURE__ */ jsx84("div", { className: "generate-schema-tree-grid", children: /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", children: [
-                    /* @__PURE__ */ jsx84("span", { children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E:" }),
-                    /* @__PURE__ */ jsxs81(
+                  /* @__PURE__ */ jsx85("div", { className: "generate-schema-tree-grid", children: /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", children: [
+                    /* @__PURE__ */ jsx85("span", { children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E:" }),
+                    /* @__PURE__ */ jsxs82(
                       "select",
                       {
                         value: options.tabsDefaultTab || "",
@@ -96430,19 +97398,19 @@ function GenerateSchemaModal() {
                         }),
                         disabled: (options.tabsListIds || []).length === 0,
                         children: [
-                          /* @__PURE__ */ jsx84("option", { value: "", children: "\u2014 \u043F\u0435\u0440\u0432\u0430\u044F \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u0430\u044F \u2014" }),
-                          (options.tabsListIds || []).map((id) => /* @__PURE__ */ jsx84("option", { value: id, children: id }, id))
+                          /* @__PURE__ */ jsx85("option", { value: "", children: "\u2014 \u043F\u0435\u0440\u0432\u0430\u044F \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u0430\u044F \u2014" }),
+                          (options.tabsListIds || []).map((id) => /* @__PURE__ */ jsx85("option", { value: id, children: id }, id))
                         ]
                       }
                     )
                   ] }) }),
-                  /* @__PURE__ */ jsxs81(
+                  /* @__PURE__ */ jsxs82(
                     "label",
                     {
                       className: "generate-schema-option" + (menuRoots.length === 0 ? " generate-schema-option--disabled" : ""),
                       title: menuRoots.length === 0 ? "\u0421\u043E\u0437\u0434\u0430\u0439\u0442\u0435 root_group \u0432 menus[] \u2014 \u0438\u043D\u0430\u0447\u0435 menu item \u043D\u0435\u043A\u0443\u0434\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0442\u044C" : "\u0414\u043E\u0431\u0430\u0432\u0438\u0442 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0432 \u043F\u0435\u0440\u0432\u044B\u0439 (\u0438\u043B\u0438 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439) root_group",
                       children: [
-                        /* @__PURE__ */ jsx84(
+                        /* @__PURE__ */ jsx85(
                           "input",
                           {
                             type: "checkbox",
@@ -96454,9 +97422,9 @@ function GenerateSchemaModal() {
                             })
                           }
                         ),
-                        /* @__PURE__ */ jsxs81("span", { children: [
+                        /* @__PURE__ */ jsxs82("span", { children: [
                           "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E",
-                          menuRoots.length === 0 && /* @__PURE__ */ jsx84(
+                          menuRoots.length === 0 && /* @__PURE__ */ jsx85(
                             MIcon,
                             {
                               name: "warning",
@@ -96469,24 +97437,24 @@ function GenerateSchemaModal() {
                     }
                   )
                 ] }),
-                profile === "sorting-searching" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "sort", size: "sm" }),
+                profile === "sorting-searching" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "sort", size: "sm" }),
                     "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B sorting / searching"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 ",
-                      /* @__PURE__ */ jsx84("code", { children: "sorting[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "sorting[]" }),
                       " \u0438 ",
-                      /* @__PURE__ */ jsx84("code", { children: "searching[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "searching[]" }),
                       " ",
                       "\u043D\u0435 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442\u0441\u044F. \u0413\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0430\u044E\u0449\u0438\u0435."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96494,14 +97462,14 @@ function GenerateSchemaModal() {
                         onChange: (e) => setOptions({ ...options, includeSorting: e.target.checked })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "sorting[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "sorting[]" }),
                       " (\u043F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u043E \u043F\u0435\u0440\u0432\u043E\u043C\u0443 \u0441\u043A\u0430\u043B\u044F\u0440\u043D\u043E\u043C\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443)"
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96512,32 +97480,32 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "searching[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "searching[]" }),
                       " (\u0432\u0441\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B)"
                     ] })
                   ] })
                 ] }),
-                profile === "transitive-chain" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "conversion_path", size: "sm" }),
+                profile === "transitive-chain" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "conversion_path", size: "sm" }),
                     "\u0426\u0435\u043F\u043E\u0447\u043A\u0430 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u043E\u0439 \u0441\u0432\u044F\u0437\u0438"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u041F\u043E\u0441\u0442\u0440\u043E\u0439\u0442\u0435 \u0446\u0435\u043F\u043E\u0447\u043A\u0443 \u043E\u0442 ",
-                      /* @__PURE__ */ jsx84("code", { children: entityId }),
+                      /* @__PURE__ */ jsx85("code", { children: entityId }),
                       " \u043A \u0446\u0435\u043B\u0435\u0432\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0413\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F ",
-                      /* @__PURE__ */ jsx84("code", { children: "transitiveLinkages[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "transitiveLinkages[]" }),
                       " +",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "join" }),
+                      /* @__PURE__ */ jsx85("code", { children: "join" }),
                       "-\u0432\u0438\u0434\u0436\u0435\u0442 \u0438 \u043A\u043E\u043B\u043E\u043D\u043A\u0430 (\u0435\u0441\u043B\u0438 entity-view / list-view \u0443\u0436\u0435 \u0435\u0441\u0442\u044C)."
                     ] })
                   ] }),
-                  entityId && /* @__PURE__ */ jsx84(
+                  entityId && /* @__PURE__ */ jsx85(
                     TreeChainBuilder,
                     {
                       index,
@@ -96552,15 +97520,15 @@ function GenerateSchemaModal() {
                       existingTrees: []
                     }
                   ),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tree-grid", children: [
-                    /* @__PURE__ */ jsxs81(
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tree-grid", children: [
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-field",
                         style: { flexDirection: "column", alignItems: "stretch" },
                         children: [
-                          /* @__PURE__ */ jsx84("span", { children: "ID \u0434\u0435\u0440\u0435\u0432\u0430:" }),
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85("span", { children: "ID \u0434\u0435\u0440\u0435\u0432\u0430:" }),
+                          /* @__PURE__ */ jsx85(
                             Combobox,
                             {
                               value: options.transitiveTreeId || null,
@@ -96579,14 +97547,14 @@ function GenerateSchemaModal() {
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs81(
+                    /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-field",
                         style: { flexDirection: "column", alignItems: "stretch" },
                         children: [
-                          /* @__PURE__ */ jsx84("span", { children: "Label (\u0432\u0438\u0434\u0436\u0435\u0442/\u043A\u043E\u043B\u043E\u043D\u043A\u0430):" }),
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85("span", { children: "Label (\u0432\u0438\u0434\u0436\u0435\u0442/\u043A\u043E\u043B\u043E\u043D\u043A\u0430):" }),
+                          /* @__PURE__ */ jsx85(
                             Combobox,
                             {
                               value: options.transitiveLabel || null,
@@ -96607,12 +97575,12 @@ function GenerateSchemaModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", style: { marginTop: 4 }, children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "widgets", size: "sm" }),
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", style: { marginTop: 4 }, children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "widgets", size: "sm" }),
                     "\u041A\u0443\u0434\u0430 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C"
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96623,15 +97591,15 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "join" }),
+                      /* @__PURE__ */ jsx85("code", { children: "join" }),
                       "-\u0432\u0438\u0434\u0436\u0435\u0442 \u0432 entity-view"
                     ] })
                   ] }),
-                  options.transitiveIncludeWidget && /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
-                    /* @__PURE__ */ jsx84("span", { children: "Entity-view \u0434\u043B\u044F \u0432\u0438\u0434\u0436\u0435\u0442\u0430:" }),
-                    /* @__PURE__ */ jsx84(
+                  options.transitiveIncludeWidget && /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
+                    /* @__PURE__ */ jsx85("span", { children: "Entity-view \u0434\u043B\u044F \u0432\u0438\u0434\u0436\u0435\u0442\u0430:" }),
+                    /* @__PURE__ */ jsx85(
                       Combobox,
                       {
                         value: options.transitiveWidgetViewId || null,
@@ -96647,13 +97615,13 @@ function GenerateSchemaModal() {
                         disabled: entityViewCandidates.length === 0
                       }
                     ),
-                    entityViewCandidates.length > 1 && !options.transitiveWidgetViewId && /* @__PURE__ */ jsxs81("span", { className: "generate-schema-field__warn", children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: "warning", size: "sm" }),
+                    entityViewCandidates.length > 1 && !options.transitiveWidgetViewId && /* @__PURE__ */ jsxs82("span", { className: "generate-schema-field__warn", children: [
+                      /* @__PURE__ */ jsx85(MIcon, { name: "warning", size: "sm" }),
                       "\u041D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E entity-view \u2014 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043E\u0434\u043D\u0443"
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96664,15 +97632,15 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "join" }),
+                      /* @__PURE__ */ jsx85("code", { children: "join" }),
                       "-\u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u0432 list-view"
                     ] })
                   ] }),
-                  options.transitiveIncludeListColumn && /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
-                    /* @__PURE__ */ jsx84("span", { children: "List-view \u0434\u043B\u044F \u043A\u043E\u043B\u043E\u043D\u043A\u0438:" }),
-                    /* @__PURE__ */ jsx84(
+                  options.transitiveIncludeListColumn && /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
+                    /* @__PURE__ */ jsx85("span", { children: "List-view \u0434\u043B\u044F \u043A\u043E\u043B\u043E\u043D\u043A\u0438:" }),
+                    /* @__PURE__ */ jsx85(
                       Combobox,
                       {
                         value: options.transitiveColumnViewId || null,
@@ -96688,27 +97656,27 @@ function GenerateSchemaModal() {
                         disabled: columnViewCandidates.length === 0
                       }
                     ),
-                    columnViewCandidates.length > 1 && !options.transitiveColumnViewId && /* @__PURE__ */ jsxs81("span", { className: "generate-schema-field__warn", children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: "warning", size: "sm" }),
+                    columnViewCandidates.length > 1 && !options.transitiveColumnViewId && /* @__PURE__ */ jsxs82("span", { className: "generate-schema-field__warn", children: [
+                      /* @__PURE__ */ jsx85(MIcon, { name: "warning", size: "sm" }),
                       "\u041D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E list/tree-view \u2014 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043E\u0434\u043D\u0443"
                     ] })
                   ] })
                 ] }),
-                profile === "defaults" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "rule", size: "sm" }),
+                profile === "defaults" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "rule", size: "sm" }),
                     "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B defaults"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0413\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F \u043E\u0434\u043D\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E ",
-                      /* @__PURE__ */ jsx84("code", { children: "dataRules.default" }),
+                      /* @__PURE__ */ jsx85("code", { children: "dataRules.default" }),
                       " \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C. \u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u0434\u043B\u044F \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0443\u0436\u0435 \u0437\u0430\u0434\u0430\u043D \u0434\u0435\u0444\u043E\u043B\u0442, \u043D\u0435 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442\u0441\u044F."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96716,14 +97684,14 @@ function GenerateSchemaModal() {
                         onChange: (e) => setOptions({ ...options, defaultsBool: e.target.checked })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
-                      /* @__PURE__ */ jsx84("code", { children: "Bool" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
+                      /* @__PURE__ */ jsx85("code", { children: "Bool" }),
                       "-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B"
                     ] })
                   ] }),
-                  options.defaultsBool !== false && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-field", children: [
-                    /* @__PURE__ */ jsx84("span", { children: "Default \u0434\u043B\u044F Bool:" }),
-                    /* @__PURE__ */ jsxs81(
+                  options.defaultsBool !== false && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-field", children: [
+                    /* @__PURE__ */ jsx85("span", { children: "Default \u0434\u043B\u044F Bool:" }),
+                    /* @__PURE__ */ jsxs82(
                       "select",
                       {
                         value: options.defaultsBoolValue ? "true" : "false",
@@ -96732,14 +97700,14 @@ function GenerateSchemaModal() {
                           defaultsBoolValue: e.target.value === "true"
                         }),
                         children: [
-                          /* @__PURE__ */ jsx84("option", { value: "false", children: "false" }),
-                          /* @__PURE__ */ jsx84("option", { value: "true", children: "true" })
+                          /* @__PURE__ */ jsx85("option", { value: "false", children: "false" }),
+                          /* @__PURE__ */ jsx85("option", { value: "true", children: "true" })
                         ]
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96747,13 +97715,13 @@ function GenerateSchemaModal() {
                         onChange: (e) => setOptions({ ...options, defaultsEnum: e.target.checked })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
-                      /* @__PURE__ */ jsx84("code", { children: "Enum" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
+                      /* @__PURE__ */ jsx85("code", { children: "Enum" }),
                       "-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (\u043F\u0435\u0440\u0432\u043E\u0435 \u043D\u0435-hidden \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435)"
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96764,32 +97732,32 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
-                      /* @__PURE__ */ jsx84("code", { children: "Workflow" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
+                      /* @__PURE__ */ jsx85("code", { children: "Workflow" }),
                       "-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (initial-\u0441\u0442\u0430\u0442\u0443\u0441)"
                     ] })
                   ] })
                 ] }),
-                profile === "domain-extras" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "menu", size: "sm" }),
+                profile === "domain-extras" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "menu", size: "sm" }),
                     "\u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u0430"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0413\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 ",
-                      /* @__PURE__ */ jsx84("code", { children: "root_group" }),
+                      /* @__PURE__ */ jsx85("code", { children: "root_group" }),
                       " \u0432 ",
-                      /* @__PURE__ */ jsx84("code", { children: "menus[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "menus[]" }),
                       ", \u043F\u0443\u043D\u043A\u0442\u044B \u043C\u0435\u043D\u044E \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 ",
-                      /* @__PURE__ */ jsx84("code", { children: "ui.list !== false" }),
+                      /* @__PURE__ */ jsx85("code", { children: "ui.list !== false" }),
                       " ",
                       "\u0438 \u043F\u0430\u043B\u0438\u0442\u0440\u0443 \u0438\u0437 10 \u0431\u0430\u0437\u043E\u0432\u044B\u0445 \u0438\u043A\u043E\u043D\u043E\u043A. \u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u043D\u0435 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442\u0441\u044F."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96800,10 +97768,10 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsx84("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
+                    /* @__PURE__ */ jsx85("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96814,10 +97782,10 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsx84("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0443\u043D\u043A\u0442\u044B \u043C\u0435\u043D\u044E \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C \u0434\u043E\u043C\u0435\u043D\u0430" })
+                    /* @__PURE__ */ jsx85("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0443\u043D\u043A\u0442\u044B \u043C\u0435\u043D\u044E \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C \u0434\u043E\u043C\u0435\u043D\u0430" })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96828,30 +97796,30 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsx84("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0430\u043B\u0438\u0442\u0440\u0443 \u0438\u043A\u043E\u043D\u043E\u043A (10 \u0448\u0442.)" })
+                    /* @__PURE__ */ jsx85("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0430\u043B\u0438\u0442\u0440\u0443 \u0438\u043A\u043E\u043D\u043E\u043A (10 \u0448\u0442.)" })
                   ] })
                 ] }),
-                profile === "enum-workflow-builder" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "data_object", size: "sm" }),
+                profile === "enum-workflow-builder" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "data_object", size: "sm" }),
                     "Enum / Workflow Builder"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0414\u043B\u044F ",
-                      /* @__PURE__ */ jsx84("code", { children: "String" }),
+                      /* @__PURE__ */ jsx85("code", { children: "String" }),
                       "-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0441 \u0441\u0443\u0444\u0444\u0438\u043A\u0441\u043E\u043C \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430 \u043D\u0438\u0436\u0435 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u0441\u043A\u0435\u043B\u0435\u0442\u044B ",
-                      /* @__PURE__ */ jsx84("code", { children: "Enum" }),
+                      /* @__PURE__ */ jsx85("code", { children: "Enum" }),
                       ". \u0410\u0442\u0440\u0438\u0431\u0443\u0442",
                       " ",
-                      /* @__PURE__ */ jsx84("strong", { children: "\u043D\u0435 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0435\u0442\u0441\u044F" }),
+                      /* @__PURE__ */ jsx85("strong", { children: "\u043D\u0435 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0435\u0442\u0441\u044F" }),
                       " \u043D\u0430 \u043D\u043E\u0432\u044B\u0439 \u0442\u0438\u043F \u2014 \u0441\u0434\u0435\u043B\u0430\u0439\u0442\u0435 \u044D\u0442\u043E \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u043F\u043E\u0441\u043B\u0435 \u0440\u0435\u0432\u044C\u044E."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
-                    /* @__PURE__ */ jsx84("span", { children: "\u0421\u0443\u0444\u0444\u0438\u043A\u0441\u044B (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E):" }),
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
+                    /* @__PURE__ */ jsx85("span", { children: "\u0421\u0443\u0444\u0444\u0438\u043A\u0441\u044B (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E):" }),
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "text",
@@ -96864,9 +97832,9 @@ function GenerateSchemaModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
-                    /* @__PURE__ */ jsx84("span", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E):" }),
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
+                    /* @__PURE__ */ jsx85("span", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E):" }),
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "text",
@@ -96879,8 +97847,8 @@ function GenerateSchemaModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -96891,51 +97859,51 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0414\u043B\u044F \u0441\u0443\u0444\u0444\u0438\u043A\u0441\u0430 ",
-                      /* @__PURE__ */ jsx84("code", { children: "Status" }),
+                      /* @__PURE__ */ jsx85("code", { children: "Status" }),
                       " \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "Workflow" }),
+                      /* @__PURE__ */ jsx85("code", { children: "Workflow" }),
                       " ",
                       "\u0432\u043C\u0435\u0441\u0442\u043E Enum"
                     ] })
                   ] })
                 ] }),
-                profile === "ui-status-colors" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "palette", size: "sm" }),
+                profile === "ui-status-colors" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "palette", size: "sm" }),
                     "\u0426\u0432\u0435\u0442\u0430 \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0417\u0430\u043F\u043E\u043B\u043D\u044F\u0435\u0442 ",
-                      /* @__PURE__ */ jsx84("code", { children: "view[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "view[]" }),
                       " \u0434\u043B\u044F ",
-                      /* @__PURE__ */ jsx84("code", { children: "Enum" }),
+                      /* @__PURE__ */ jsx85("code", { children: "Enum" }),
                       "/",
-                      /* @__PURE__ */ jsx84("code", { children: "Workflow" }),
+                      /* @__PURE__ */ jsx85("code", { children: "Workflow" }),
                       " ",
                       "\u0431\u0435\u0437 \u043E\u0444\u043E\u0440\u043C\u043B\u0435\u043D\u0438\u044F. \u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043F\u043E \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0435: ",
-                      /* @__PURE__ */ jsx84("code", { children: "active/progress" }),
+                      /* @__PURE__ */ jsx85("code", { children: "active/progress" }),
                       " \u2192 \u0441\u0438\u043D\u0438\u0439,",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "done/closed" }),
+                      /* @__PURE__ */ jsx85("code", { children: "done/closed" }),
                       " \u2192 \u0437\u0435\u043B\u0451\u043D\u044B\u0439, ",
-                      /* @__PURE__ */ jsx84("code", { children: "critical/error" }),
+                      /* @__PURE__ */ jsx85("code", { children: "critical/error" }),
                       " \u2192 \u043A\u0440\u0430\u0441\u043D\u044B\u0439.",
-                      /* @__PURE__ */ jsx84("br", {}),
-                      /* @__PURE__ */ jsx84("strong", { children: "\u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435:" }),
+                      /* @__PURE__ */ jsx85("br", {}),
+                      /* @__PURE__ */ jsx85("strong", { children: "\u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435:" }),
                       " \u043F\u0440\u043E\u0444\u0438\u043B\u044C \u043F\u0440\u0438\u043D\u0443\u0434\u0438\u0442\u0435\u043B\u044C\u043D\u043E \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0435\u0442",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "view[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "view[]" }),
                       " \u0434\u0430\u0436\u0435 \u0442\u0430\u043C, \u0433\u0434\u0435 \u043E\u043D \u0443\u0436\u0435 \u0437\u0430\u0434\u0430\u043D."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
-                    /* @__PURE__ */ jsx84("span", { children: "\u041F\u0430\u043B\u0438\u0442\u0440\u0430 (fallback, \u043A\u043E\u0433\u0434\u0430 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u043B\u0430):" }),
-                    /* @__PURE__ */ jsxs81("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }, children: [
-                      (options.uiStatusColorPalette || []).map((color, idx) => /* @__PURE__ */ jsxs81(
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
+                    /* @__PURE__ */ jsx85("span", { children: "\u041F\u0430\u043B\u0438\u0442\u0440\u0430 (fallback, \u043A\u043E\u0433\u0434\u0430 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u043B\u0430):" }),
+                    /* @__PURE__ */ jsxs82("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }, children: [
+                      (options.uiStatusColorPalette || []).map((color, idx) => /* @__PURE__ */ jsxs82(
                         "div",
                         {
                           style: {
@@ -96950,7 +97918,7 @@ function GenerateSchemaModal() {
                             fontFamily: "JetBrains Mono, monospace"
                           },
                           children: [
-                            /* @__PURE__ */ jsx84(
+                            /* @__PURE__ */ jsx85(
                               "input",
                               {
                                 type: "color",
@@ -96972,8 +97940,8 @@ function GenerateSchemaModal() {
                                 }
                               }
                             ),
-                            /* @__PURE__ */ jsx84("span", { children: color }),
-                            /* @__PURE__ */ jsx84(
+                            /* @__PURE__ */ jsx85("span", { children: color }),
+                            /* @__PURE__ */ jsx85(
                               "button",
                               {
                                 type: "button",
@@ -96997,7 +97965,7 @@ function GenerateSchemaModal() {
                         },
                         idx
                       )),
-                      /* @__PURE__ */ jsx84(
+                      /* @__PURE__ */ jsx85(
                         "button",
                         {
                           type: "button",
@@ -97013,23 +97981,23 @@ function GenerateSchemaModal() {
                     ] })
                   ] })
                 ] }),
-                profile === "exchange-settings" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "swap_horiz", size: "sm" }),
+                profile === "exchange-settings" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "swap_horiz", size: "sm" }),
                     "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0421\u043E\u0437\u0434\u0430\u0451\u0442 \u043E\u0431\u044A\u0435\u043A\u0442 ",
-                      /* @__PURE__ */ jsx84("code", { children: "exchangeSettings" }),
+                      /* @__PURE__ */ jsx85("code", { children: "exchangeSettings" }),
                       " \u0441\u043E \u0432\u0441\u0435\u043C\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438 \u0434\u043E\u043C\u0435\u043D\u0430.",
-                      /* @__PURE__ */ jsx84("strong", { children: " \u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0435\u0442 \u0441\u0435\u043A\u0446\u0438\u044E \u0446\u0435\u043B\u0438\u043A\u043E\u043C" }),
+                      /* @__PURE__ */ jsx85("strong", { children: " \u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u044B\u0432\u0430\u0435\u0442 \u0441\u0435\u043A\u0446\u0438\u044E \u0446\u0435\u043B\u0438\u043A\u043E\u043C" }),
                       ", \u0435\u0441\u043B\u0438 \u043E\u043D\u0430 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -97037,13 +98005,13 @@ function GenerateSchemaModal() {
                         onChange: (e) => setOptions({ ...options, exchangeEnable: e.target.checked })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
-                      /* @__PURE__ */ jsx84("code", { children: "enable: true" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
+                      /* @__PURE__ */ jsx85("code", { children: "enable: true" }),
                       " (\u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043E\u0431\u043C\u0435\u043D)"
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -97051,27 +98019,27 @@ function GenerateSchemaModal() {
                         onChange: (e) => setOptions({ ...options, exchangeNoCmsSync: e.target.checked })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "sdk.cms.sync" }),
+                      /* @__PURE__ */ jsx85("code", { children: "sdk.cms.sync" }),
                       " (",
-                      /* @__PURE__ */ jsx84("code", { children: "noCmsSync: true" }),
+                      /* @__PURE__ */ jsx85("code", { children: "noCmsSync: true" }),
                       ")"
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
-                    /* @__PURE__ */ jsx84("span", { children: "\u0421\u0442\u0440\u0430\u0442\u0435\u0433\u0438\u044F forExport:" }),
-                    /* @__PURE__ */ jsx84("div", { style: { display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }, children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-field", style: { flexDirection: "column", alignItems: "stretch" }, children: [
+                    /* @__PURE__ */ jsx85("span", { children: "\u0421\u0442\u0440\u0430\u0442\u0435\u0433\u0438\u044F forExport:" }),
+                    /* @__PURE__ */ jsx85("div", { style: { display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }, children: [
                       { value: "label", label: "label (\u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439)" },
                       { value: "firstString", label: "\u043F\u0435\u0440\u0432\u044B\u0439 String-\u0430\u0442\u0440\u0438\u0431\u0443\u0442" },
                       { value: "id", label: "id (\u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439 UUID)" }
-                    ].map((opt) => /* @__PURE__ */ jsxs81(
+                    ].map((opt) => /* @__PURE__ */ jsxs82(
                       "label",
                       {
                         className: "generate-schema-option",
                         style: { padding: "4px 8px" },
                         children: [
-                          /* @__PURE__ */ jsx84(
+                          /* @__PURE__ */ jsx85(
                             "input",
                             {
                               type: "radio",
@@ -97083,41 +98051,41 @@ function GenerateSchemaModal() {
                               })
                             }
                           ),
-                          /* @__PURE__ */ jsx84("span", { children: opt.label })
+                          /* @__PURE__ */ jsx85("span", { children: opt.label })
                         ]
                       },
                       opt.value
                     )) })
                   ] })
                 ] }),
-                profile === "counter-color" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "timelapse", size: "sm" }),
+                profile === "counter-color" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "timelapse", size: "sm" }),
                     "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E ",
-                      /* @__PURE__ */ jsx84("code", { children: "dataType: Counter" }),
+                      /* @__PURE__ */ jsx85("code", { children: "dataType: Counter" }),
                       "-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441\u043E\u0437\u0434\u0430\u0451\u0442\u0441\u044F",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "counterColorPatterns[]" }),
+                      /* @__PURE__ */ jsx85("code", { children: "counterColorPatterns[]" }),
                       ". \u041F\u043E\u0440\u043E\u0433\u0438 \u0432 \u0444\u043E\u0440\u043C\u0430\u0442\u0435",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "1w2d3h4m" }),
+                      /* @__PURE__ */ jsx85("code", { children: "1w2d3h4m" }),
                       " \u0438\u043B\u0438 ",
-                      /* @__PURE__ */ jsx84("code", { children: "60%" }),
+                      /* @__PURE__ */ jsx85("code", { children: "60%" }),
                       ".",
                       " ",
-                      /* @__PURE__ */ jsx84("strong", { children: "Yellow \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u2264 Red" }),
+                      /* @__PURE__ */ jsx85("strong", { children: "Yellow \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u2264 Red" }),
                       "."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tree-grid", children: [
-                    /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", children: [
-                      /* @__PURE__ */ jsx84("span", { children: "Red (\u0436\u0451\u043B\u0442\u044B\u0439 \u2192 \u043A\u0440\u0430\u0441\u043D\u044B\u0439):" }),
-                      /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tree-grid", children: [
+                    /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", children: [
+                      /* @__PURE__ */ jsx85("span", { children: "Red (\u0436\u0451\u043B\u0442\u044B\u0439 \u2192 \u043A\u0440\u0430\u0441\u043D\u044B\u0439):" }),
+                      /* @__PURE__ */ jsx85(
                         "input",
                         {
                           type: "text",
@@ -97130,9 +98098,9 @@ function GenerateSchemaModal() {
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsxs81("label", { className: "generate-schema-field", children: [
-                      /* @__PURE__ */ jsx84("span", { children: "Yellow (\u0437\u0435\u043B\u0451\u043D\u044B\u0439 \u2192 \u0436\u0451\u043B\u0442\u044B\u0439):" }),
-                      /* @__PURE__ */ jsx84(
+                    /* @__PURE__ */ jsxs82("label", { className: "generate-schema-field", children: [
+                      /* @__PURE__ */ jsx85("span", { children: "Yellow (\u0437\u0435\u043B\u0451\u043D\u044B\u0439 \u2192 \u0436\u0451\u043B\u0442\u044B\u0439):" }),
+                      /* @__PURE__ */ jsx85(
                         "input",
                         {
                           type: "text",
@@ -97147,28 +98115,28 @@ function GenerateSchemaModal() {
                     ] })
                   ] })
                 ] }),
-                profile === "linked-groups" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-block-group__title", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "widgets", size: "sm" }),
+                profile === "linked-groups" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "widgets", size: "sm" }),
                     "Linked Objects Groups"
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-tabs-hint", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "sm" }),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-tabs-hint", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0432\u044F\u0437\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0441 ",
-                      /* @__PURE__ */ jsx84("code", { children: "side=2" }),
+                      /* @__PURE__ */ jsx85("code", { children: "side=2" }),
                       " \u0441\u043E\u0437\u0434\u0430\u0451\u0442\u0441\u044F \u0432\u0438\u0434\u0436\u0435\u0442",
                       " ",
-                      /* @__PURE__ */ jsx84("code", { children: "linked_objects_groups" }),
+                      /* @__PURE__ */ jsx85("code", { children: "linked_objects_groups" }),
                       " \u0432 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u043C entity-view.",
                       " ",
                       "\u0422\u0440\u0435\u0431\u0443\u0435\u0442, \u0447\u0442\u043E\u0431\u044B ",
-                      /* @__PURE__ */ jsx84("code", { children: "view${Entity}" }),
+                      /* @__PURE__ */ jsx85("code", { children: "view${Entity}" }),
                       " \u0443\u0436\u0435 \u0431\u044B\u043B \u0432 YAML."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs81("label", { className: "generate-schema-option", children: [
-                    /* @__PURE__ */ jsx84(
+                  /* @__PURE__ */ jsxs82("label", { className: "generate-schema-option", children: [
+                    /* @__PURE__ */ jsx85(
                       "input",
                       {
                         type: "checkbox",
@@ -97179,196 +98147,254 @@ function GenerateSchemaModal() {
                         })
                       }
                     ),
-                    /* @__PURE__ */ jsxs81("span", { children: [
+                    /* @__PURE__ */ jsxs82("span", { children: [
                       "\u0412\u043A\u043B\u044E\u0447\u0430\u0442\u044C ",
-                      /* @__PURE__ */ jsx84("code", { children: "side=1" }),
+                      /* @__PURE__ */ jsx85("code", { children: "side=1" }),
                       " \u0441\u0432\u044F\u0437\u0438 (\u043E\u0434\u0438\u043D \u043E\u0431\u044A\u0435\u043A\u0442, \u043D\u0435 \u0433\u0440\u0443\u043F\u043F\u0430)"
                     ] })
                   ] })
                 ] }),
-                profile === "technical" && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-technical", children: [
-                  /* @__PURE__ */ jsx84("div", { className: "generate-schema-technical__icon", children: /* @__PURE__ */ jsx84(MIcon, { name: "settings_suggest", size: "xl" }) }),
-                  /* @__PURE__ */ jsx84("div", { className: "generate-schema-technical__title", children: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-technical__text", children: [
+                profile === "technical" && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-technical", children: [
+                  /* @__PURE__ */ jsx85("div", { className: "generate-schema-technical__icon", children: /* @__PURE__ */ jsx85(MIcon, { name: "settings_suggest", size: "xl" }) }),
+                  /* @__PURE__ */ jsx85("div", { className: "generate-schema-technical__title", children: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-technical__text", children: [
                     "\u0414\u043B\u044F \u043D\u0435\u0451 UI \u043D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F: \u043E\u043D\u0430 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043A\u0430\u043A ",
-                    /* @__PURE__ */ jsx84("strong", { children: "Reference-target" }),
+                    /* @__PURE__ */ jsx85("strong", { children: "Reference-target" }),
                     ", \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A \u043A\u043E\u0434\u043E\u0432 \u0438\u043B\u0438 \u0432\u0441\u043F\u043E\u043C\u043E\u0433\u0430\u0442\u0435\u043B\u044C\u043D\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043D\u0430\u043F\u043E\u043B\u043D\u044F\u0435\u043C\u0430\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0435\u0439."
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-technical__hint", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-technical__hint", children: [
                     "\u041D\u0443\u0436\u0435\u043D \u043C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 entity-view (\u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u043F\u043E \u043A\u043B\u0438\u043A\u0443 \u043D\u0430 \u0442\u0435\u0433 \u0432 Reference)? \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0440\u043E\u0444\u0438\u043B\u044C",
                     " ",
-                    /* @__PURE__ */ jsx84("strong", { children: "\xAB\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\xBB" }),
+                    /* @__PURE__ */ jsx85("strong", { children: "\xAB\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\xBB" }),
                     "."
+                  ] })
+                ] }),
+                gen.result && selected.size > 0 && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-block-group__title", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: "visibility", size: "sm" }),
+                    "\u0427\u0442\u043E \u0431\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u043D\u043E"
+                  ] }),
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-mini-preview", children: [
+                    (() => {
+                      const counts = {};
+                      for (const b of gen.result.blocks) {
+                        if (!selected.has(b.blockId))
+                          continue;
+                        counts[b.section] = (counts[b.section] || 0) + 1;
+                      }
+                      return Object.entries(counts).map(([section, n]) => {
+                        const meta = {
+                          actions: { icon: "bolt", label: "\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439" },
+                          views: { icon: "view_quilt", label: "\u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439" },
+                          groups: { icon: "view_module", label: "\u0433\u0440\u0443\u043F\u043F" },
+                          widgets: { icon: "widgets", label: "\u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432" },
+                          menus: { icon: "menu", label: "\u043F\u0443\u043D\u043A\u0442\u043E\u0432 \u043C\u0435\u043D\u044E" },
+                          medias: { icon: "image", label: "\u0438\u043A\u043E\u043D\u043E\u043A" },
+                          dataRules: { icon: "rule", label: "\u043F\u0440\u0430\u0432\u0438\u043B \u0434\u0430\u043D\u043D\u044B\u0445" },
+                          dataTypes: { icon: "category", label: "\u0442\u0438\u043F\u043E\u0432 \u0434\u0430\u043D\u043D\u044B\u0445" },
+                          trees: { icon: "account_tree", label: "\u0434\u0435\u0440\u0435\u0432\u044C\u0435\u0432" },
+                          columns: { icon: "view_column", label: "\u043A\u043E\u043B\u043E\u043D\u043E\u043A" },
+                          linkages: { icon: "link", label: "\u0441\u0432\u044F\u0437\u0435\u0439" },
+                          entities: { icon: "data_object", label: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" },
+                          sequences: { icon: "linear_scale", label: "\u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0435\u0439" },
+                          transitiveLinkages: { icon: "conversion_path", label: "\u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439" }
+                        };
+                        const m = meta[section] || { icon: "circle", label: section };
+                        return /* @__PURE__ */ jsxs82("div", { className: "generate-schema-mini-preview__item", children: [
+                          /* @__PURE__ */ jsx85(MIcon, { name: m.icon, size: "sm" }),
+                          /* @__PURE__ */ jsxs82("strong", { children: [
+                            "+",
+                            n
+                          ] }),
+                          /* @__PURE__ */ jsx85("span", { children: m.label })
+                        ] }, section);
+                      });
+                    })(),
+                    /* @__PURE__ */ jsxs82(
+                      "button",
+                      {
+                        className: "btn btn--small",
+                        onClick: () => {
+                          const blocksToPreview = (gen.result?.blocks).filter(
+                            (b) => selected.has(b.blockId)
+                          );
+                          if (blocksToPreview.length === 0)
+                            return;
+                          const st = useGraphStore.getState();
+                          st.setGeneratedPreviewData({
+                            blocks: blocksToPreview,
+                            entityId: entityId || null,
+                            domainId: domainId || null
+                          });
+                          st.setGeneratedPreviewOpen(true);
+                        },
+                        style: { marginLeft: "auto" },
+                        children: [
+                          /* @__PURE__ */ jsx85(MIcon, { name: "visibility", size: "sm" }),
+                          "\u041F\u0440\u0435\u0432\u044C\u044E UI"
+                        ]
+                      }
+                    )
                   ] })
                 ] })
               ] }),
-              tab !== "options" && !isDomainScope && !entityId && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-empty", children: [
-                /* @__PURE__ */ jsx84(MIcon, { name: "info", size: "lg" }),
-                /* @__PURE__ */ jsx84("div", { children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0434\u043B\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438" })
+              tab !== "options" && !isDomainScope && !entityId && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-empty", children: [
+                /* @__PURE__ */ jsx85(MIcon, { name: "info", size: "lg" }),
+                /* @__PURE__ */ jsx85("div", { children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0434\u043B\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438" })
               ] }),
-              tab === "blocks" && (entityId || isDomainScope) && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-blocks", children: [
-                gen.loading && /* @__PURE__ */ jsx84("div", { className: "generate-schema-loading", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
-                gen.error && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-error", children: [
+              tab === "blocks" && (entityId || isDomainScope) && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-blocks", children: [
+                gen.loading && /* @__PURE__ */ jsx85("div", { className: "generate-schema-loading", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
+                gen.error && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-error", children: [
                   "\u041E\u0448\u0438\u0431\u043A\u0430: ",
                   gen.error
                 ] }),
-                !gen.loading && !gen.error && gen.result && groupedBlocks.length === 0 && /* @__PURE__ */ jsx84("div", { className: "generate-schema-empty", children: "\u041D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u2014 \u0432\u0441\u0451 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C" }),
-                !gen.loading && !gen.error && groupedBlocks.map(([sectionKey, blocks]) => {
-                  const meta = sectionLabels[sectionKey] || {
-                    label: sectionKey,
-                    icon: "folder"
-                  };
-                  const key = `sect-${sectionKey}`;
-                  const isCollapsed = collapsed.has(key);
-                  const selectedCount = blocks.filter(
-                    (b) => selected.has(b.blockId)
-                  ).length;
-                  return /* @__PURE__ */ jsxs81(
-                    "div",
+                !gen.loading && !gen.error && gen.result && groupedBlocks.length === 0 && /* @__PURE__ */ jsx85("div", { className: "generate-schema-empty", children: "\u041D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u2014 \u0432\u0441\u0451 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C" }),
+                !gen.loading && !gen.error && gen.result && groupedBlocks.length > 0 && /* @__PURE__ */ jsxs82(Fragment33, { children: [
+                  /* @__PURE__ */ jsx85(
+                    BlockToolbar,
                     {
-                      className: "generate-schema-section" + (isCollapsed ? " generate-schema-section--collapsed" : ""),
-                      children: [
-                        /* @__PURE__ */ jsxs81(
-                          "button",
-                          {
-                            className: "generate-schema-section-head",
-                            onClick: () => toggleSection(key),
-                            children: [
-                              /* @__PURE__ */ jsx84(
-                                MIcon,
-                                {
-                                  name: isCollapsed ? "chevron_right" : "expand_more",
-                                  size: "sm"
-                                }
-                              ),
-                              /* @__PURE__ */ jsx84(
-                                MIcon,
-                                {
-                                  name: meta.icon,
-                                  size: "sm"
-                                }
-                              ),
-                              /* @__PURE__ */ jsx84("span", { children: meta.label }),
-                              /* @__PURE__ */ jsxs81("span", { className: "generate-schema-section-count", children: [
-                                selectedCount,
-                                " / ",
-                                blocks.length
-                              ] })
-                            ]
-                          }
-                        ),
-                        !isCollapsed && blocks.map((b) => {
-                          const isSelected = selected.has(b.blockId);
-                          const hasMissingDep = dependentsMissing.has(
-                            b.blockId
-                          );
-                          const st = gen.result?.manifestStatus?.[b.blockId];
-                          return /* @__PURE__ */ jsxs81(
-                            "label",
+                      blocks: gen.result.blocks,
+                      manifestStatus: gen.result.manifestStatus ?? {},
+                      filter: blockFilter,
+                      onFilterChange: setBlockFilter,
+                      query: blockQuery,
+                      onQueryChange: setBlockQuery
+                    }
+                  ),
+                  filteredGroupedBlocks.length === 0 && /* @__PURE__ */ jsx85("div", { className: "generate-schema-empty", children: blockQuery.trim() ? `\u041F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${blockQuery.trim()}\xBB \u0431\u043B\u043E\u043A\u043E\u0432 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E` : blockFilter !== "all" ? "\u041D\u0435\u0442 \u0431\u043B\u043E\u043A\u043E\u0432 \u0441 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u043C \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u043C" : "\u041D\u0435\u0442 \u0431\u043B\u043E\u043A\u043E\u0432" }),
+                  filteredGroupedBlocks.map(([sectionKey, blocks]) => {
+                    const meta = sectionLabels[sectionKey] || {
+                      label: sectionKey,
+                      icon: "folder"
+                    };
+                    const key = `sect-${sectionKey}`;
+                    const isCollapsed = collapsed.has(key);
+                    const selectedCount = blocks.filter(
+                      (b) => selected.has(b.blockId)
+                    ).length;
+                    return /* @__PURE__ */ jsxs82(
+                      "div",
+                      {
+                        className: "generate-schema-section" + (isCollapsed ? " generate-schema-section--collapsed" : ""),
+                        children: [
+                          /* @__PURE__ */ jsxs82(
+                            "button",
                             {
-                              className: "generate-schema-block" + (hasMissingDep ? " generate-schema-block--warn" : "") + (st ? ` generate-schema-block--${st}` : ""),
-                              title: b.title,
+                              className: "generate-schema-section-head",
+                              onClick: () => toggleSection(key),
                               children: [
-                                /* @__PURE__ */ jsx84(
-                                  "input",
-                                  {
-                                    type: "checkbox",
-                                    checked: isSelected,
-                                    onChange: () => toggleBlock(
-                                      b.blockId
-                                    )
-                                  }
-                                ),
-                                /* @__PURE__ */ jsx84(
+                                /* @__PURE__ */ jsx85(
                                   MIcon,
                                   {
-                                    name: iconForBlock(
-                                      b
-                                    ),
+                                    name: isCollapsed ? "chevron_right" : "expand_more",
                                     size: "sm"
                                   }
                                 ),
-                                /* @__PURE__ */ jsx84("span", { className: "generate-schema-block-title", children: b.title }),
-                                /* @__PURE__ */ jsx84("code", { className: "generate-schema-block-id", children: b.blockId }),
-                                st === "modified" && /* @__PURE__ */ jsx84(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "generate-schema-force-replace-btn" + (forceReplaceIds.has(b.blockId) ? " active" : ""),
-                                    onClick: (e) => {
-                                      e.stopPropagation();
-                                      e.preventDefault();
-                                      toggleForceReplace(b.blockId);
-                                    },
-                                    title: forceReplaceIds.has(b.blockId) ? "\u0411\u043B\u043E\u043A \u0431\u0443\u0434\u0435\u0442 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u0430\u043D (\u0440\u0443\u0447\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438 \u043F\u043E\u0442\u0435\u0440\u044F\u044E\u0442\u0441\u044F)" : "\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u044D\u0442\u043E\u0442 \u0431\u043B\u043E\u043A \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u043C (\u0440\u0443\u0447\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438 \u043F\u043E\u0442\u0435\u0440\u044F\u044E\u0442\u0441\u044F)",
-                                    children: /* @__PURE__ */ jsx84(MIcon, { name: "undo", size: "sm" })
-                                  }
-                                ),
-                                statusBadge(st),
-                                hasMissingDep && /* @__PURE__ */ jsx84(
-                                  "span",
-                                  {
-                                    className: "generate-schema-block-warn",
-                                    title: "\u0421\u043D\u044F\u0442\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C",
-                                    children: /* @__PURE__ */ jsx84(
-                                      MIcon,
-                                      {
-                                        name: "warning",
-                                        size: "sm"
-                                      }
-                                    )
-                                  }
-                                )
+                                /* @__PURE__ */ jsx85(MIcon, { name: meta.icon, size: "sm" }),
+                                /* @__PURE__ */ jsx85("span", { children: meta.label }),
+                                /* @__PURE__ */ jsxs82("span", { className: "generate-schema-section-count", children: [
+                                  selectedCount,
+                                  " / ",
+                                  blocks.length
+                                ] })
                               ]
-                            },
-                            b.blockId
-                          );
-                        })
-                      ]
-                    },
-                    key
-                  );
-                })
+                            }
+                          ),
+                          !isCollapsed && blocks.map((b) => {
+                            const isSelected = selected.has(b.blockId);
+                            const hasMissingDep = dependentsMissing.has(b.blockId);
+                            const st = gen.result?.manifestStatus?.[b.blockId];
+                            return /* @__PURE__ */ jsxs82(
+                              "label",
+                              {
+                                className: "generate-schema-block" + (hasMissingDep ? " generate-schema-block--warn" : "") + (st ? ` generate-schema-block--${st}` : ""),
+                                title: b.title,
+                                children: [
+                                  /* @__PURE__ */ jsx85(
+                                    "input",
+                                    {
+                                      type: "checkbox",
+                                      checked: isSelected,
+                                      onChange: () => toggleBlock(b.blockId)
+                                    }
+                                  ),
+                                  /* @__PURE__ */ jsx85(MIcon, { name: iconForBlock(b), size: "sm" }),
+                                  /* @__PURE__ */ jsx85("span", { className: "generate-schema-block-title", children: b.title }),
+                                  /* @__PURE__ */ jsx85("code", { className: "generate-schema-block-id", children: b.blockId }),
+                                  st === "modified" && /* @__PURE__ */ jsx85(
+                                    "button",
+                                    {
+                                      type: "button",
+                                      className: "generate-schema-force-replace-btn" + (forceReplaceIds.has(b.blockId) ? " active" : ""),
+                                      onClick: (e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        toggleForceReplace(b.blockId);
+                                      },
+                                      title: forceReplaceIds.has(b.blockId) ? "\u0411\u043B\u043E\u043A \u0431\u0443\u0434\u0435\u0442 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u0430\u043D (\u0440\u0443\u0447\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438 \u043F\u043E\u0442\u0435\u0440\u044F\u044E\u0442\u0441\u044F)" : "\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u044D\u0442\u043E\u0442 \u0431\u043B\u043E\u043A \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u043C (\u0440\u0443\u0447\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438 \u043F\u043E\u0442\u0435\u0440\u044F\u044E\u0442\u0441\u044F)",
+                                      children: /* @__PURE__ */ jsx85(MIcon, { name: "undo", size: "sm" })
+                                    }
+                                  ),
+                                  statusBadge(st),
+                                  hasMissingDep && /* @__PURE__ */ jsx85(
+                                    "span",
+                                    {
+                                      className: "generate-schema-block-warn",
+                                      title: "\u0421\u043D\u044F\u0442\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C",
+                                      children: /* @__PURE__ */ jsx85(MIcon, { name: "warning", size: "sm" })
+                                    }
+                                  )
+                                ]
+                              },
+                              b.blockId
+                            );
+                          })
+                        ]
+                      },
+                      key
+                    );
+                  })
+                ] })
               ] }),
-              tab === "yaml" && (entityId || isDomainScope) && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-yaml", children: [
-                gen.result && selected.size === 0 && /* @__PURE__ */ jsx84("div", { className: "generate-schema-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E. \u041E\u0442\u043C\u0435\u0442\u044C\u0442\u0435 \u0431\u043B\u043E\u043A\u0438 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0411\u043B\u043E\u043A\u0438\xBB." }),
+              tab === "yaml" && (entityId || isDomainScope) && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-yaml", children: [
+                gen.result && selected.size === 0 && /* @__PURE__ */ jsx85("div", { className: "generate-schema-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E. \u041E\u0442\u043C\u0435\u0442\u044C\u0442\u0435 \u0431\u043B\u043E\u043A\u0438 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0411\u043B\u043E\u043A\u0438\xBB." }),
                 yamlSections.map((section) => {
                   const key = `yaml-${section.key}`;
                   const isCollapsed = collapsed.has(key);
-                  return /* @__PURE__ */ jsxs81(
+                  return /* @__PURE__ */ jsxs82(
                     "div",
                     {
                       className: "generate-schema-section" + (isCollapsed ? " generate-schema-section--collapsed" : ""),
                       children: [
-                        /* @__PURE__ */ jsxs81(
+                        /* @__PURE__ */ jsxs82(
                           "button",
                           {
                             className: "generate-schema-section-head",
                             onClick: () => toggleSection(key),
                             children: [
-                              /* @__PURE__ */ jsx84(
+                              /* @__PURE__ */ jsx85(
                                 MIcon,
                                 {
                                   name: isCollapsed ? "chevron_right" : "expand_more",
                                   size: "sm"
                                 }
                               ),
-                              /* @__PURE__ */ jsx84("span", { children: section.label }),
-                              /* @__PURE__ */ jsx84("span", { className: "generate-schema-section-count", children: section.blocks.length })
+                              /* @__PURE__ */ jsx85("span", { children: section.label }),
+                              /* @__PURE__ */ jsx85("span", { className: "generate-schema-section-count", children: section.blocks.length })
                             ]
                           }
                         ),
                         !isCollapsed && section.blocks.map(
-                          ({ block, yaml: yaml2 }) => /* @__PURE__ */ jsxs81(
+                          ({ block, yaml: yaml2 }) => /* @__PURE__ */ jsxs82(
                             "div",
                             {
                               className: "generate-schema-yaml-block",
                               children: [
-                                /* @__PURE__ */ jsxs81("div", { className: "generate-schema-yaml-title", children: [
+                                /* @__PURE__ */ jsxs82("div", { className: "generate-schema-yaml-title", children: [
                                   "# ",
                                   block.title
                                 ] }),
-                                /* @__PURE__ */ jsx84("pre", { children: yaml2 })
+                                /* @__PURE__ */ jsx85("pre", { children: yaml2 })
                               ]
                             },
                             block.blockId
@@ -97380,8 +98406,8 @@ function GenerateSchemaModal() {
                   );
                 })
               ] }),
-              tab === "skipped" && entityId && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-skipped-list", children: [
-                skipped.length === 0 && /* @__PURE__ */ jsx84("div", { className: "generate-schema-empty", children: "\u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0443\u0436\u043D\u043E, \u0431\u0443\u0434\u0435\u0442 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E" }),
+              tab === "skipped" && entityId && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-skipped-list", children: [
+                skipped.length === 0 && /* @__PURE__ */ jsx85("div", { className: "generate-schema-empty", children: "\u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0443\u0436\u043D\u043E, \u0431\u0443\u0434\u0435\u0442 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E" }),
                 skipped.map((s) => {
                   const hint = getSkipReasonHint(s.reason, s.hint);
                   const displayId = s.id === "?" || s.id === "(\u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u0430)" || !s.id ? "\u2014" : s.id;
@@ -97401,17 +98427,17 @@ function GenerateSchemaModal() {
                       }
                     }
                   });
-                  return /* @__PURE__ */ jsxs81(
+                  return /* @__PURE__ */ jsxs82(
                     "div",
                     {
                       className: "generate-schema-skipped-row" + (hint ? " generate-schema-skipped-row--with-hint" : ""),
                       children: [
-                        /* @__PURE__ */ jsxs81("div", { className: "generate-schema-skipped-row__main", children: [
-                          /* @__PURE__ */ jsx84(MIcon, { name: skipReasonIcon(s.reason), size: "sm" }),
-                          /* @__PURE__ */ jsx84("code", { className: "generate-schema-skipped-row__id", children: displayId }),
-                          /* @__PURE__ */ jsx84("span", { className: "generate-schema-skipped-row__reason", children: humanizeSkipReason(s.reason) }),
-                          /* @__PURE__ */ jsx84("span", { className: "generate-schema-skipped-row__section", children: s.section }),
-                          quickFix && /* @__PURE__ */ jsxs81(
+                        /* @__PURE__ */ jsxs82("div", { className: "generate-schema-skipped-row__main", children: [
+                          /* @__PURE__ */ jsx85(MIcon, { name: skipReasonIcon(s.reason), size: "sm" }),
+                          /* @__PURE__ */ jsx85("code", { className: "generate-schema-skipped-row__id", children: displayId }),
+                          /* @__PURE__ */ jsx85("span", { className: "generate-schema-skipped-row__reason", children: humanizeSkipReason(s.reason) }),
+                          /* @__PURE__ */ jsx85("span", { className: "generate-schema-skipped-row__section", children: s.section }),
+                          quickFix && /* @__PURE__ */ jsxs82(
                             "button",
                             {
                               type: "button",
@@ -97419,15 +98445,15 @@ function GenerateSchemaModal() {
                               onClick: quickFix.onClick,
                               title: quickFix.label,
                               children: [
-                                /* @__PURE__ */ jsx84(MIcon, { name: quickFix.icon, size: "sm" }),
-                                /* @__PURE__ */ jsx84("span", { children: quickFix.label })
+                                /* @__PURE__ */ jsx85(MIcon, { name: quickFix.icon, size: "sm" }),
+                                /* @__PURE__ */ jsx85("span", { children: quickFix.label })
                               ]
                             }
                           )
                         ] }),
-                        hint && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-skipped-row__hint", children: [
-                          /* @__PURE__ */ jsx84(MIcon, { name: "lightbulb", size: "sm" }),
-                          /* @__PURE__ */ jsx84("span", { children: hint })
+                        hint && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-skipped-row__hint", children: [
+                          /* @__PURE__ */ jsx85(MIcon, { name: "lightbulb", size: "sm" }),
+                          /* @__PURE__ */ jsx85("span", { children: hint })
                         ] })
                       ]
                     },
@@ -97435,9 +98461,9 @@ function GenerateSchemaModal() {
                   );
                 })
               ] }),
-              tab === "issues" && entityId && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-issues", children: [
-                allIssues.length === 0 && /* @__PURE__ */ jsxs81("div", { className: "generate-schema-empty", children: [
-                  /* @__PURE__ */ jsx84(
+              tab === "issues" && entityId && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-issues", children: [
+                allIssues.length === 0 && /* @__PURE__ */ jsxs82("div", { className: "generate-schema-empty", children: [
+                  /* @__PURE__ */ jsx85(
                     MIcon,
                     {
                       name: "check_circle",
@@ -97445,46 +98471,46 @@ function GenerateSchemaModal() {
                       className: "generate-schema-empty__ok"
                     }
                   ),
-                  /* @__PURE__ */ jsx84("div", { children: "0 \u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
+                  /* @__PURE__ */ jsx85("div", { children: "0 \u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
                 ] }),
                 issuesByRule.map(([ruleId, items]) => {
                   const key = `rule-${ruleId}`;
                   const isCollapsed = collapsed.has(key);
                   const sev = items[0].severity;
-                  return /* @__PURE__ */ jsxs81(
+                  return /* @__PURE__ */ jsxs82(
                     "div",
                     {
                       className: "generate-schema-issue-group generate-schema-issue-group--" + sev,
                       children: [
-                        /* @__PURE__ */ jsxs81(
+                        /* @__PURE__ */ jsxs82(
                           "button",
                           {
                             className: "generate-schema-issue-group__head",
                             onClick: () => toggleSection(key),
                             children: [
-                              /* @__PURE__ */ jsx84(
+                              /* @__PURE__ */ jsx85(
                                 MIcon,
                                 {
                                   name: isCollapsed ? "chevron_right" : "expand_more",
                                   size: "sm"
                                 }
                               ),
-                              /* @__PURE__ */ jsx84(
+                              /* @__PURE__ */ jsx85(
                                 "span",
                                 {
                                   className: "generate-schema-issue-dot generate-schema-issue-dot--" + sev
                                 }
                               ),
-                              /* @__PURE__ */ jsx84("span", { className: "generate-schema-issue-group__title", children: items[0].rule }),
-                              /* @__PURE__ */ jsx84("span", { className: "generate-schema-issue-group__count", children: items.length })
+                              /* @__PURE__ */ jsx85("span", { className: "generate-schema-issue-group__title", children: items[0].rule }),
+                              /* @__PURE__ */ jsx85("span", { className: "generate-schema-issue-group__count", children: items.length })
                             ]
                           }
                         ),
-                        !isCollapsed && items.map((issue, idx) => /* @__PURE__ */ jsx84(
+                        !isCollapsed && items.map((issue, idx) => /* @__PURE__ */ jsx85(
                           "div",
                           {
                             className: "generate-schema-issue-row",
-                            children: /* @__PURE__ */ jsx84("span", { className: "generate-schema-issue-row__msg", children: issue.message })
+                            children: /* @__PURE__ */ jsx85("span", { className: "generate-schema-issue-row__msg", children: issue.message })
                           },
                           idx
                         ))
@@ -97494,7 +98520,7 @@ function GenerateSchemaModal() {
                   );
                 })
               ] }),
-              tab === "diff" && gen.result && /* @__PURE__ */ jsx84("div", { className: "generate-schema-diff", children: selected.size === 0 ? /* @__PURE__ */ jsx84("div", { className: "generate-schema-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E \u2014 \u043E\u0442\u043C\u0435\u0442\u044C\u0442\u0435 \u0431\u043B\u043E\u043A\u0438 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0411\u043B\u043E\u043A\u0438\xBB" }) : Array.from(selected).map((blockId) => {
+              tab === "diff" && gen.result && /* @__PURE__ */ jsx85("div", { className: "generate-schema-diff", children: selected.size === 0 ? /* @__PURE__ */ jsx85("div", { className: "generate-schema-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E \u2014 \u043E\u0442\u043C\u0435\u0442\u044C\u0442\u0435 \u0431\u043B\u043E\u043A\u0438 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0411\u043B\u043E\u043A\u0438\xBB" }) : Array.from(selected).map((blockId) => {
                 const block = gen.result.blockIndex?.[blockId];
                 if (!block)
                   return null;
@@ -97502,36 +98528,36 @@ function GenerateSchemaModal() {
                 const currentPayload = currentRawData ? findPayloadByBlockId(currentRawData, blockId, block.parentViewId) : null;
                 const currentYaml = currentPayload ? dumpYaml(currentPayload) : null;
                 const newYaml = gen.result.yamlByBlock[blockId] ?? "";
-                return /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-block", children: [
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-header", children: [
-                    /* @__PURE__ */ jsx84(MIcon, { name: iconForBlock(block), size: "sm" }),
-                    /* @__PURE__ */ jsx84("code", { className: "generate-schema-diff-id", children: blockId }),
-                    /* @__PURE__ */ jsx84("span", { className: "generate-schema-diff-title", children: block.title }),
+                return /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-block", children: [
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-header", children: [
+                    /* @__PURE__ */ jsx85(MIcon, { name: iconForBlock(block), size: "sm" }),
+                    /* @__PURE__ */ jsx85("code", { className: "generate-schema-diff-id", children: blockId }),
+                    /* @__PURE__ */ jsx85("span", { className: "generate-schema-diff-title", children: block.title }),
                     statusBadge(st)
                   ] }),
-                  /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-body", children: [
-                    /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-col", children: [
-                      /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-col-label", children: [
-                        /* @__PURE__ */ jsx84(MIcon, { name: "history", size: "sm" }),
+                  /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-body", children: [
+                    /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-col", children: [
+                      /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-col-label", children: [
+                        /* @__PURE__ */ jsx85(MIcon, { name: "history", size: "sm" }),
                         "\u0421\u0435\u0439\u0447\u0430\u0441 \u0432 YAML"
                       ] }),
-                      /* @__PURE__ */ jsx84("pre", { className: "generate-schema-diff-pre", children: currentYaml ?? "// \u2014 \u043D\u0435\u0442 \u0432 YAML \u2014" })
+                      /* @__PURE__ */ jsx85("pre", { className: "generate-schema-diff-pre", children: currentYaml ?? "// \u2014 \u043D\u0435\u0442 \u0432 YAML \u2014" })
                     ] }),
-                    /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-col", children: [
-                      /* @__PURE__ */ jsxs81("div", { className: "generate-schema-diff-col-label", children: [
-                        /* @__PURE__ */ jsx84(MIcon, { name: "auto_awesome", size: "sm" }),
+                    /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-col", children: [
+                      /* @__PURE__ */ jsxs82("div", { className: "generate-schema-diff-col-label", children: [
+                        /* @__PURE__ */ jsx85(MIcon, { name: "auto_awesome", size: "sm" }),
                         "\u041F\u043E\u0441\u043B\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F"
                       ] }),
-                      /* @__PURE__ */ jsx84("pre", { className: "generate-schema-diff-pre", children: newYaml })
+                      /* @__PURE__ */ jsx85("pre", { className: "generate-schema-diff-pre", children: newYaml })
                     ] })
                   ] })
                 ] }, blockId);
               }) })
             ] }),
-            /* @__PURE__ */ jsxs81("div", { className: "generate-schema-footer", children: [
-              /* @__PURE__ */ jsxs81("div", { className: "generate-schema-preflight", children: [
-                editorLocked && /* @__PURE__ */ jsx84("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u{1F512} \u0444\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" }),
-                errorCount > 0 && /* @__PURE__ */ jsxs81(
+            /* @__PURE__ */ jsxs82("div", { className: "generate-schema-footer", children: [
+              /* @__PURE__ */ jsxs82("div", { className: "generate-schema-preflight", children: [
+                editorLocked && /* @__PURE__ */ jsx85("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u{1F512} \u0444\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" }),
+                errorCount > 0 && /* @__PURE__ */ jsxs82(
                   "button",
                   {
                     className: "generate-schema-badge generate-schema-badge--error generate-schema-badge--clickable",
@@ -97544,7 +98570,7 @@ function GenerateSchemaModal() {
                     ]
                   }
                 ),
-                errorCount === 0 && warningCount > 0 && /* @__PURE__ */ jsxs81(
+                errorCount === 0 && warningCount > 0 && /* @__PURE__ */ jsxs82(
                   "button",
                   {
                     className: "generate-schema-badge generate-schema-badge--warn generate-schema-badge--clickable",
@@ -97557,7 +98583,7 @@ function GenerateSchemaModal() {
                     ]
                   }
                 ),
-                errorCount === 0 && warningCount === 0 && infoCount > 0 && /* @__PURE__ */ jsxs81(
+                errorCount === 0 && warningCount === 0 && infoCount > 0 && /* @__PURE__ */ jsxs82(
                   "button",
                   {
                     className: "generate-schema-badge generate-schema-badge--info generate-schema-badge--clickable",
@@ -97569,8 +98595,8 @@ function GenerateSchemaModal() {
                     ]
                   }
                 ),
-                errorCount === 0 && warningCount === 0 && infoCount === 0 && gen.result && /* @__PURE__ */ jsx84("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" }),
-                options.replaceModified && /* @__PURE__ */ jsx84(
+                errorCount === 0 && warningCount === 0 && infoCount === 0 && gen.result && /* @__PURE__ */ jsx85("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" }),
+                options.replaceModified && /* @__PURE__ */ jsx85(
                   "span",
                   {
                     className: "generate-schema-badge generate-schema-badge--info",
@@ -97579,8 +98605,8 @@ function GenerateSchemaModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxs81("div", { className: "generate-schema-actions", children: [
-                /* @__PURE__ */ jsx84(
+              /* @__PURE__ */ jsxs82("div", { className: "generate-schema-actions", children: [
+                /* @__PURE__ */ jsx85(
                   "button",
                   {
                     className: "btn",
@@ -97588,7 +98614,7 @@ function GenerateSchemaModal() {
                     children: "\u041E\u0442\u043C\u0435\u043D\u0430"
                   }
                 ),
-                /* @__PURE__ */ jsxs81(
+                /* @__PURE__ */ jsxs82(
                   "button",
                   {
                     className: "btn",
@@ -97596,12 +98622,12 @@ function GenerateSchemaModal() {
                     disabled: !gen.result || selected.size === 0,
                     title: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0432\u0441\u0435 \u0431\u043B\u043E\u043A\u0438, \u043E\u0442 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043A\u043D\u043E\u043F\u043A\u0430 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435). \u041F\u043E\u043B\u0435\u0437\u043D\u043E, \u0435\u0441\u043B\u0438 \u0441\u043D\u044F\u043B\u0438 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E",
                     children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: "link", size: "sm" }),
+                      /* @__PURE__ */ jsx85(MIcon, { name: "link", size: "sm" }),
                       "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438"
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs81(
+                /* @__PURE__ */ jsxs82(
                   "button",
                   {
                     className: "btn",
@@ -97626,12 +98652,12 @@ function GenerateSchemaModal() {
                     disabled: !gen.result || selected.size === 0,
                     title: "\u0421\u0445\u0435\u043C\u0430\u0442\u0438\u0447\u043D\u044B\u0439 \u043F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440: \u043A\u0430\u043A \u0431\u0443\u0434\u0443\u0442 \u0432\u044B\u0433\u043B\u044F\u0434\u0435\u0442\u044C views",
                     children: [
-                      /* @__PURE__ */ jsx84(MIcon, { name: "visibility", size: "sm" }),
+                      /* @__PURE__ */ jsx85(MIcon, { name: "visibility", size: "sm" }),
                       "\u041F\u0440\u0435\u0432\u044C\u044E"
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs81(
+                /* @__PURE__ */ jsxs82(
                   "button",
                   {
                     className: "btn btn--primary",
@@ -97639,9 +98665,11 @@ function GenerateSchemaModal() {
                     disabled: !finalCanApply,
                     title: crudWithPageNoMenu ? "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xABCRUD + \u043F\u043E\u043B\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430\xBB \u0442\u0440\u0435\u0431\u0443\u0435\u0442 root_group \u0432 menus[] \u2014 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E \u0438\u043B\u0438 \u0441\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u0440\u043E\u0444\u0438\u043B\u044C" : !entityId ? "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C" : treeViewNeedsTarget ? "\u0423 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043D\u0435\u0442 side-1 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u043F\u043E\u0441\u0442\u0440\u043E\u0439\u0442\u0435 \u0446\u0435\u043F\u043E\u0447\u043A\u0443 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u0438\u043B\u0438 \u0441\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u0440\u043E\u0444\u0438\u043B\u044C" : editorLocked ? "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" : profile === "technical" ? "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F\xBB \u043D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0431\u043B\u043E\u043A\u0438" : dependentsMissing.size > 0 ? `${dependentsMissing.size} \u0431\u043B\u043E\u043A\u043E\u0432 \u0431\u0435\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u043D\u0435 \u0431\u0443\u0434\u0443\u0442 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u044B (\u0432\u044B\u0431\u0440\u0430\u043D\u043E ${selected.size}, \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u0441\u044F ${selected.size - dependentsMissing.size})` : errorCount > 0 ? "\u0418\u0441\u043F\u0440\u0430\u0432\u044C\u0442\u0435 \u043D\u043E\u0432\u044B\u0435 \u043E\u0448\u0438\u0431\u043A\u0438 \u0438\u043B\u0438 \u0441\u043D\u0438\u043C\u0438\u0442\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438" : selected.size === 0 ? "\u041D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E \u043D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E \u0431\u043B\u043E\u043A\u0430" : void 0,
                     children: [
-                      "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C (",
-                      selected.size - dependentsMissing.size,
-                      ")"
+                      "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C",
+                      applySummary && applySummary.total > 0 && /* @__PURE__ */ jsxs82(Fragment33, { children: [
+                        " ",
+                        /* @__PURE__ */ jsx85("span", { className: "generate-schema-apply-summary", children: Object.entries(applySummary.bySection).map(([sec, n]) => `+${n} ${SECTION_SHORT_LABELS[sec] || sec}`).join(", ") })
+                      ] })
                     ]
                   }
                 )
@@ -97701,6 +98729,155 @@ function dumpYaml(payload) {
     return "/* \u043E\u0448\u0438\u0431\u043A\u0430 \u0441\u0435\u0440\u0438\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 */";
   }
 }
+function BlockToolbar({
+  blocks,
+  manifestStatus,
+  filter,
+  onFilterChange,
+  query,
+  onQueryChange
+}) {
+  const filteredByQuery = useMemo56(() => {
+    const q = query.trim().toLowerCase();
+    if (!q)
+      return blocks;
+    return blocks.filter((b) => {
+      const id = String(b.blockId ?? "").toLowerCase();
+      const title = String(b.title ?? "").toLowerCase();
+      const section = String(b.section ?? "").toLowerCase();
+      return id.includes(q) || title.includes(q) || section.includes(q);
+    });
+  }, [blocks, query]);
+  const counts = useMemo56(() => {
+    const c = {
+      all: filteredByQuery.length,
+      new: 0,
+      outdated: 0,
+      modified: 0,
+      orphaned: 0
+    };
+    for (const b of filteredByQuery) {
+      const st = manifestStatus[b.blockId] ?? "new";
+      if (st in c)
+        c[st]++;
+    }
+    return c;
+  }, [filteredByQuery, manifestStatus]);
+  const items = [
+    { id: "all", label: "\u0412\u0441\u0435", count: counts.all },
+    { id: "new", label: "\u041D\u043E\u0432\u044B\u0435", count: counts.new },
+    { id: "outdated", label: "\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0435", count: counts.outdated },
+    { id: "modified", label: "\u0418\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435", count: counts.modified },
+    { id: "orphaned", label: "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C", count: counts.orphaned }
+  ];
+  return /* @__PURE__ */ jsxs82(
+    "div",
+    {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: "10px 16px",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--bg-800)",
+        position: "sticky",
+        top: 0,
+        zIndex: 5
+      },
+      children: [
+        /* @__PURE__ */ jsxs82(
+          "div",
+          {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 8px",
+              background: "var(--bg-750)",
+              border: "1px solid var(--border)",
+              borderRadius: 6
+            },
+            children: [
+              /* @__PURE__ */ jsx85(MIcon, { name: "search", size: "sm", style: { color: "var(--text-500)" } }),
+              /* @__PURE__ */ jsx85(
+                "input",
+                {
+                  type: "text",
+                  placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E id \u0438\u043B\u0438 title\u2026",
+                  value: query,
+                  onChange: (e) => onQueryChange(e.target.value),
+                  spellCheck: false,
+                  style: {
+                    flex: 1,
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: "var(--text-200)",
+                    fontSize: 12
+                  }
+                }
+              ),
+              query && /* @__PURE__ */ jsx85(
+                "button",
+                {
+                  onClick: () => onQueryChange(""),
+                  title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+                  style: {
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-500)",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 12
+                  },
+                  children: "\u2715"
+                }
+              )
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsx85("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: items.map((it) => {
+          if (it.id !== "all" && it.count === 0)
+            return null;
+          const active = filter === it.id;
+          return /* @__PURE__ */ jsxs82(
+            "button",
+            {
+              type: "button",
+              onClick: () => onFilterChange(it.id),
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 10px",
+                borderRadius: 12,
+                background: active ? "var(--accent-soft)" : "var(--bg-750)",
+                border: "1px solid " + (active ? "var(--accent)" : "var(--border)"),
+                color: active ? "var(--accent-hover)" : "var(--text-400)",
+                fontSize: 11,
+                cursor: "pointer"
+              },
+              children: [
+                it.label,
+                /* @__PURE__ */ jsx85(
+                  "span",
+                  {
+                    style: {
+                      fontFamily: "JetBrains Mono, monospace",
+                      opacity: 0.7
+                    },
+                    children: it.count
+                  }
+                )
+              ]
+            },
+            it.id
+          );
+        }) })
+      ]
+    }
+  );
+}
 var PROFILE_ORDER, SEVERITY_ORDER5, ENTITY_PROFILES, DOMAIN_PROFILES2;
 var init_GenerateSchemaModal = __esm({
   "src/web/components/modals/GenerateSchemaModal.tsx"() {
@@ -97721,6 +98898,9 @@ var init_GenerateSchemaModal = __esm({
     init_js_yaml();
     init_block_resolver();
     init_useYamlContent();
+    init_DomainContextCard();
+    init_GenerateSchemaPresets();
+    init_GenerateSchemaRecommendations();
     PROFILE_ORDER = PROFILE_INFO.map((p) => p.id);
     SEVERITY_ORDER5 = { error: 0, warning: 1, info: 2 };
     ENTITY_PROFILES = PROFILE_INFO.filter((p) => p.scope === "entity");
@@ -97769,7 +98949,7 @@ var init_useGeneratedManifest = __esm({
 
 // src/web/components/modals/GeneratedManifestModal.tsx
 import { useMemo as useMemo57, useState as useState57 } from "react";
-import { Fragment as Fragment33, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
+import { Fragment as Fragment34, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
 function GeneratedManifestModal() {
   const open2 = useGraphStore((s) => s.sidecarOpen);
   const domainId = useGraphStore((s) => s.sidecarDomainId);
@@ -97911,24 +99091,24 @@ function GeneratedManifestModal() {
   };
   if (!open2 || !domainId)
     return null;
-  return /* @__PURE__ */ jsx85(
+  return /* @__PURE__ */ jsx86(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => useGraphStore.getState().setSidecarOpen(false),
-      children: /* @__PURE__ */ jsxs82(
+      children: /* @__PURE__ */ jsxs83(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs82("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs82("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx85(MIcon, { name: "database", size: "sm" }),
-                /* @__PURE__ */ jsx85("span", { className: "icon-label", children: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438" }),
-                /* @__PURE__ */ jsx85("span", { className: "help-modal__badge", children: domainId })
+            /* @__PURE__ */ jsxs83("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs83("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx86(MIcon, { name: "database", size: "sm" }),
+                /* @__PURE__ */ jsx86("span", { className: "icon-label", children: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438" }),
+                /* @__PURE__ */ jsx86("span", { className: "help-modal__badge", children: domainId })
               ] }),
-              /* @__PURE__ */ jsx85(
+              /* @__PURE__ */ jsx86(
                 "button",
                 {
                   className: "help-modal__close",
@@ -97937,41 +99117,41 @@ function GeneratedManifestModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx85("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx85("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u043C\u0430\u043D\u0438\u0444\u0435\u0441\u0442\u0430\u2026" }) }),
-            error && /* @__PURE__ */ jsx85("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs82("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx86("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx86("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u043C\u0430\u043D\u0438\u0444\u0435\u0441\u0442\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx86("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs83("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            !loading && !error && data && data.stats.blocks === 0 && /* @__PURE__ */ jsx85("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs82("div", { className: "generated-empty", children: [
-              /* @__PURE__ */ jsx85("div", { className: "generated-empty__icon", children: /* @__PURE__ */ jsx85(MIcon, { name: "inventory_2", size: "xl" }) }),
-              /* @__PURE__ */ jsx85("div", { className: "generated-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E" }),
-              /* @__PURE__ */ jsx85("div", { className: "generated-empty__hint", children: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \xAB\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0434\u043E\u043C\u0435\u043D\u0430\xBB \u0438\u043B\u0438 \xAB\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C\xBB \u043D\u0430 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F YAML \u0437\u0430\u043F\u0438\u0441\u0438 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C." })
+            !loading && !error && data && data.stats.blocks === 0 && /* @__PURE__ */ jsx86("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs83("div", { className: "generated-empty", children: [
+              /* @__PURE__ */ jsx86("div", { className: "generated-empty__icon", children: /* @__PURE__ */ jsx86(MIcon, { name: "inventory_2", size: "xl" }) }),
+              /* @__PURE__ */ jsx86("div", { className: "generated-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E" }),
+              /* @__PURE__ */ jsx86("div", { className: "generated-empty__hint", children: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \xAB\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0434\u043E\u043C\u0435\u043D\u0430\xBB \u0438\u043B\u0438 \xAB\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C\xBB \u043D\u0430 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F YAML \u0437\u0430\u043F\u0438\u0441\u0438 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C." })
             ] }) }),
-            !loading && !error && data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82("div", { className: "help-modal__body help-modal__body--flush", children: [
-              /* @__PURE__ */ jsxs82("div", { className: "generated-summary", children: [
-                /* @__PURE__ */ jsxs82("div", { className: "generated-stat", children: [
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__value", children: data.stats.entities }),
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+            !loading && !error && data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs83("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs83("div", { className: "generated-summary", children: [
+                /* @__PURE__ */ jsxs83("div", { className: "generated-stat", children: [
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__value", children: data.stats.entities }),
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
                 ] }),
-                /* @__PURE__ */ jsxs82("div", { className: "generated-stat", children: [
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__value", children: data.stats.blocks }),
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__label", children: "\u0431\u043B\u043E\u043A\u043E\u0432" })
+                /* @__PURE__ */ jsxs83("div", { className: "generated-stat", children: [
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__value", children: data.stats.blocks }),
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__label", children: "\u0431\u043B\u043E\u043A\u043E\u0432" })
                 ] }),
-                /* @__PURE__ */ jsxs82("div", { className: "generated-stat generated-stat--ok", children: [
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__value", children: data.stats.actual }),
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__label", children: "\u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u0445" })
+                /* @__PURE__ */ jsxs83("div", { className: "generated-stat generated-stat--ok", children: [
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__value", children: data.stats.actual }),
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__label", children: "\u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u0445" })
                 ] }),
-                /* @__PURE__ */ jsxs82("div", { className: "generated-stat generated-stat--warn", children: [
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__value", children: data.stats.modified }),
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__label", children: "\u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043E \u0432\u0440\u0443\u0447\u043D\u0443\u044E" })
+                /* @__PURE__ */ jsxs83("div", { className: "generated-stat generated-stat--warn", children: [
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__value", children: data.stats.modified }),
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__label", children: "\u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043E \u0432\u0440\u0443\u0447\u043D\u0443\u044E" })
                 ] }),
-                /* @__PURE__ */ jsxs82("div", { className: "generated-stat generated-stat--err", children: [
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__value", children: data.stats.orphaned }),
-                  /* @__PURE__ */ jsx85("span", { className: "generated-stat__label", children: "\u0443\u0434\u0430\u043B\u0435\u043D\u043E \u0438\u0437 YAML" })
+                /* @__PURE__ */ jsxs83("div", { className: "generated-stat generated-stat--err", children: [
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__value", children: data.stats.orphaned }),
+                  /* @__PURE__ */ jsx86("span", { className: "generated-stat__label", children: "\u0443\u0434\u0430\u043B\u0435\u043D\u043E \u0438\u0437 YAML" })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs82("div", { className: "generated-filters", children: [
-                /* @__PURE__ */ jsxs82(
+              /* @__PURE__ */ jsxs83("div", { className: "generated-filters", children: [
+                /* @__PURE__ */ jsxs83(
                   "button",
                   {
                     className: "generated-filter" + (filter === "all" ? " generated-filter--active" : ""),
@@ -97983,7 +99163,7 @@ function GeneratedManifestModal() {
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs82(
+                /* @__PURE__ */ jsxs83(
                   "button",
                   {
                     className: "generated-filter" + (filter === "problematic" ? " generated-filter--active" : ""),
@@ -97998,9 +99178,9 @@ function GeneratedManifestModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxs82("div", { className: "generated-list", children: [
-                filteredEntities.length === 0 && /* @__PURE__ */ jsx85("div", { className: "generated-empty", children: /* @__PURE__ */ jsx85("div", { className: "generated-empty__title", children: "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) }),
-                filteredEntities.map((e) => /* @__PURE__ */ jsx85(
+              /* @__PURE__ */ jsxs83("div", { className: "generated-list", children: [
+                filteredEntities.length === 0 && /* @__PURE__ */ jsx86("div", { className: "generated-empty", children: /* @__PURE__ */ jsx86("div", { className: "generated-empty__title", children: "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) }),
+                filteredEntities.map((e) => /* @__PURE__ */ jsx86(
                   GeneratedEntityRow,
                   {
                     entity: e,
@@ -98013,26 +99193,26 @@ function GeneratedManifestModal() {
                 ))
               ] })
             ] }),
-            /* @__PURE__ */ jsxs82("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment33, { children: [
-                /* @__PURE__ */ jsxs82("span", { className: "validation-stat", children: [
+            /* @__PURE__ */ jsxs83("div", { className: "validation-footer", children: [
+              /* @__PURE__ */ jsx86("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs83(Fragment34, { children: [
+                /* @__PURE__ */ jsxs83("span", { className: "validation-stat", children: [
                   "\u{1F4E6} ",
                   data.stats.blocks,
                   " \u0431\u043B\u043E\u043A\u043E\u0432"
                 ] }),
-                data.stats.modified > 0 && /* @__PURE__ */ jsxs82("span", { className: "validation-stat validation-stat--warn", children: [
+                data.stats.modified > 0 && /* @__PURE__ */ jsxs83("span", { className: "validation-stat validation-stat--warn", children: [
                   "\u270E ",
                   data.stats.modified,
                   " \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043E"
                 ] }),
-                data.stats.orphaned > 0 && /* @__PURE__ */ jsxs82("span", { className: "validation-stat validation-stat--err", children: [
+                data.stats.orphaned > 0 && /* @__PURE__ */ jsxs83("span", { className: "validation-stat validation-stat--err", children: [
                   "\u2298 ",
                   data.stats.orphaned,
                   " \u0443\u0434\u0430\u043B\u0435\u043D\u043E"
                 ] })
               ] }) }),
-              /* @__PURE__ */ jsxs82("div", { className: "validation-footer__actions", children: [
-                data && data.stats.blocks > 0 && /* @__PURE__ */ jsx85(
+              /* @__PURE__ */ jsxs83("div", { className: "validation-footer__actions", children: [
+                data && data.stats.blocks > 0 && /* @__PURE__ */ jsx86(
                   "button",
                   {
                     className: "btn btn--danger",
@@ -98041,7 +99221,7 @@ function GeneratedManifestModal() {
                     children: clearing ? "\u041E\u0447\u0438\u0441\u0442\u043A\u0430\u2026" : "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u043C\u0430\u043D\u0438\u0444\u0435\u0441\u0442"
                   }
                 ),
-                /* @__PURE__ */ jsx85(
+                /* @__PURE__ */ jsx86(
                   "button",
                   {
                     className: "btn",
@@ -98064,63 +99244,63 @@ function GeneratedEntityRow({
   onOpenBlock,
   onRestore
 }) {
-  return /* @__PURE__ */ jsxs82("div", { className: "generated-entity", children: [
-    /* @__PURE__ */ jsxs82("button", { className: "generated-entity__head", onClick: onToggle, children: [
-      /* @__PURE__ */ jsx85(
+  return /* @__PURE__ */ jsxs83("div", { className: "generated-entity", children: [
+    /* @__PURE__ */ jsxs83("button", { className: "generated-entity__head", onClick: onToggle, children: [
+      /* @__PURE__ */ jsx86(
         MIcon,
         {
           name: expanded ? "expand_more" : "chevron_right",
           size: "sm"
         }
       ),
-      /* @__PURE__ */ jsx85("code", { className: "generated-entity__id", children: entity.entityId }),
-      /* @__PURE__ */ jsx85("span", { className: "generated-entity__profile", children: entity.profile }),
-      /* @__PURE__ */ jsxs82("span", { className: "generated-entity__counts", children: [
+      /* @__PURE__ */ jsx86("code", { className: "generated-entity__id", children: entity.entityId }),
+      /* @__PURE__ */ jsx86("span", { className: "generated-entity__profile", children: entity.profile }),
+      /* @__PURE__ */ jsxs83("span", { className: "generated-entity__counts", children: [
         entity.stats.total,
         " \u0431\u043B\u043E\u043A\u043E\u0432"
       ] }),
-      /* @__PURE__ */ jsxs82("span", { className: "generated-entity__badges", children: [
-        entity.stats.actual > 0 && /* @__PURE__ */ jsxs82("span", { className: "generated-badge generated-badge--ok", children: [
+      /* @__PURE__ */ jsxs83("span", { className: "generated-entity__badges", children: [
+        entity.stats.actual > 0 && /* @__PURE__ */ jsxs83("span", { className: "generated-badge generated-badge--ok", children: [
           "\u2713 ",
           entity.stats.actual
         ] }),
-        entity.stats.modified > 0 && /* @__PURE__ */ jsxs82("span", { className: "generated-badge generated-badge--warn", children: [
+        entity.stats.modified > 0 && /* @__PURE__ */ jsxs83("span", { className: "generated-badge generated-badge--warn", children: [
           "\u270E ",
           entity.stats.modified
         ] }),
-        entity.stats.orphaned > 0 && /* @__PURE__ */ jsxs82("span", { className: "generated-badge generated-badge--err", children: [
+        entity.stats.orphaned > 0 && /* @__PURE__ */ jsxs83("span", { className: "generated-badge generated-badge--err", children: [
           "\u2298 ",
           entity.stats.orphaned
         ] })
       ] })
     ] }),
-    expanded && /* @__PURE__ */ jsx85("div", { className: "generated-entity__body", children: entity.blocks.map((b) => {
+    expanded && /* @__PURE__ */ jsx86("div", { className: "generated-entity__body", children: entity.blocks.map((b) => {
       const st = STATUS_LABELS[b.status];
-      return /* @__PURE__ */ jsxs82(
+      return /* @__PURE__ */ jsxs83(
         "div",
         {
           className: "generated-block generated-block--" + b.status,
           children: [
-            /* @__PURE__ */ jsx85("code", { className: "generated-block__id", children: b.blockId }),
-            /* @__PURE__ */ jsx85("span", { className: "generated-block__title", children: b.title }),
-            /* @__PURE__ */ jsx85("span", { className: "generated-status " + st.className, children: st.label }),
-            /* @__PURE__ */ jsxs82("span", { className: "generated-block__actions", children: [
-              b.status !== "orphaned" && /* @__PURE__ */ jsx85(
+            /* @__PURE__ */ jsx86("code", { className: "generated-block__id", children: b.blockId }),
+            /* @__PURE__ */ jsx86("span", { className: "generated-block__title", children: b.title }),
+            /* @__PURE__ */ jsx86("span", { className: "generated-status " + st.className, children: st.label }),
+            /* @__PURE__ */ jsxs83("span", { className: "generated-block__actions", children: [
+              b.status !== "orphaned" && /* @__PURE__ */ jsx86(
                 "button",
                 {
                   className: "generated-block__action",
                   onClick: () => onOpenBlock(b.blockId, b.parentViewId),
                   title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 YAML-\u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0435 \u0431\u043B\u043E\u043A\u0430",
-                  children: /* @__PURE__ */ jsx85(MIcon, { name: "open_in_new", size: "sm" })
+                  children: /* @__PURE__ */ jsx86(MIcon, { name: "open_in_new", size: "sm" })
                 }
               ),
-              b.status === "orphaned" && /* @__PURE__ */ jsx85(
+              b.status === "orphaned" && /* @__PURE__ */ jsx86(
                 "button",
                 {
                   className: "generated-block__action generated-block__action--restore",
                   onClick: () => onRestore(entity, b.blockId),
                   title: "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0431\u043B\u043E\u043A \u0432 YAML",
-                  children: /* @__PURE__ */ jsx85(MIcon, { name: "undo", size: "sm" })
+                  children: /* @__PURE__ */ jsx86(MIcon, { name: "undo", size: "sm" })
                 }
               )
             ] })
@@ -104737,7 +105917,7 @@ var init_cheatsheet = __esm({
 
 // src/web/components/modals/CheatsheetModal.tsx
 import { useCallback as useCallback39, useEffect as useEffect57, useMemo as useMemo58, useRef as useRef36, useState as useState58 } from "react";
-import { Fragment as Fragment34, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
+import { Fragment as Fragment35, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
 function slugify2(text) {
   return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 }
@@ -104966,24 +106146,24 @@ function CheatsheetModal() {
     setSelected(item);
     setHighlightQuery(query.trim() || null);
   };
-  return /* @__PURE__ */ jsx86(
+  return /* @__PURE__ */ jsx87(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 500 },
       onMouseDown: () => setOpen(false),
-      children: /* @__PURE__ */ jsxs83(
+      children: /* @__PURE__ */ jsxs84(
         "div",
         {
           className: "help-modal cheatsheet-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs83("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs83("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx86(MIcon, { name: "menu_book", size: "sm" }),
-                /* @__PURE__ */ jsx86("span", { className: "icon-label", children: "\u0428\u043F\u0430\u0440\u0433\u0430\u043B\u043A\u0430 \u043F\u043E \u0441\u0445\u0435\u043C\u0435 \u0434\u043E\u043C\u0435\u043D\u0430" })
+            /* @__PURE__ */ jsxs84("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs84("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx87(MIcon, { name: "menu_book", size: "sm" }),
+                /* @__PURE__ */ jsx87("span", { className: "icon-label", children: "\u0428\u043F\u0430\u0440\u0433\u0430\u043B\u043A\u0430 \u043F\u043E \u0441\u0445\u0435\u043C\u0435 \u0434\u043E\u043C\u0435\u043D\u0430" })
               ] }),
-              /* @__PURE__ */ jsx86(
+              /* @__PURE__ */ jsx87(
                 "button",
                 {
                   className: "help-modal__close",
@@ -104992,11 +106172,11 @@ function CheatsheetModal() {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-body", children: [
-              /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-sidebar", children: [
-                /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-search", children: [
-                  /* @__PURE__ */ jsx86(MIcon, { name: "search", size: "sm" }),
-                  /* @__PURE__ */ jsx86(
+            /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-body", children: [
+              /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-sidebar", children: [
+                /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-search", children: [
+                  /* @__PURE__ */ jsx87(MIcon, { name: "search", size: "sm" }),
+                  /* @__PURE__ */ jsx87(
                     "input",
                     {
                       type: "text",
@@ -105006,7 +106186,7 @@ function CheatsheetModal() {
                       spellCheck: false
                     }
                   ),
-                  query && /* @__PURE__ */ jsx86(
+                  query && /* @__PURE__ */ jsx87(
                     "button",
                     {
                       className: "cheatsheet-search__clear",
@@ -105016,11 +106196,11 @@ function CheatsheetModal() {
                     }
                   )
                 ] }),
-                filtered.groups.map((g) => /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-group", children: [
-                  /* @__PURE__ */ jsx86("div", { className: "cheatsheet-group__title", children: g.label }),
+                filtered.groups.map((g) => /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-group", children: [
+                  /* @__PURE__ */ jsx87("div", { className: "cheatsheet-group__title", children: g.label }),
                   g.sections.map((s) => {
                     const snippet2 = query ? findSnippet(s.md, query) : null;
-                    return /* @__PURE__ */ jsxs83(
+                    return /* @__PURE__ */ jsxs84(
                       "button",
                       {
                         className: "cheatsheet-nav-item" + (selected?.kind === "section" && selected.id === s.id ? " cheatsheet-nav-item--active" : ""),
@@ -105029,10 +106209,10 @@ function CheatsheetModal() {
                           id: s.id
                         }),
                         children: [
-                          /* @__PURE__ */ jsx86(MIcon, { name: s.icon, size: "sm" }),
-                          /* @__PURE__ */ jsxs83("div", { children: [
-                            /* @__PURE__ */ jsx86("span", { children: s.label }),
-                            snippet2 && /* @__PURE__ */ jsx86("span", { title: snippet2, children: snippet2 })
+                          /* @__PURE__ */ jsx87(MIcon, { name: s.icon, size: "sm" }),
+                          /* @__PURE__ */ jsxs84("div", { children: [
+                            /* @__PURE__ */ jsx87("span", { children: s.label }),
+                            snippet2 && /* @__PURE__ */ jsx87("span", { title: snippet2, children: snippet2 })
                           ] })
                         ]
                       },
@@ -105040,11 +106220,11 @@ function CheatsheetModal() {
                     );
                   })
                 ] }, g.id)),
-                filtered.recipes.length > 0 && /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-group", children: [
-                  /* @__PURE__ */ jsx86("div", { className: "cheatsheet-group__title", children: "\u0420\u0435\u0446\u0435\u043F\u0442\u044B" }),
+                filtered.recipes.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-group", children: [
+                  /* @__PURE__ */ jsx87("div", { className: "cheatsheet-group__title", children: "\u0420\u0435\u0446\u0435\u043F\u0442\u044B" }),
                   filtered.recipes.map((r) => {
                     const snippet2 = query ? findSnippet(r.md, query) : null;
-                    return /* @__PURE__ */ jsxs83(
+                    return /* @__PURE__ */ jsxs84(
                       "button",
                       {
                         className: "cheatsheet-nav-item cheatsheet-nav-item--recipe" + (selected?.kind === "recipe" && selected.id === r.id ? " cheatsheet-nav-item--active" : ""),
@@ -105054,14 +106234,14 @@ function CheatsheetModal() {
                         }),
                         title: r.description,
                         children: [
-                          /* @__PURE__ */ jsx86(
+                          /* @__PURE__ */ jsx87(
                             MIcon,
                             {
                               name: "auto_awesome",
                               size: "sm"
                             }
                           ),
-                          /* @__PURE__ */ jsxs83(
+                          /* @__PURE__ */ jsxs84(
                             "div",
                             {
                               style: {
@@ -105072,8 +106252,8 @@ function CheatsheetModal() {
                                 flex: 1
                               },
                               children: [
-                                /* @__PURE__ */ jsx86("span", { children: r.title }),
-                                snippet2 && /* @__PURE__ */ jsx86(
+                                /* @__PURE__ */ jsx87("span", { children: r.title }),
+                                snippet2 && /* @__PURE__ */ jsx87(
                                   "span",
                                   {
                                     style: {
@@ -105098,19 +106278,19 @@ function CheatsheetModal() {
                     );
                   })
                 ] }),
-                filtered.groups.length === 0 && filtered.recipes.length === 0 && /* @__PURE__ */ jsx86("div", { className: "cheatsheet-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
+                filtered.groups.length === 0 && filtered.recipes.length === 0 && /* @__PURE__ */ jsx87("div", { className: "cheatsheet-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
               ] }),
-              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment34, { children: [
-                headings.length >= 3 && /* @__PURE__ */ jsxs83("details", { className: "cheatsheet-toc", open: false, children: [
-                  /* @__PURE__ */ jsxs83("summary", { className: "cheatsheet-toc__summary", children: [
-                    /* @__PURE__ */ jsx86("span", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u043D\u0438\u0435" }),
-                    /* @__PURE__ */ jsx86("span", { className: "cheatsheet-toc__count", children: headings.length })
+              /* @__PURE__ */ jsx87("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs84(Fragment35, { children: [
+                headings.length >= 3 && /* @__PURE__ */ jsxs84("details", { className: "cheatsheet-toc", open: false, children: [
+                  /* @__PURE__ */ jsxs84("summary", { className: "cheatsheet-toc__summary", children: [
+                    /* @__PURE__ */ jsx87("span", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u043D\u0438\u0435" }),
+                    /* @__PURE__ */ jsx87("span", { className: "cheatsheet-toc__count", children: headings.length })
                   ] }),
-                  /* @__PURE__ */ jsx86("ul", { className: "cheatsheet-toc__list", children: headings.map((h) => /* @__PURE__ */ jsx86(
+                  /* @__PURE__ */ jsx87("ul", { className: "cheatsheet-toc__list", children: headings.map((h) => /* @__PURE__ */ jsx87(
                     "li",
                     {
                       className: "cheatsheet-toc__item" + (h.level === 3 ? " cheatsheet-toc__item--h3" : ""),
-                      children: /* @__PURE__ */ jsx86(
+                      children: /* @__PURE__ */ jsx87(
                         "button",
                         {
                           type: "button",
@@ -105131,7 +106311,7 @@ function CheatsheetModal() {
                     h.id
                   )) })
                 ] }),
-                /* @__PURE__ */ jsx86(
+                /* @__PURE__ */ jsx87(
                   "div",
                   {
                     className: "cheatsheet-md",
@@ -105140,9 +106320,9 @@ function CheatsheetModal() {
                   },
                   `${selected?.id}-${highlightQuery || ""}`
                 ),
-                currentSection && recipesForSection.length > 0 && /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-related", children: [
-                  /* @__PURE__ */ jsx86("div", { className: "cheatsheet-related__title", children: "\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u0440\u0435\u0446\u0435\u043F\u0442\u044B" }),
-                  recipesForSection.map((r) => /* @__PURE__ */ jsxs83(
+                currentSection && recipesForSection.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-related", children: [
+                  /* @__PURE__ */ jsx87("div", { className: "cheatsheet-related__title", children: "\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u0440\u0435\u0446\u0435\u043F\u0442\u044B" }),
+                  recipesForSection.map((r) => /* @__PURE__ */ jsxs84(
                     "button",
                     {
                       className: "cheatsheet-related__item",
@@ -105151,27 +106331,27 @@ function CheatsheetModal() {
                         id: r.id
                       }),
                       children: [
-                        /* @__PURE__ */ jsx86(
+                        /* @__PURE__ */ jsx87(
                           MIcon,
                           {
                             name: "auto_awesome",
                             size: "sm"
                           }
                         ),
-                        /* @__PURE__ */ jsxs83("div", { children: [
-                          /* @__PURE__ */ jsx86("div", { className: "cheatsheet-related__title-text", children: r.title }),
-                          /* @__PURE__ */ jsx86("div", { className: "cheatsheet-related__desc", children: r.description })
+                        /* @__PURE__ */ jsxs84("div", { children: [
+                          /* @__PURE__ */ jsx87("div", { className: "cheatsheet-related__title-text", children: r.title }),
+                          /* @__PURE__ */ jsx87("div", { className: "cheatsheet-related__desc", children: r.description })
                         ] })
                       ]
                     },
                     r.id
                   ))
                 ] }),
-                currentSection?.docsRef && /* @__PURE__ */ jsxs83("div", { className: "cheatsheet-docsref", children: [
+                currentSection?.docsRef && /* @__PURE__ */ jsxs84("div", { className: "cheatsheet-docsref", children: [
                   "\u{1F4D6} ",
                   currentSection.docsRef
                 ] })
-              ] }) : /* @__PURE__ */ jsx86("div", { className: "cheatsheet-empty", children: !ready ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 markdown\u2026" : "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0435\u043A\u0446\u0438\u044E \u0441\u043B\u0435\u0432\u0430" }) })
+              ] }) : /* @__PURE__ */ jsx87("div", { className: "cheatsheet-empty", children: !ready ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 markdown\u2026" : "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0435\u043A\u0446\u0438\u044E \u0441\u043B\u0435\u0432\u0430" }) })
             ] })
           ]
         }
@@ -105278,7 +106458,7 @@ var init_useOutdatedDomains = __esm({
 
 // src/web/components/modals/HealthDashboardModal.tsx
 import React65, { useCallback as useCallback41, useMemo as useMemo59, useState as useState60 } from "react";
-import { Fragment as Fragment35, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+import { Fragment as Fragment36, jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
 function computeGrade3(score) {
   if (score >= 90)
     return "A";
@@ -105675,11 +106855,11 @@ function KpiCard3({
   icon,
   title
 }) {
-  return /* @__PURE__ */ jsxs84("div", { className: "health-kpi-card health-kpi-card--" + severity, title, children: [
-    icon && /* @__PURE__ */ jsx87(MIcon, { name: icon, size: "sm" }),
-    /* @__PURE__ */ jsx87("div", { className: "health-kpi-card__value", children: value }),
-    /* @__PURE__ */ jsx87("div", { className: "health-kpi-card__label", children: label }),
-    sub && /* @__PURE__ */ jsx87("div", { className: "health-kpi-card__sub", children: sub })
+  return /* @__PURE__ */ jsxs85("div", { className: "health-kpi-card health-kpi-card--" + severity, title, children: [
+    icon && /* @__PURE__ */ jsx88(MIcon, { name: icon, size: "sm" }),
+    /* @__PURE__ */ jsx88("div", { className: "health-kpi-card__value", children: value }),
+    /* @__PURE__ */ jsx88("div", { className: "health-kpi-card__label", children: label }),
+    sub && /* @__PURE__ */ jsx88("div", { className: "health-kpi-card__sub", children: sub })
   ] });
 }
 function HealthDashboardModal() {
@@ -105815,30 +106995,30 @@ function HealthDashboardModal() {
   };
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx87(
+  return /* @__PURE__ */ jsx88(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => useGraphStore.getState().setHealthDashboardOpen(false),
-      children: /* @__PURE__ */ jsxs84(
+      children: /* @__PURE__ */ jsxs85(
         "div",
         {
           className: "help-modal health-dashboard-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs84("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs84("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx87(MIcon, { name: "dashboard", size: "sm" }),
-                /* @__PURE__ */ jsx87("span", { className: "icon-label", children: "Health Dashboard" }),
-                index && /* @__PURE__ */ jsxs84("span", { className: "help-modal__badge", children: [
+            /* @__PURE__ */ jsxs85("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs85("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx88(MIcon, { name: "dashboard", size: "sm" }),
+                /* @__PURE__ */ jsx88("span", { className: "icon-label", children: "Health Dashboard" }),
+                index && /* @__PURE__ */ jsxs85("span", { className: "help-modal__badge", children: [
                   kpi.total,
                   " \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \xB7 ",
                   kpi.totalEntities,
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs84("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx87(
+              /* @__PURE__ */ jsxs85("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx88(
                   HelpButton,
                   {
                     open: showHelp,
@@ -105846,7 +107026,7 @@ function HealthDashboardModal() {
                     label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?"
                   }
                 ),
-                available && /* @__PURE__ */ jsxs84(
+                available && /* @__PURE__ */ jsxs85(
                   "button",
                   {
                     className: "btn" + (checking ? " btn--active" : ""),
@@ -105854,7 +107034,7 @@ function HealthDashboardModal() {
                     disabled: checking,
                     title: lastCheckedAt ? `\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043E ${new Date(lastCheckedAt).toLocaleString("ru-RU")}` : "\u0417\u0430\u043F\u0440\u043E\u0441\u0438\u0442\u044C \u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u0435 updatedAt \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
                     children: [
-                      /* @__PURE__ */ jsx87(
+                      /* @__PURE__ */ jsx88(
                         MIcon,
                         {
                           name: checking ? "hourglass_top" : "refresh",
@@ -105865,7 +107045,7 @@ function HealthDashboardModal() {
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs84(
+                /* @__PURE__ */ jsxs85(
                   "button",
                   {
                     className: "btn",
@@ -105873,12 +107053,12 @@ function HealthDashboardModal() {
                     disabled: sortedRows.length === 0,
                     title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C CSV \u0441 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C\u0438",
                     children: [
-                      /* @__PURE__ */ jsx87(MIcon, { name: "download", size: "sm" }),
+                      /* @__PURE__ */ jsx88(MIcon, { name: "download", size: "sm" }),
                       "CSV"
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsx87(
+                /* @__PURE__ */ jsx88(
                   "button",
                   {
                     className: "help-modal__close",
@@ -105888,25 +107068,25 @@ function HealthDashboardModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx87("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx87("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
-            error && /* @__PURE__ */ jsx87("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs84("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx88("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs85("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && /* @__PURE__ */ jsxs84("div", { className: "help-modal__body help-modal__body--flush", children: [
-              outdated.size > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-banner health-banner--warn", children: [
-                /* @__PURE__ */ jsx87(MIcon, { name: "update", size: "sm" }),
-                /* @__PURE__ */ jsxs84("span", { children: [
-                  /* @__PURE__ */ jsx87("strong", { children: outdated.size }),
+            index && /* @__PURE__ */ jsxs85("div", { className: "help-modal__body help-modal__body--flush", children: [
+              outdated.size > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-banner health-banner--warn", children: [
+                /* @__PURE__ */ jsx88(MIcon, { name: "update", size: "sm" }),
+                /* @__PURE__ */ jsxs85("span", { children: [
+                  /* @__PURE__ */ jsx88("strong", { children: outdated.size }),
                   " ",
                   outdated.size === 1 ? "\u0434\u043E\u043C\u0435\u043D" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432",
                   " ",
                   "\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u2014 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435",
                   " ",
-                  /* @__PURE__ */ jsx87("code", { children: "--refresh" }),
+                  /* @__PURE__ */ jsx88("code", { children: "--refresh" }),
                   ", \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435."
                 ] }),
-                /* @__PURE__ */ jsxs84(
+                /* @__PURE__ */ jsxs85(
                   "button",
                   {
                     type: "button",
@@ -105914,7 +107094,7 @@ function HealthDashboardModal() {
                     onClick: () => setOnlyOutdated((v) => !v),
                     title: onlyOutdated ? "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440 \xAB\u0442\u043E\u043B\u044C\u043A\u043E \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0435\xBB" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u044B, \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D\u043D\u044B\u0435 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
                     children: [
-                      /* @__PURE__ */ jsx87(
+                      /* @__PURE__ */ jsx88(
                         MIcon,
                         {
                           name: onlyOutdated ? "filter_alt_off" : "filter_alt",
@@ -105926,20 +107106,20 @@ function HealthDashboardModal() {
                   }
                 )
               ] }),
-              checkError && /* @__PURE__ */ jsxs84("div", { className: "health-banner health-banner--error", children: [
-                /* @__PURE__ */ jsx87(MIcon, { name: "error", size: "sm" }),
-                /* @__PURE__ */ jsxs84("span", { children: [
+              checkError && /* @__PURE__ */ jsxs85("div", { className: "health-banner health-banner--error", children: [
+                /* @__PURE__ */ jsx88(MIcon, { name: "error", size: "sm" }),
+                /* @__PURE__ */ jsxs85("span", { children: [
                   "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0439: ",
                   checkError
                 ] })
               ] }),
-              available && cacheAgeDays != null && cacheAgeDays >= 1 && outdated.size === 0 && /* @__PURE__ */ jsxs84(
+              available && cacheAgeDays != null && cacheAgeDays >= 1 && outdated.size === 0 && /* @__PURE__ */ jsxs85(
                 "div",
                 {
                   className: "health-banner " + (cacheAgeDays >= 7 ? "health-banner--error" : "health-banner--warn"),
                   children: [
-                    /* @__PURE__ */ jsx87(MIcon, { name: "schedule", size: "sm" }),
-                    /* @__PURE__ */ jsxs84("span", { children: [
+                    /* @__PURE__ */ jsx88(MIcon, { name: "schedule", size: "sm" }),
+                    /* @__PURE__ */ jsxs85("span", { children: [
                       "\u041A\u044D\u0448 \u043F\u043E\u043B\u0443\u0447\u0435\u043D",
                       " ",
                       cacheAgeDays === 1 ? "\u0434\u0435\u043D\u044C" : `${cacheAgeDays} \u0434\u043D`,
@@ -105951,334 +107131,334 @@ function HealthDashboardModal() {
                   ]
                 }
               ),
-              /* @__PURE__ */ jsxs84(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
-                  /* @__PURE__ */ jsx87(HelpText, { children: "\u0421\u0432\u043E\u0434\u043D\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C \u043C\u043E\u0434\u0435\u043B\u0438: \u0440\u0430\u0437\u043C\u0435\u0440, \u043A\u0430\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0445\u0435\u043C\u044B, PII-\u0440\u0438\u0441\u043A\u0438, \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438. \u041F\u043E\u043C\u043E\u0433\u0430\u0435\u0442 \u0431\u044B\u0441\u0442\u0440\u043E \u043D\u0430\u0439\u0442\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0438 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u0442\u044C, \u0447\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C." }),
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+              /* @__PURE__ */ jsxs85(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
+                  /* @__PURE__ */ jsx88(HelpText, { children: "\u0421\u0432\u043E\u0434\u043D\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C \u043C\u043E\u0434\u0435\u043B\u0438: \u0440\u0430\u0437\u043C\u0435\u0440, \u043A\u0430\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0445\u0435\u043C\u044B, PII-\u0440\u0438\u0441\u043A\u0438, \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438. \u041F\u043E\u043C\u043E\u0433\u0430\u0435\u0442 \u0431\u044B\u0441\u0442\u0440\u043E \u043D\u0430\u0439\u0442\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0438 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u0442\u044C, \u0447\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C." }),
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "\u041A\u0430\u0436\u0434\u0430\u044F \u043C\u0435\u0442\u0440\u0438\u043A\u0430 \u2014 ",
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0441\u0438\u0433\u043D\u0430\u043B" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0441\u0438\u0433\u043D\u0430\u043B" }),
                     ", \u0430 \u043D\u0435 \u043F\u0440\u0438\u0433\u043E\u0432\u043E\u0440. \u0420\u0430\u0437\u043D\u044B\u0435 \u043F\u0440\u043E\u0435\u043A\u0442\u044B \u0438\u043C\u0435\u044E\u0442 \u0440\u0430\u0437\u043D\u044B\u0439 baseline: \u0435\u0441\u043B\u0438 \u0443 \u0432\u0430\u0441 200 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438 3 \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 \u2014 \u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430; \u0435\u0441\u043B\u0438 20 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438 3 \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 \u2014 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u0430\u044F."
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "Health score \u2014 \u043A\u0430\u043A \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F", children: [
-                  /* @__PURE__ */ jsx87(HelpText, { children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 \u043E\u0442 0 \u0434\u043E 100. \u0424\u043E\u0440\u043C\u0443\u043B\u0430 \u043F\u0440\u043E\u0441\u0442\u0430\u044F \u0438 \u043E\u0431\u044A\u044F\u0441\u043D\u0438\u043C\u0430\u044F: \u0441\u0442\u0430\u0440\u0442\u0443\u0435\u043C \u0441 100 \u0438 \u0432\u044B\u0447\u0438\u0442\u0430\u0435\u043C \u0448\u0442\u0440\u0430\u0444\u044B \u0437\u0430 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B. \u041A\u0430\u0436\u0434\u044B\u0439 \u0448\u0442\u0440\u0430\u0444 \u0438\u043C\u0435\u0435\u0442 \u043F\u043E\u0442\u043E\u043B\u043E\u043A, \u0447\u0442\u043E\u0431\u044B \u043E\u0434\u043D\u0430 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430 \u043D\u0435 \xAB\u0441\u044A\u0435\u0434\u0430\u043B\u0430\xBB \u0432\u0441\u044E \u043E\u0446\u0435\u043D\u043A\u0443." }),
-                  /* @__PURE__ */ jsxs84(HelpCard, { title: "\u0424\u043E\u0440\u043C\u0443\u043B\u0430", formula: "score = 100 \u2212 \u03A3 \u0448\u0442\u0440\u0430\u0444\u043E\u0432", wide: true, children: [
-                    /* @__PURE__ */ jsxs84(HelpList, { children: [
-                      /* @__PURE__ */ jsxs84("li", { children: [
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(lintErrors \xD7 5, 30)" }),
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "Health score \u2014 \u043A\u0430\u043A \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F", children: [
+                  /* @__PURE__ */ jsx88(HelpText, { children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 \u043E\u0442 0 \u0434\u043E 100. \u0424\u043E\u0440\u043C\u0443\u043B\u0430 \u043F\u0440\u043E\u0441\u0442\u0430\u044F \u0438 \u043E\u0431\u044A\u044F\u0441\u043D\u0438\u043C\u0430\u044F: \u0441\u0442\u0430\u0440\u0442\u0443\u0435\u043C \u0441 100 \u0438 \u0432\u044B\u0447\u0438\u0442\u0430\u0435\u043C \u0448\u0442\u0440\u0430\u0444\u044B \u0437\u0430 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B. \u041A\u0430\u0436\u0434\u044B\u0439 \u0448\u0442\u0440\u0430\u0444 \u0438\u043C\u0435\u0435\u0442 \u043F\u043E\u0442\u043E\u043B\u043E\u043A, \u0447\u0442\u043E\u0431\u044B \u043E\u0434\u043D\u0430 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430 \u043D\u0435 \xAB\u0441\u044A\u0435\u0434\u0430\u043B\u0430\xBB \u0432\u0441\u044E \u043E\u0446\u0435\u043D\u043A\u0443." }),
+                  /* @__PURE__ */ jsxs85(HelpCard, { title: "\u0424\u043E\u0440\u043C\u0443\u043B\u0430", formula: "score = 100 \u2212 \u03A3 \u0448\u0442\u0440\u0430\u0444\u043E\u0432", wide: true, children: [
+                    /* @__PURE__ */ jsxs85(HelpList, { children: [
+                      /* @__PURE__ */ jsxs85("li", { children: [
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 min(lintErrors \xD7 5, 30)" }),
                         " \u2014 \u043E\u0448\u0438\u0431\u043A\u0438 \u043B\u0438\u043D\u0442\u0435\u0440\u0430, \u0434\u043E \u221230"
                       ] }),
-                      /* @__PURE__ */ jsxs84("li", { children: [
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(lintWarnings \xD7 1, 20)" }),
+                      /* @__PURE__ */ jsxs85("li", { children: [
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 min(lintWarnings \xD7 1, 20)" }),
                         " \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F, \u0434\u043E \u221220"
                       ] }),
-                      /* @__PURE__ */ jsxs84("li", { children: [
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(piiCritical \xD7 3, 20)" }),
+                      /* @__PURE__ */ jsxs85("li", { children: [
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 min(piiCritical \xD7 3, 20)" }),
                         " \u2014 PII \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438, \u0434\u043E \u221220"
                       ] }),
-                      /* @__PURE__ */ jsxs84("li", { children: [
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(cycles \xD7 15, 20)" }),
+                      /* @__PURE__ */ jsxs85("li", { children: [
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 min(cycles \xD7 15, 20)" }),
                         " \u2014 \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F, \u0434\u043E \u221220"
                       ] }),
-                      /* @__PURE__ */ jsxs84("li", { children: [
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(brokenRefs \xD7 5, 15)" }),
+                      /* @__PURE__ */ jsxs85("li", { children: [
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 min(brokenRefs \xD7 5, 15)" }),
                         " \u2014 \u0431\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438, \u0434\u043E \u221215"
                       ] }),
-                      /* @__PURE__ */ jsxs84("li", { children: [
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 10" }),
+                      /* @__PURE__ */ jsxs85("li", { children: [
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 10" }),
                         " \u0435\u0441\u043B\u0438 \u0434\u043E\u043C\u0435\u043D \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 (",
-                        /* @__PURE__ */ jsx87("em", { children: "pain" }),
+                        /* @__PURE__ */ jsx88("em", { children: "pain" }),
                         "), ",
-                        /* @__PURE__ */ jsx87("code", { children: "\u2212 10" }),
+                        /* @__PURE__ */ jsx88("code", { children: "\u2212 10" }),
                         " \u0435\u0441\u043B\u0438 \u0432 \u0437\u043E\u043D\u0435 \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E\u0441\u0442\u0438 (",
-                        /* @__PURE__ */ jsx87("em", { children: "uselessness" }),
+                        /* @__PURE__ */ jsx88("em", { children: "uselessness" }),
                         ")"
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    /* @__PURE__ */ jsxs85(HelpText, { children: [
                       "\u041E\u0446\u0435\u043D\u043A\u0430 \u043E\u043A\u0440\u0443\u0433\u043B\u044F\u0435\u0442\u0441\u044F \u0434\u043E \u0446\u0435\u043B\u043E\u0433\u043E \u0438 \u0437\u0430\u0436\u0438\u043C\u0430\u0435\u0442\u0441\u044F \u0432",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "[0, 100]" }),
+                      /* @__PURE__ */ jsx88("code", { children: "[0, 100]" }),
                       ". \u041E\u0434\u0438\u043D \u0434\u043E\u043C\u0435\u043D \u0441 6 lint-\u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438 \u0438 \u0431\u0435\u0437 \u0446\u0438\u043A\u043B\u043E\u0432 \u043F\u043E\u043B\u0443\u0447\u0438\u0442 ",
-                      /* @__PURE__ */ jsx87("code", { children: "100 \u2212 30 = 70" }),
+                      /* @__PURE__ */ jsx88("code", { children: "100 \u2212 30 = 70" }),
                       ". \u0414\u043E\u043C\u0435\u043D \u0441 2 \u0446\u0438\u043A\u043B\u0430\u043C\u0438 \u0438 5 PII critical \u043F\u043E\u043B\u0443\u0447\u0438\u0442",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "100 \u2212 20 \u2212 15 = 65" }),
+                      /* @__PURE__ */ jsx88("code", { children: "100 \u2212 20 \u2212 15 = 65" }),
                       "."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Sonar \u2260 Health." }),
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Sonar \u2260 Health." }),
                     " Sonar \u2014 \u044D\u0442\u043E \u043E\u0446\u0435\u043D\u043A\u0430",
                     " ",
-                    /* @__PURE__ */ jsx87("em", { children: "\u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0443" }),
+                    /* @__PURE__ */ jsx88("em", { children: "\u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0443" }),
                     ". Health \u0443\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442 \u0435\u0449\u0451 PII, \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 \u0438 Martin. \u0414\u043E\u043C\u0435\u043D \u0441 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u044B\u043C Sonar \u043C\u043E\u0436\u0435\u0442 \u0438\u043C\u0435\u0442\u044C \u043D\u0438\u0437\u043A\u0438\u0439 Health \u0438\u0437-\u0437\u0430 PII \u0438\u043B\u0438 \u0446\u0438\u043A\u043B\u043E\u0432."
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx87(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 A\u2013E", children: /* @__PURE__ */ jsxs84(HelpZones, { children: [
-                  /* @__PURE__ */ jsx87(HelpZone, { color: "green", title: "A \u2014 90+", children: "\u041E\u0442\u043B\u0438\u0447\u043D\u043E. \u041D\u0438 \u043E\u0434\u043D\u043E\u0439 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0438\u043B\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u043B\u043A\u0438\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F." }),
-                  /* @__PURE__ */ jsx87(HelpZone, { color: "green", title: "B \u2014 75\u201389", children: "\u0425\u043E\u0440\u043E\u0448\u043E. \u0415\u0434\u0438\u043D\u0438\u0447\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F, \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435\u0442." }),
-                  /* @__PURE__ */ jsx87(HelpZone, { color: "orange", title: "C \u2014 60\u201374", children: "\u0423\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u0438\u0442\u0435\u043B\u044C\u043D\u043E. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F: \u0435\u0441\u0442\u044C warnings \u0438\u043B\u0438 1\u20132 \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u044B\u0445 \u043F\u0443\u043D\u043A\u0442\u0430." }),
-                  /* @__PURE__ */ jsx87(HelpZone, { color: "red", title: "D \u2014 40\u201359", children: "\u041F\u043B\u043E\u0445\u043E. \u041E\u0448\u0438\u0431\u043A\u0438 \u0438\u043B\u0438 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C." }),
-                  /* @__PURE__ */ jsx87(HelpZone, { color: "red", title: "E \u2014 0\u201339", children: "\u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. \u041C\u043D\u043E\u0433\u043E \u043E\u0448\u0438\u0431\u043E\u043A, PII critical, \u0446\u0438\u043A\u043B\u044B \u0438\u043B\u0438 \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C." })
+                /* @__PURE__ */ jsx88(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 A\u2013E", children: /* @__PURE__ */ jsxs85(HelpZones, { children: [
+                  /* @__PURE__ */ jsx88(HelpZone, { color: "green", title: "A \u2014 90+", children: "\u041E\u0442\u043B\u0438\u0447\u043D\u043E. \u041D\u0438 \u043E\u0434\u043D\u043E\u0439 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0438\u043B\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u043B\u043A\u0438\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F." }),
+                  /* @__PURE__ */ jsx88(HelpZone, { color: "green", title: "B \u2014 75\u201389", children: "\u0425\u043E\u0440\u043E\u0448\u043E. \u0415\u0434\u0438\u043D\u0438\u0447\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F, \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435\u0442." }),
+                  /* @__PURE__ */ jsx88(HelpZone, { color: "orange", title: "C \u2014 60\u201374", children: "\u0423\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u0438\u0442\u0435\u043B\u044C\u043D\u043E. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F: \u0435\u0441\u0442\u044C warnings \u0438\u043B\u0438 1\u20132 \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u044B\u0445 \u043F\u0443\u043D\u043A\u0442\u0430." }),
+                  /* @__PURE__ */ jsx88(HelpZone, { color: "red", title: "D \u2014 40\u201359", children: "\u041F\u043B\u043E\u0445\u043E. \u041E\u0448\u0438\u0431\u043A\u0438 \u0438\u043B\u0438 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C." }),
+                  /* @__PURE__ */ jsx88(HelpZone, { color: "red", title: "E \u2014 0\u201339", children: "\u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. \u041C\u043D\u043E\u0433\u043E \u043E\u0448\u0438\u0431\u043E\u043A, PII critical, \u0446\u0438\u043A\u043B\u044B \u0438\u043B\u0438 \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C." })
                 ] }) }),
-                /* @__PURE__ */ jsx87(HelpSection, { title: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 KPI \u0441\u0432\u0435\u0440\u0445\u0443", children: /* @__PURE__ */ jsxs84(HelpList, { children: [
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0414\u043E\u043C\u0435\u043D\u043E\u0432" }),
+                /* @__PURE__ */ jsx88(HelpSection, { title: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 KPI \u0441\u0432\u0435\u0440\u0445\u0443", children: /* @__PURE__ */ jsxs85(HelpList, { children: [
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0414\u043E\u043C\u0435\u043D\u043E\u0432" }),
                     " \u2014 \u0432\u0441\u0435\u0433\u043E \u0432 \u043C\u043E\u0434\u0435\u043B\u0438. \u041F\u043E\u0434\u043F\u0438\u0441\u044C \xABN \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438\xBB \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u043C\u0435\u044E\u0442 \u0445\u043E\u0442\u044C \u043E\u0434\u043D\u0443 \u0438\u0437 8 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u043C\u0435\u0442\u0440\u0438\u043A."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 Health" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 Health" }),
                     " \u2014 \u0430\u0440\u0438\u0444\u043C\u0435\u0442\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0441\u0440\u0435\u0434\u043D\u0435\u0435 healthScore \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C. Grade \u2014 \u0442\u043E\u0442 \u0436\u0435, \u0447\u0442\u043E \u0443 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430. \u041E\u0431\u0449\u0438\u0439 \xAB\u0437\u0434\u043E\u0440\u043E\u0432\u044B\u0439 \u043B\u0438 \u043F\u0440\u043E\u0435\u043A\u0442\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Lint errors" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Lint errors" }),
                     " \u2014 \u0441\u0443\u043C\u043C\u0430 lint-\u043E\u0448\u0438\u0431\u043E\u043A \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C. \u041D\u043E\u043B\u044C \u2014 \u0438\u0434\u0435\u0430\u043B; \u0431\u043E\u043B\u044C\u0448\u0435 20 \u2014 \u0447\u0442\u043E-\u0442\u043E \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u043E \u043D\u0435 \u0442\u0430\u043A \u0432 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438\u043B\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "PII critical" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "PII critical" }),
                     " \u2014 \u0441\u0443\u043C\u043C\u0430 PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439 (GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F). \u0420\u0435\u0433\u0443\u043B\u044F\u0442\u043E\u0440\u043D\u044B\u0439 \u0440\u0438\u0441\u043A, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u0441\u0445\u0435\u043C\u0430 \xAB\u0447\u0438\u0441\u0442\u0430\u044F\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0412 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0412 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438" }),
                     " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u041C\u0430\u0440\u0442\u0438\u043D \u043E\u0442\u043D\u043E\u0441\u0438\u0442 \u043A pain zone. \u041F\u043E\u0434\u043F\u0438\u0441\u044C \xABN \u0441 \u0446\u0438\u043A\u043B\u0430\u043C\u0438\xBB \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438\u043C\u0435\u044E\u0442 \u0446\u0438\u043A\u043B\u044B \u0432 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0438."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsx87(HelpSection, { title: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B", children: /* @__PURE__ */ jsxs84(HelpList, { children: [
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Domain" }),
+                /* @__PURE__ */ jsx88(HelpSection, { title: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B", children: /* @__PURE__ */ jsxs85(HelpList, { children: [
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Domain" }),
                     " \u2014 FQDN \u0434\u043E\u043C\u0435\u043D\u0430, \u0438\u043C\u044F, \u0432\u0435\u0440\u0441\u0438\u044F, \u0442\u0435\u0433\u0438. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443. \u0411\u0435\u0439\u0434\u0436 ",
-                    /* @__PURE__ */ jsx87("code", { children: "new" }),
+                    /* @__PURE__ */ jsx88("code", { children: "new" }),
                     " \u2014 \u0434\u043E\u043C\u0435\u043D \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435, \u043A\u044D\u0448 \u0443\u0441\u0442\u0430\u0440\u0435\u043B (\u0441\u043C. \xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB)."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Health" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Health" }),
                     " \u2014 score + grade. \u041E\u0441\u043D\u043E\u0432\u043D\u043E\u0439 \u0441\u0442\u043E\u043B\u0431\u0435\u0446 \u0434\u043B\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \xAB\u0447\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Prob" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Prob" }),
                     " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u0437 8 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u043C\u0435\u0442\u0440\u0438\u043A \u043D\u0435\u043D\u0443\u043B\u0435\u0432\u044B\u0435: lint errors, lint warnings, PII critical, \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438, \u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views. 0 \u2014 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E, 3+ \u2014 \xAB\u0448\u0432\u0435\u0439\u0446\u0430\u0440\u0441\u043A\u0438\u0439 \u0441\u044B\u0440\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Ent / Attr / Lnk / Vw / Act / Types / Mix" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Ent / Attr / Lnk / Vw / Act / Types / Mix" }),
                     " \u2014 \u0440\u0430\u0437\u043C\u0435\u0440 \u0434\u043E\u043C\u0435\u043D\u0430. \u0421\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u043D\u043E\u0433\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (30+) \u2014 \u0441\u0438\u0433\u043D\u0430\u043B \u043A \u0434\u0435\u043A\u043E\u043C\u043F\u043E\u0437\u0438\u0446\u0438\u0438; \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u0430\u043B\u043E views \u043F\u0440\u0438 \u0431\u043E\u043B\u044C\u0448\u043E\u043C \u0447\u0438\u0441\u043B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u2014 UI \u043D\u0435 \u0443\u0441\u043F\u0435\u0432\u0430\u0435\u0442 \u0437\u0430 \u043C\u043E\u0434\u0435\u043B\u044C\u044E."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Lint" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Lint" }),
                     " \u2014 Sonar-\u043E\u0446\u0435\u043D\u043A\u0430 \u0438 grade (A\u2013E). \u041D\u0435 \u043F\u0443\u0442\u0430\u0442\u044C \u0441 \u043A\u043E\u043B\u043E\u043D\u043A\u043E\u0439 Health \u2014 \u0437\u0434\u0435\u0441\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043B\u0438\u043D\u0442\u0435\u0440."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Iss" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Iss" }),
                     " \u2014 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u041F\u043E\u0434\u043F\u0438\u0441\u044C",
                     " ",
-                    /* @__PURE__ */ jsx87("code", { children: "\xB7 Ne" }),
+                    /* @__PURE__ */ jsx88("code", { children: "\xB7 Ne" }),
                     " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u0437 \u043D\u0438\u0445 errors. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "PII" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "PII" }),
                     " \u2014 ",
-                    /* @__PURE__ */ jsx87("code", { children: "critical / \u0432\u0441\u0435\u0433\u043E" }),
+                    /* @__PURE__ */ jsx88("code", { children: "critical / \u0432\u0441\u0435\u0433\u043E" }),
                     ". \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A PII \u0441 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C \u043F\u043E \u044D\u0442\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Martin" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Martin" }),
                     " \u2014 \u0437\u043E\u043D\u0430 \u043F\u043E \u043C\u0435\u0442\u0440\u0438\u043A\u0430\u043C \u041C\u0430\u0440\u0442\u0438\u043D\u0430: \xAB\u0431\u043E\u043B\u044C\xBB / \xAB\u0431\u0435\u0441\u043F.\xBB (\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438) / \xAB\u043D\u043E\u0440\u043C\u0430\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs84("li", { children: [
-                    /* @__PURE__ */ jsx87("strong", { children: "Size / Updated" }),
+                  /* @__PURE__ */ jsxs85("li", { children: [
+                    /* @__PURE__ */ jsx88("strong", { children: "Size / Updated" }),
                     " \u2014 \u0440\u0430\u0437\u043C\u0435\u0440 \u0444\u0430\u0439\u043B\u0430 \u0438 \u0432\u0440\u0435\u043C\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F. \u041F\u043E\u0434\u043F\u0438\u0441\u044C ",
-                    /* @__PURE__ */ jsx87("code", { children: "fs" }),
+                    /* @__PURE__ */ jsx88("code", { children: "fs" }),
                     " \u2014 \u0432\u0440\u0435\u043C\u044F \u0432\u0437\u044F\u0442\u043E \u0441 \u0444\u0430\u0439\u043B\u043E\u0432\u043E\u0439 \u0441\u0438\u0441\u0442\u0435\u043C\u044B (\u0441\u0435\u0440\u0432\u0435\u0440 \u043D\u0435 \u0441\u043E\u043E\u0431\u0449\u0438\u043B updatedAt)."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0420\u0430\u0441\u043A\u0440\u044B\u0442\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u2014 \u0434\u0435\u0442\u0430\u043B\u044C\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430", children: [
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "\u0420\u0430\u0441\u043A\u0440\u044B\u0442\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u2014 \u0434\u0435\u0442\u0430\u043B\u044C\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430", children: [
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "\u041A\u043B\u0438\u043A \u043F\u043E ",
-                    /* @__PURE__ */ jsx87("code", { children: "\u25B8" }),
+                    /* @__PURE__ */ jsx88("code", { children: "\u25B8" }),
                     " \u0432 \u043F\u0435\u0440\u0432\u043E\u0439 \u043A\u043E\u043B\u043E\u043D\u043A\u0435 \u0440\u0430\u0441\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0431\u043B\u043E\u043A \u043F\u043E\u0434 \u0441\u0442\u0440\u043E\u043A\u043E\u0439:"
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpList, { children: [
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u041A\u043D\u043E\u043F\u043A\u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439" }),
+                  /* @__PURE__ */ jsxs85(HelpList, { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u041A\u043D\u043E\u043F\u043A\u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439" }),
                       " \u2014 \u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 / \u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML / \u041B\u0438\u043D\u0442\u0435\u0440 / PII."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "Sonar breakdown" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "Sonar breakdown" }),
                       " \u2014 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u0439 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0438 \u043E\u0446\u0435\u043D\u043A\u0430 0\u2013100. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442, \u0433\u0434\u0435 \u0438\u043C\u0435\u043D\u043D\u043E \xAB\u0431\u043E\u043B\u0438\u0442\xBB (naming / required / reference / semantic / validation)."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "PII \u043F\u043E \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u0438" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "PII \u043F\u043E \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u0438" }),
                       " \u2014 \u0440\u0430\u0437\u0431\u0438\u0432\u043A\u0430 \u043D\u0430 4 \u0443\u0440\u043E\u0432\u043D\u044F: \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 / \u0432\u044B\u0441\u043E\u043A\u0430\u044F / \u0441\u0440\u0435\u0434\u043D\u044F\u044F / \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u0430\u044F. \u0414\u043B\u044F \u043E\u0446\u0435\u043D\u043A\u0438 \u0440\u0435\u0433\u0443\u043B\u044F\u0442\u043E\u0440\u043D\u043E\u0433\u043E \u0440\u0438\u0441\u043A\u0430."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430" }),
                       " \u2014 Ca (\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E), Ce (\u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442), I (instability), A (abstractness), D (distance \u043E\u0442 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438)."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
                       " \u2014 \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u0422\u043E, \u0447\u0442\u043E \u043D\u0435 \u0432\u0441\u0435\u0433\u0434\u0430 \u043B\u043E\u0432\u0438\u0442 \u043B\u0438\u043D\u0442\u0435\u0440."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u0422\u043E\u043F-5 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u0422\u043E\u043F-5 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
                       " \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 entityId \u0441 \u0447\u0438\u0441\u043B\u043E\u043C \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0430\u0442\u0430\u043B\u043E\u0433 \u043D\u0430 \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "Quick filters", children: [
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "Quick filters", children: [
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "Chips \u043F\u043E\u0434 \u043F\u043E\u043B\u0435\u043C \u043F\u043E\u0438\u0441\u043A\u0430 \u0444\u0438\u043B\u044C\u0442\u0440\u0443\u044E\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 \u043F\u043E \u0442\u0438\u043F\u0443 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B. \u0420\u0430\u0431\u043E\u0442\u0430\u044E\u0442 \u043F\u043E ",
-                    /* @__PURE__ */ jsx87("strong", { children: "AND" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "AND" }),
                     " \u2014 \u043C\u043E\u0436\u043D\u043E \u043D\u0430\u0436\u0430\u0442\u044C \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E, \u0447\u0442\u043E\u0431\u044B \u043D\u0430\u0439\u0442\u0438 \xAB\u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 \u0418 \u0441 PII critical\xBB. Chips \u0431\u0435\u0437 \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439 \u0441\u043A\u0440\u044B\u0442\u044B, \u0447\u0442\u043E\u0431\u044B \u043D\u0435 \u0437\u0430\u0441\u043E\u0440\u044F\u0442\u044C \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441."
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpList, { children: [
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u0421 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438" }),
+                  /* @__PURE__ */ jsxs85(HelpList, { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u0421 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438" }),
                       " \u2014 Prob > 0."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "Lint errors" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "Lint errors" }),
                       " \u2014 \u0435\u0441\u0442\u044C \u0445\u043E\u0442\u044C \u043E\u0434\u043D\u0430 lint-\u043E\u0448\u0438\u0431\u043A\u0430."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "PII critical" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "PII critical" }),
                       " \u2014 \u0435\u0441\u0442\u044C PII \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
                       " \u2014 Martin zone = pain."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "\u0426\u0438\u043A\u043B\u044B / \u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "\u0426\u0438\u043A\u043B\u044B / \u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
                       " \u2014 \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B."
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u0438 \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u0438 \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0438\u0437\u043C\u0435\u0440\u044F\u044E\u0442 ",
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
                     " \u0438",
                     " ",
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
                     " \u0434\u043E\u043C\u0435\u043D\u0430. \u0418\u0434\u0435\u0430\u043B \u2014 \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B. \u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442, \u0433\u0434\u0435 \u044D\u0442\u043E\u0442 \u0431\u0430\u043B\u0430\u043D\u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D."
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpZones, { children: [
-                    /* @__PURE__ */ jsx87(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0411\u0430\u043B\u0430\u043D\u0441 \u0441\u043E\u0431\u043B\u044E\u0434\u0451\u043D \u2014 \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u043E\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u043E, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u043E\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E." }),
-                    /* @__PURE__ */ jsx87(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: "A < 0.3 \u0438 I < 0.3. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439: \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u0431\u044C\u0451\u0442 \u043F\u043E \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u044F\u043C." }),
-                    /* @__PURE__ */ jsx87(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: "A > 0.7 \u0438 I > 0.7. \u0410\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439: \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C." })
+                  /* @__PURE__ */ jsxs85(HelpZones, { children: [
+                    /* @__PURE__ */ jsx88(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0411\u0430\u043B\u0430\u043D\u0441 \u0441\u043E\u0431\u043B\u044E\u0434\u0451\u043D \u2014 \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u043E\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u043E, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u043E\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E." }),
+                    /* @__PURE__ */ jsx88(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: "A < 0.3 \u0438 I < 0.3. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439: \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u0431\u044C\u0451\u0442 \u043F\u043E \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u044F\u043C." }),
+                    /* @__PURE__ */ jsx88(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: "A > 0.7 \u0438 I > 0.7. \u0410\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439: \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C." })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u0431\u0435\u0439\u0434\u0436 new", children: [
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u0431\u0435\u0439\u0434\u0436 new", children: [
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-                    /* @__PURE__ */ jsx87("strong", { children: "\xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "\xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB" }),
                     " \u0438\u0434\u0451\u0442 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440 \u0437\u0430 \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u043C\u0438 \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (updatedAt, version) \u0438 \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442 \u0441 \u0442\u0435\u043C, \u0447\u0442\u043E \u0432 \u043A\u044D\u0448\u0435. \u041D\u0435 \u0442\u044F\u043D\u0435\u0442 sourceCode \u2014 \u0431\u044B\u0441\u0442\u0440\u0430\u044F \u0434\u0430\u0436\u0435 \u043D\u0430 \u0441\u043E\u0442\u043D\u044F\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432."
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpList, { children: [
-                    /* @__PURE__ */ jsxs84("li", { children: [
+                  /* @__PURE__ */ jsxs85(HelpList, { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
                       "\u0414\u043E\u043C\u0435\u043D\u044B, \u0443 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0441\u0435\u0440\u0432\u0435\u0440\u043D\u044B\u0439 updatedAt \u043D\u043E\u0432\u0435\u0435 \u043A\u044D\u0448\u0430 \u0438\u043B\u0438 \u043E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F version, \u043F\u043E\u043B\u0443\u0447\u0430\u044E\u0442 \u0431\u0435\u0439\u0434\u0436 ",
-                      /* @__PURE__ */ jsx87("code", { children: "new" }),
+                      /* @__PURE__ */ jsx88("code", { children: "new" }),
                       "."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
                       "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-                      /* @__PURE__ */ jsx87("strong", { children: "\xAB\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0445\xBB" }),
+                      /* @__PURE__ */ jsx88("strong", { children: "\xAB\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0445\xBB" }),
                       " \u0432 \u0431\u0430\u043D\u043D\u0435\u0440\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u0443\u0435\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 \u0434\u043E \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0445."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
                       "\u0427\u0442\u043E\u0431\u044B \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u0430\u043C\u0438 \u0441\u0445\u0435\u043C\u044B \u2014 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 ",
-                      /* @__PURE__ */ jsx87("code", { children: "--refresh" }),
+                      /* @__PURE__ */ jsx88("code", { children: "--refresh" }),
                       " ",
                       "\u043D\u0430 CLI \u0438\u043B\u0438 \xAB\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u043A\u0435\u0448\xBB \u0432 \u043F\u0440\u0430\u0432\u043E\u043C \u0432\u0435\u0440\u0445\u043D\u0435\u043C \u0443\u0433\u043B\u0443 \u0433\u043B\u0430\u0432\u043D\u043E\u0433\u043E \u043E\u043A\u043D\u0430."
                     ] }),
-                    /* @__PURE__ */ jsx87("li", { children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0431\u0435\u0437 \u0431\u0435\u0439\u0434\u0436\u0430 \u2014 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u044E\u0442 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u043E\u043C, \u043D\u0438\u0447\u0435\u0433\u043E \u0434\u0435\u043B\u0430\u0442\u044C \u043D\u0435 \u043D\u0443\u0436\u043D\u043E." })
+                    /* @__PURE__ */ jsx88("li", { children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0431\u0435\u0437 \u0431\u0435\u0439\u0434\u0436\u0430 \u2014 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u044E\u0442 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u043E\u043C, \u043D\u0438\u0447\u0435\u0433\u043E \u0434\u0435\u043B\u0430\u0442\u044C \u043D\u0435 \u043D\u0443\u0436\u043D\u043E." })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0427\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C \u2014 \u0430\u043B\u0433\u043E\u0440\u0438\u0442\u043C", children: [
-                  /* @__PURE__ */ jsx87(HelpText, { children: "\u0415\u0441\u043B\u0438 \u0432\u044B \u043E\u0442\u043A\u0440\u044B\u043B\u0438 dashboard \xAB\u0441 \u0447\u0438\u0441\u0442\u043E\u0433\u043E \u043B\u0438\u0441\u0442\u0430\xBB, \u0432\u043E\u0442 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0438\u0437\u0430\u0446\u0438\u0438:" }),
-                  /* @__PURE__ */ jsxs84(HelpList, { children: [
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "1. Lint errors \u0438 \u0426\u0438\u043A\u043B\u044B" }),
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "\u0427\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C \u2014 \u0430\u043B\u0433\u043E\u0440\u0438\u0442\u043C", children: [
+                  /* @__PURE__ */ jsx88(HelpText, { children: "\u0415\u0441\u043B\u0438 \u0432\u044B \u043E\u0442\u043A\u0440\u044B\u043B\u0438 dashboard \xAB\u0441 \u0447\u0438\u0441\u0442\u043E\u0433\u043E \u043B\u0438\u0441\u0442\u0430\xBB, \u0432\u043E\u0442 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0438\u0437\u0430\u0446\u0438\u0438:" }),
+                  /* @__PURE__ */ jsxs85(HelpList, { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "1. Lint errors \u0438 \u0426\u0438\u043A\u043B\u044B" }),
                       " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \xABLint errors\xBB \u0438 \xAB\u0426\u0438\u043A\u043B\u044B\xBB. \u042D\u0442\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B: \u0446\u0438\u043A\u043B\u044B \u043B\u043E\u043C\u0430\u044E\u0442 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435, \u043E\u0448\u0438\u0431\u043A\u0438 \u2014 \u043D\u0435 \u0434\u0430\u0434\u0443\u0442 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C \u0441\u0445\u0435\u043C\u0443."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "2. \u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "2. \u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
                       " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \xAB\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438\xBB. \u0421\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u043B\u0438\u043D\u0442\u0435\u0440 \u0440\u0443\u0433\u0430\u0435\u0442\u0441\u044F, \u043D\u043E \u0441\u0445\u0435\u043C\u0430 \u043C\u043E\u0436\u0435\u0442 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C\u0441\u044F. \u0427\u0438\u043D\u0438\u0442\u044C \u0434\u043E \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "3. PII critical" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "3. PII critical" }),
                       " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \xABPII critical\xBB. \u0420\u0435\u0433\u0443\u043B\u044F\u0442\u043E\u0440\u043D\u044B\u0439 \u0440\u0438\u0441\u043A: GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0438 \u0437\u0430\u0449\u0438\u0442\u044B."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "4. \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "4. \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
                       " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \xAB\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB. \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0439 \u0434\u043E\u043B\u0433. \u041D\u0435 \u0441\u0440\u043E\u0447\u043D\u043E, \u043D\u043E \u0447\u0435\u043C \u0434\u043E\u043B\u044C\u0448\u0435 \u0442\u044F\u043D\u0435\u0442\u0435 \u2014 \u0442\u0435\u043C \u0434\u043E\u0440\u043E\u0436\u0435 \u043C\u0435\u043D\u044F\u0442\u044C."
                     ] }),
-                    /* @__PURE__ */ jsxs84("li", { children: [
-                      /* @__PURE__ */ jsx87("strong", { children: "5. Warnings, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views" }),
+                    /* @__PURE__ */ jsxs85("li", { children: [
+                      /* @__PURE__ */ jsx88("strong", { children: "5. Warnings, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views" }),
                       " \u2014 \xABProb > 0\xBB. \u0413\u0438\u0433\u0438\u0435\u043D\u0430: \u043D\u0435 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E, \u043D\u043E \u0441\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0435\u043C \u043D\u0430\u043A\u0430\u043F\u043B\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0438 \u043C\u0435\u0448\u0430\u0435\u0442 \u0447\u0438\u0442\u0430\u0442\u044C \u0441\u0445\u0435\u043C\u0443."
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u0431\u043E\u043B\u044C\u0448\u043E\u0433\u043E \u043F\u0430\u043B\u044C\u0446\u0430: ",
-                    /* @__PURE__ */ jsx87("strong", { children: "\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u0441\u0451, \u0447\u0442\u043E \u043A\u0440\u0430\u0441\u043D\u043E\u0435" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u0441\u0451, \u0447\u0442\u043E \u043A\u0440\u0430\u0441\u043D\u043E\u0435" }),
                     " ",
                     "(errors + PII critical), \u043F\u043E\u0442\u043E\u043C \u2014 \u0447\u0442\u043E \u0436\u0451\u043B\u0442\u043E\u0435 (warnings + \u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438), \u043F\u043E\u0442\u043E\u043C \u2014 \u0433\u0438\u0433\u0438\u0435\u043D\u0430. \u0414\u043E\u043C\u0435\u043D\u044B \u0441 grade",
                     " ",
-                    /* @__PURE__ */ jsx87("code", { children: "D" }),
+                    /* @__PURE__ */ jsx88("code", { children: "D" }),
                     " \u0438 ",
-                    /* @__PURE__ */ jsx87("code", { children: "E" }),
+                    /* @__PURE__ */ jsx88("code", { children: "E" }),
                     " \u2014 \u0432 \u043F\u0435\u0440\u0432\u0443\u044E \u043E\u0447\u0435\u0440\u0435\u0434\u044C."
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 CSV", children: [
-                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                /* @__PURE__ */ jsxs85(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 CSV", children: [
+                  /* @__PURE__ */ jsxs85(HelpText, { children: [
                     "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-                    /* @__PURE__ */ jsx87("strong", { children: "CSV" }),
+                    /* @__PURE__ */ jsx88("strong", { children: "CSV" }),
                     " \u0432 \u0448\u0430\u043F\u043A\u0435 \u0432\u044B\u0433\u0440\u0443\u0436\u0430\u0435\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 \u0441 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C\u0438. \u0424\u043E\u0440\u043C\u0430\u0442 \u2014 \u0434\u043B\u044F Excel / Google Sheets / BI."
                   ] }),
-                  /* @__PURE__ */ jsxs84(HelpList, { children: [
-                    /* @__PURE__ */ jsxs84("li", { children: [
+                  /* @__PURE__ */ jsxs85(HelpList, { children: [
+                    /* @__PURE__ */ jsxs85("li", { children: [
                       "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 + \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u043D\u044B\u0435:",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "dataRules" }),
+                      /* @__PURE__ */ jsx88("code", { children: "dataRules" }),
                       ", ",
-                      /* @__PURE__ */ jsx87("code", { children: "healthScore" }),
+                      /* @__PURE__ */ jsx88("code", { children: "healthScore" }),
                       ",",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "healthGrade" }),
+                      /* @__PURE__ */ jsx88("code", { children: "healthGrade" }),
                       ", ",
-                      /* @__PURE__ */ jsx87("code", { children: "problemCount" }),
+                      /* @__PURE__ */ jsx88("code", { children: "problemCount" }),
                       ",",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "cycles" }),
+                      /* @__PURE__ */ jsx88("code", { children: "cycles" }),
                       ", ",
-                      /* @__PURE__ */ jsx87("code", { children: "brokenRefs" }),
+                      /* @__PURE__ */ jsx88("code", { children: "brokenRefs" }),
                       ",",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "orphanEntities" }),
+                      /* @__PURE__ */ jsx88("code", { children: "orphanEntities" }),
                       ",",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "attributesWithoutViews" }),
+                      /* @__PURE__ */ jsx88("code", { children: "attributesWithoutViews" }),
                       ",",
                       " ",
-                      /* @__PURE__ */ jsx87("code", { children: "martinZone" }),
+                      /* @__PURE__ */ jsx88("code", { children: "martinZone" }),
                       ", ",
-                      /* @__PURE__ */ jsx87("code", { children: "martinDistance" }),
+                      /* @__PURE__ */ jsx88("code", { children: "martinDistance" }),
                       "."
                     ] }),
-                    /* @__PURE__ */ jsx87("li", { children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B \u0438 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F \u0434\u043E \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u2014 \u0447\u0442\u043E \u0432\u0438\u0434\u0438\u0442\u0435, \u0442\u043E \u0438 \u0441\u043A\u0430\u0447\u0430\u0435\u0442\u0435." }),
-                    /* @__PURE__ */ jsx87("li", { children: "\u041A\u043E\u0434\u0438\u0440\u043E\u0432\u043A\u0430 UTF-8 BOM \u2014 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0432 Excel \u0431\u0435\u0437 \u043F\u043B\u044F\u0448\u0443\u0449\u0438\u0445 \u043A\u0440\u0430\u043A\u043E\u0437\u044F\u0431\u0440." })
+                    /* @__PURE__ */ jsx88("li", { children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B \u0438 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F \u0434\u043E \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u2014 \u0447\u0442\u043E \u0432\u0438\u0434\u0438\u0442\u0435, \u0442\u043E \u0438 \u0441\u043A\u0430\u0447\u0430\u0435\u0442\u0435." }),
+                    /* @__PURE__ */ jsx88("li", { children: "\u041A\u043E\u0434\u0438\u0440\u043E\u0432\u043A\u0430 UTF-8 BOM \u2014 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0432 Excel \u0431\u0435\u0437 \u043F\u043B\u044F\u0448\u0443\u0449\u0438\u0445 \u043A\u0440\u0430\u043A\u043E\u0437\u044F\u0431\u0440." })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx87(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs84(HelpList, { children: [
-                  /* @__PURE__ */ jsx87("li", { children: "Health score \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430. \u041E\u043D \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B, \u0430 \u043D\u0435 \u0438\u0441\u0442\u0438\u043D\u0443. \u0414\u043E\u043C\u0435\u043D \u0441 \u043D\u0438\u0437\u043A\u0438\u043C score \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0435\u0441\u043B\u0438 \u044D\u0442\u043E, \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \xAB\u043C\u0443\u0441\u043E\u0440\u043D\u044B\u0439\xBB \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 \u044D\u043A\u0441\u043F\u0435\u0440\u0438\u043C\u0435\u043D\u0442\u0430\u043B\u044C\u043D\u044B\u0439." }),
-                  /* @__PURE__ */ jsx87("li", { children: "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u0438\u0431\u043B\u0438\u0436\u0451\u043D\u043D\u043E: \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F = \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0430\u043C\u0438. \u041D\u0430\u0441\u0442\u043E\u044F\u0449\u0430\u044F abstractness \u0432 UML \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u0438\u043D\u0430\u0447\u0435." }),
-                  /* @__PURE__ */ jsx87("li", { children: "PII \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0434\u0435\u0442\u0435\u043A\u0442\u043E\u0440 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432. \u041D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u044E\u0440\u0438\u0434\u0438\u0447\u0435\u0441\u043A\u0438\u043C \u0437\u0430\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435\u043C. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438 DPO." }),
-                  /* @__PURE__ */ jsx87("li", { children: "\xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 (updatedAt, version). \u0415\u0441\u043B\u0438 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0438 sourceCode \u0431\u0435\u0437 \u043F\u043E\u0432\u044B\u0448\u0435\u043D\u0438\u044F version \u2014 \u0434\u0435\u0442\u0435\u043A\u0442 \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442." })
+                /* @__PURE__ */ jsx88(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs85(HelpList, { children: [
+                  /* @__PURE__ */ jsx88("li", { children: "Health score \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430. \u041E\u043D \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B, \u0430 \u043D\u0435 \u0438\u0441\u0442\u0438\u043D\u0443. \u0414\u043E\u043C\u0435\u043D \u0441 \u043D\u0438\u0437\u043A\u0438\u043C score \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0435\u0441\u043B\u0438 \u044D\u0442\u043E, \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \xAB\u043C\u0443\u0441\u043E\u0440\u043D\u044B\u0439\xBB \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 \u044D\u043A\u0441\u043F\u0435\u0440\u0438\u043C\u0435\u043D\u0442\u0430\u043B\u044C\u043D\u044B\u0439." }),
+                  /* @__PURE__ */ jsx88("li", { children: "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u0438\u0431\u043B\u0438\u0436\u0451\u043D\u043D\u043E: \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F = \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0430\u043C\u0438. \u041D\u0430\u0441\u0442\u043E\u044F\u0449\u0430\u044F abstractness \u0432 UML \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u0438\u043D\u0430\u0447\u0435." }),
+                  /* @__PURE__ */ jsx88("li", { children: "PII \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0434\u0435\u0442\u0435\u043A\u0442\u043E\u0440 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432. \u041D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u044E\u0440\u0438\u0434\u0438\u0447\u0435\u0441\u043A\u0438\u043C \u0437\u0430\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435\u043C. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438 DPO." }),
+                  /* @__PURE__ */ jsx88("li", { children: "\xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 (updatedAt, version). \u0415\u0441\u043B\u0438 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0438 sourceCode \u0431\u0435\u0437 \u043F\u043E\u0432\u044B\u0448\u0435\u043D\u0438\u044F version \u2014 \u0434\u0435\u0442\u0435\u043A\u0442 \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442." })
                 ] }) })
               ] }),
-              /* @__PURE__ */ jsxs84("div", { className: "health-kpi", children: [
-                /* @__PURE__ */ jsx87(
+              /* @__PURE__ */ jsxs85("div", { className: "health-kpi", children: [
+                /* @__PURE__ */ jsx88(
                   KpiCard3,
                   {
                     icon: "folder",
@@ -106288,7 +107468,7 @@ function HealthDashboardModal() {
                     severity: kpi.withProblems > 0 ? "warn" : "ok"
                   }
                 ),
-                /* @__PURE__ */ jsx87(
+                /* @__PURE__ */ jsx88(
                   KpiCard3,
                   {
                     icon: "monitor_heart",
@@ -106298,7 +107478,7 @@ function HealthDashboardModal() {
                     title: "\u0421\u0440\u0435\u0434\u043D\u0435\u0435 \u0430\u0440\u0438\u0444\u043C\u0435\u0442\u0438\u0447\u0435\u0441\u043A\u043E\u0435 Health score \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C.\n\u0424\u043E\u0440\u043C\u0443\u043B\u0430 Health: 100 \u2212 min(lintErrors\xD75, 30) \u2212 min(lintWarnings\xD71, 20) \u2212 min(piiCritical\xD73, 20) \u2212 min(cycles\xD715, 20) \u2212 min(brokenRefs\xD75, 15)\n\n\u041F\u043E\u0434\u0440\u043E\u0431\u043D\u0435\u0435 \u2014 \u0432 \u0441\u043F\u0440\u0430\u0432\u043A\u0435 \xAB\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?\xBB."
                   }
                 ),
-                /* @__PURE__ */ jsx87(
+                /* @__PURE__ */ jsx88(
                   KpiCard3,
                   {
                     icon: "error",
@@ -106307,7 +107487,7 @@ function HealthDashboardModal() {
                     severity: kpi.totalLintErrors > 0 ? "err" : "ok"
                   }
                 ),
-                /* @__PURE__ */ jsx87(
+                /* @__PURE__ */ jsx88(
                   KpiCard3,
                   {
                     icon: "shield_lock",
@@ -106316,7 +107496,7 @@ function HealthDashboardModal() {
                     severity: kpi.totalPiiCritical > 0 ? "err" : "ok"
                   }
                 ),
-                /* @__PURE__ */ jsx87(
+                /* @__PURE__ */ jsx88(
                   KpiCard3,
                   {
                     icon: "favorite",
@@ -106327,10 +107507,10 @@ function HealthDashboardModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxs84("div", { className: "health-toolbar", children: [
-                /* @__PURE__ */ jsxs84("div", { className: "health-toolbar__search", children: [
-                  /* @__PURE__ */ jsx87(MIcon, { name: "search", size: "sm" }),
-                  /* @__PURE__ */ jsx87(
+              /* @__PURE__ */ jsxs85("div", { className: "health-toolbar", children: [
+                /* @__PURE__ */ jsxs85("div", { className: "health-toolbar__search", children: [
+                  /* @__PURE__ */ jsx88(MIcon, { name: "search", size: "sm" }),
+                  /* @__PURE__ */ jsx88(
                     "input",
                     {
                       type: "text",
@@ -106340,7 +107520,7 @@ function HealthDashboardModal() {
                       spellCheck: false
                     }
                   ),
-                  query && /* @__PURE__ */ jsx87(
+                  query && /* @__PURE__ */ jsx88(
                     "button",
                     {
                       className: "health-toolbar__clear",
@@ -106349,12 +107529,12 @@ function HealthDashboardModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx87("div", { className: "health-quick-filters", children: QUICK_FILTERS3.map((f) => {
+                /* @__PURE__ */ jsx88("div", { className: "health-quick-filters", children: QUICK_FILTERS3.map((f) => {
                   const active = quickFilters.has(f.id);
                   const count = rows.filter(f.test).length;
                   if (!active && count === 0)
                     return null;
-                  return /* @__PURE__ */ jsxs84(
+                  return /* @__PURE__ */ jsxs85(
                     "button",
                     {
                       type: "button",
@@ -106362,38 +107542,38 @@ function HealthDashboardModal() {
                       onClick: () => toggleQuickFilter(f.id),
                       title: `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u044B: ${f.label.toLowerCase()}`,
                       children: [
-                        /* @__PURE__ */ jsx87(MIcon, { name: f.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx88(MIcon, { name: f.icon, size: "sm" }),
                         f.label,
-                        /* @__PURE__ */ jsx87("span", { className: "health-quick-filter__count", children: count })
+                        /* @__PURE__ */ jsx88("span", { className: "health-quick-filter__count", children: count })
                       ]
                     },
                     f.id
                   );
                 }) }),
-                /* @__PURE__ */ jsx87("div", { className: "health-toolbar__stats", children: /* @__PURE__ */ jsxs84("span", { children: [
+                /* @__PURE__ */ jsx88("div", { className: "health-toolbar__stats", children: /* @__PURE__ */ jsxs85("span", { children: [
                   "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
-                  /* @__PURE__ */ jsx87("strong", { children: sortedRows.length }),
+                  /* @__PURE__ */ jsx88("strong", { children: sortedRows.length }),
                   " /",
                   " ",
                   kpi.total
                 ] }) })
               ] }),
-              /* @__PURE__ */ jsxs84("div", { className: "health-table-wrap", children: [
-                /* @__PURE__ */ jsxs84("table", { className: "health-table", children: [
-                  /* @__PURE__ */ jsx87("thead", { children: /* @__PURE__ */ jsxs84("tr", { children: [
-                    /* @__PURE__ */ jsx87("th", { className: "health-table__expand-col" }),
-                    /* @__PURE__ */ jsxs84(
+              /* @__PURE__ */ jsxs85("div", { className: "health-table-wrap", children: [
+                /* @__PURE__ */ jsxs85("table", { className: "health-table", children: [
+                  /* @__PURE__ */ jsx88("thead", { children: /* @__PURE__ */ jsxs85("tr", { children: [
+                    /* @__PURE__ */ jsx88("th", { className: "health-table__expand-col" }),
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("name"),
                         className: sortBy === "name" ? "active" : "",
                         children: [
                           "\u0414\u043E\u043C\u0435\u043D",
-                          sortBy === "name" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "name" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("health"),
@@ -106401,11 +107581,11 @@ function HealthDashboardModal() {
                         title: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430",
                         children: [
                           "Health",
-                          sortBy === "health" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "health" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("problems"),
@@ -106413,44 +107593,44 @@ function HealthDashboardModal() {
                         title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u043C\u0435\u0442\u0440\u0438\u043A (0\u20138):\n\xB7 lint errors\n\xB7 lint warnings\n\xB7 PII critical\n\xB7 \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F\n\xB7 \u0431\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438\n\xB7 \u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 (Martin)\n\xB7 \u0441\u0438\u0440\u043E\u0442\u044B\n\xB7 >5 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0431\u0435\u0437 views\n\n0 \u2014 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E, 8 \u2014 \u0432\u0441\u0451 \u043F\u043B\u043E\u0445\u043E",
                         children: [
                           "Prob",
-                          sortBy === "problems" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "problems" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("entities"),
                         className: "health-table__num" + (sortBy === "entities" ? " active" : ""),
                         children: [
                           "Ent",
-                          sortBy === "entities" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "entities" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("attributes"),
                         className: "health-table__num" + (sortBy === "attributes" ? " active" : ""),
                         children: [
                           "Attr",
-                          sortBy === "attributes" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "attributes" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("linkages"),
                         className: "health-table__num" + (sortBy === "linkages" ? " active" : ""),
                         children: [
                           "Lnk",
-                          sortBy === "linkages" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "linkages" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("views"),
@@ -106458,11 +107638,11 @@ function HealthDashboardModal() {
                         title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E views",
                         children: [
                           "Vw",
-                          sortBy === "views" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "views" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("actions"),
@@ -106470,22 +107650,22 @@ function HealthDashboardModal() {
                         title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E actions",
                         children: [
                           "Act",
-                          sortBy === "actions" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "actions" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("dataTypes"),
                         className: "health-table__num" + (sortBy === "dataTypes" ? " active" : ""),
                         children: [
                           "Types",
-                          sortBy === "dataTypes" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "dataTypes" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("mixins"),
@@ -106493,11 +107673,11 @@ function HealthDashboardModal() {
                         title: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B, \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
                         children: [
                           "Mix",
-                          sortBy === "mixins" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "mixins" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("lintScore"),
@@ -106505,11 +107685,11 @@ function HealthDashboardModal() {
                         title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430",
                         children: [
                           "Lint",
-                          sortBy === "lintScore" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "lintScore" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("lintIssues"),
@@ -106517,11 +107697,11 @@ function HealthDashboardModal() {
                         title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C",
                         children: [
                           "Iss",
-                          sortBy === "lintIssues" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "lintIssues" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("piiCritical"),
@@ -106529,11 +107709,11 @@ function HealthDashboardModal() {
                         title: "PII: critical / \u0432\u0441\u0435\u0433\u043E",
                         children: [
                           "PII",
-                          sortBy === "piiCritical" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "piiCritical" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsx87(
+                    /* @__PURE__ */ jsx88(
                       "th",
                       {
                         className: "health-table__num",
@@ -106541,31 +107721,31 @@ function HealthDashboardModal() {
                         children: "Martin"
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("fileSize"),
                         className: "health-table__num" + (sortBy === "fileSize" ? " active" : ""),
                         children: [
                           "Size",
-                          sortBy === "fileSize" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "fileSize" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs84(
+                    /* @__PURE__ */ jsxs85(
                       "th",
                       {
                         onClick: () => handleSort("updatedAt"),
                         className: sortBy === "updatedAt" ? "active" : "",
                         children: [
                           "Updated",
-                          sortBy === "updatedAt" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                          sortBy === "updatedAt" && /* @__PURE__ */ jsx88("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsx87("th", { className: "health-table__actions-col" })
+                    /* @__PURE__ */ jsx88("th", { className: "health-table__actions-col" })
                   ] }) }),
-                  /* @__PURE__ */ jsx87("tbody", { children: sortedRows.map((r) => /* @__PURE__ */ jsx87(
+                  /* @__PURE__ */ jsx88("tbody", { children: sortedRows.map((r) => /* @__PURE__ */ jsx88(
                     HealthRow,
                     {
                       row: r,
@@ -106577,7 +107757,7 @@ function HealthDashboardModal() {
                     r.domainId
                   )) })
                 ] }),
-                sortedRows.length === 0 && /* @__PURE__ */ jsx87("div", { className: "health-empty", children: onlyOutdated && outdated.size === 0 ? "\u041D\u0435\u0442 \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" : query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : quickFilters.size > 0 ? "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043F\u043E \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" : "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
+                sortedRows.length === 0 && /* @__PURE__ */ jsx88("div", { className: "health-empty", children: onlyOutdated && outdated.size === 0 ? "\u041D\u0435\u0442 \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" : query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : quickFilters.size > 0 ? "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043F\u043E \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" : "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
               ] })
             ] })
           ]
@@ -106595,20 +107775,20 @@ function HealthRowDetails({
   const hasSonar = row.sonarBreakdown.length > 0;
   const hasPii = row.piiHitCount > 0;
   const hasMartin = row.martinZone != null;
-  return /* @__PURE__ */ jsxs84("div", { className: "health-details", children: [
-    /* @__PURE__ */ jsxs84("div", { className: "health-details__actions", children: [
-      /* @__PURE__ */ jsxs84(
+  return /* @__PURE__ */ jsxs85("div", { className: "health-details", children: [
+    /* @__PURE__ */ jsxs85("div", { className: "health-details__actions", children: [
+      /* @__PURE__ */ jsxs85(
         "button",
         {
           className: "btn btn--primary",
           onClick: () => onOpenSchema(row.domainId),
           children: [
-            /* @__PURE__ */ jsx87(MIcon, { name: "menu_book", size: "sm" }),
+            /* @__PURE__ */ jsx88(MIcon, { name: "menu_book", size: "sm" }),
             "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
           ]
         }
       ),
-      row.filePath && /* @__PURE__ */ jsxs84(
+      row.filePath && /* @__PURE__ */ jsxs85(
         "button",
         {
           className: "btn",
@@ -106619,12 +107799,12 @@ function HealthRowDetails({
           },
           title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML-\u0444\u0430\u0439\u043B \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435",
           children: [
-            /* @__PURE__ */ jsx87(MIcon, { name: "description", size: "sm" }),
+            /* @__PURE__ */ jsx88(MIcon, { name: "description", size: "sm" }),
             "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML"
           ]
         }
       ),
-      row.lintIssueCount > 0 && /* @__PURE__ */ jsxs84(
+      row.lintIssueCount > 0 && /* @__PURE__ */ jsxs85(
         "button",
         {
           className: "btn",
@@ -106635,12 +107815,12 @@ function HealthRowDetails({
           },
           title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043E\u0431\u0449\u0438\u0439 \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
           children: [
-            /* @__PURE__ */ jsx87(MIcon, { name: "rule", size: "sm" }),
+            /* @__PURE__ */ jsx88(MIcon, { name: "rule", size: "sm" }),
             "\u041B\u0438\u043D\u0442\u0435\u0440"
           ]
         }
       ),
-      row.piiHitCount > 0 && /* @__PURE__ */ jsxs84(
+      row.piiHitCount > 0 && /* @__PURE__ */ jsxs85(
         "button",
         {
           className: "btn",
@@ -106652,32 +107832,32 @@ function HealthRowDetails({
             st.setPiiOpen(true);
           },
           children: [
-            /* @__PURE__ */ jsx87(MIcon, { name: "shield_lock", size: "sm" }),
+            /* @__PURE__ */ jsx88(MIcon, { name: "shield_lock", size: "sm" }),
             "PII"
           ]
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs84("div", { className: "health-details__grid", children: [
-      hasSonar && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
-          /* @__PURE__ */ jsx87(MIcon, { name: "science", size: "sm" }),
+    /* @__PURE__ */ jsxs85("div", { className: "health-details__grid", children: [
+      hasSonar && /* @__PURE__ */ jsxs85("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx88(MIcon, { name: "science", size: "sm" }),
           "Sonar breakdown"
         ] }),
-        /* @__PURE__ */ jsx87("div", { className: "health-details__rows", children: row.sonarBreakdown.filter((b) => b.issueCount > 0).sort((a, b) => a.score - b.score).map((b) => /* @__PURE__ */ jsxs84(
+        /* @__PURE__ */ jsx88("div", { className: "health-details__rows", children: row.sonarBreakdown.filter((b) => b.issueCount > 0).sort((a, b) => a.score - b.score).map((b) => /* @__PURE__ */ jsxs85(
           "div",
           {
             className: "health-details__row",
             children: [
-              /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: b.label }),
-              /* @__PURE__ */ jsx87(
+              /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: b.label }),
+              /* @__PURE__ */ jsx88(
                 "span",
                 {
                   className: "health-details__row-score" + (b.score < 60 ? " bad" : b.score < 80 ? " mid" : " good"),
                   children: b.score
                 }
               ),
-              /* @__PURE__ */ jsxs84("span", { className: "health-details__row-count", children: [
+              /* @__PURE__ */ jsxs85("span", { className: "health-details__row-count", children: [
                 b.issueCount,
                 " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
               ] })
@@ -106686,94 +107866,94 @@ function HealthRowDetails({
           b.category
         )) })
       ] }),
-      hasPii && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
-          /* @__PURE__ */ jsx87(MIcon, { name: "shield_lock", size: "sm" }),
+      hasPii && /* @__PURE__ */ jsxs85("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx88(MIcon, { name: "shield_lock", size: "sm" }),
           "PII \u043F\u043E \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u0438"
         ] }),
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__rows", children: [
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.critical })
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__rows", children: [
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.piiBySeverity.critical })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.high })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.piiBySeverity.high })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--mid", children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.medium })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--mid", children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.piiBySeverity.medium })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u044B\u0435" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.low })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u044B\u0435" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.piiBySeverity.low })
           ] })
         ] })
       ] }),
-      hasMartin && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
-          /* @__PURE__ */ jsx87(MIcon, { name: "scatter_plot", size: "sm" }),
+      hasMartin && /* @__PURE__ */ jsxs85("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx88(MIcon, { name: "scatter_plot", size: "sm" }),
           "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430"
         ] }),
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__rows", children: [
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Ca (afferent)" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinCa ?? "\u2014" })
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__rows", children: [
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: "Ca (afferent)" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.martinCa ?? "\u2014" })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Ce (efferent)" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinCe ?? "\u2014" })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: "Ce (efferent)" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.martinCe ?? "\u2014" })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Instability" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinInstability != null ? row.martinInstability.toFixed(2) : "\u2014" })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: "Instability" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.martinInstability != null ? row.martinInstability.toFixed(2) : "\u2014" })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Abstractness" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinAbstractness != null ? row.martinAbstractness.toFixed(2) : "\u2014" })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: "Abstractness" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.martinAbstractness != null ? row.martinAbstractness.toFixed(2) : "\u2014" })
           ] }),
-          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Distance" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinDistance != null ? row.martinDistance.toFixed(2) : "\u2014" })
+          /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label", children: "Distance" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.martinDistance != null ? row.martinDistance.toFixed(2) : "\u2014" })
           ] })
         ] })
       ] }),
-      hasStructuralIssues && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
-          /* @__PURE__ */ jsx87(MIcon, { name: "warning", size: "sm" }),
+      hasStructuralIssues && /* @__PURE__ */ jsxs85("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx88(MIcon, { name: "warning", size: "sm" }),
           "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B"
         ] }),
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__rows", children: [
-          row.cyclesCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0426\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.cyclesCount })
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__rows", children: [
+          row.cyclesCount > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0426\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.cyclesCount })
           ] }),
-          row.brokenRefsCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.brokenRefsCount })
+          row.brokenRefsCount > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.brokenRefsCount })
           ] }),
-          row.orphanEntitiesCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0441\u0438\u0440\u043E\u0442\u044B" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.orphanEntitiesCount })
+          row.orphanEntitiesCount > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0441\u0438\u0440\u043E\u0442\u044B" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.orphanEntitiesCount })
           ] }),
-          row.attributesWithoutViewsCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.attributesWithoutViewsCount })
+          row.attributesWithoutViewsCount > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.attributesWithoutViewsCount })
           ] }),
-          row.mixinConflictsCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432" }),
-            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.mixinConflictsCount })
+          row.mixinConflictsCount > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432" }),
+            /* @__PURE__ */ jsx88("span", { className: "health-details__row-count", children: row.mixinConflictsCount })
           ] })
         ] })
       ] }),
-      row.topProblemEntities.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__card health-details__card--wide", children: [
-        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
-          /* @__PURE__ */ jsx87(MIcon, { name: "bug_report", size: "sm" }),
+      row.topProblemEntities.length > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-details__card health-details__card--wide", children: [
+        /* @__PURE__ */ jsxs85("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx88(MIcon, { name: "bug_report", size: "sm" }),
           "\u0422\u043E\u043F-",
           row.topProblemEntities.length,
           " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C"
         ] }),
-        /* @__PURE__ */ jsx87("div", { className: "health-details__entities", children: row.topProblemEntities.map((e) => /* @__PURE__ */ jsxs84(
+        /* @__PURE__ */ jsx88("div", { className: "health-details__entities", children: row.topProblemEntities.map((e) => /* @__PURE__ */ jsxs85(
           "button",
           {
             type: "button",
@@ -106786,8 +107966,8 @@ function HealthRowDetails({
             },
             title: `${e.entityFqid} \u2014 ${e.issueCount} \u043F\u0440\u043E\u0431\u043B\u0435\u043C`,
             children: [
-              /* @__PURE__ */ jsx87("code", { children: e.entityId }),
-              /* @__PURE__ */ jsx87("span", { className: "health-details__entity-count", children: e.issueCount })
+              /* @__PURE__ */ jsx88("code", { children: e.entityId }),
+              /* @__PURE__ */ jsx88("span", { className: "health-details__entity-count", children: e.issueCount })
             ]
           },
           e.entityFqid
@@ -106862,16 +108042,16 @@ var init_HealthDashboardModal = __esm({
         isExpanded ? "health-row--expanded" : ""
       ].filter(Boolean).join(" ");
       const healthGradeClass = "health-grade--" + row.healthGrade.toLowerCase();
-      return /* @__PURE__ */ jsxs84(Fragment35, { children: [
-        /* @__PURE__ */ jsxs84("tr", { className: rowClass, children: [
-          /* @__PURE__ */ jsx87("td", { className: "health-row__expand-cell", children: /* @__PURE__ */ jsx87(
+      return /* @__PURE__ */ jsxs85(Fragment36, { children: [
+        /* @__PURE__ */ jsxs85("tr", { className: rowClass, children: [
+          /* @__PURE__ */ jsx88("td", { className: "health-row__expand-cell", children: /* @__PURE__ */ jsx88(
             "button",
             {
               type: "button",
               className: "health-row__expand-btn",
               onClick: () => onToggle(row.domainId),
               title: isExpanded ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
-              children: /* @__PURE__ */ jsx87(
+              children: /* @__PURE__ */ jsx88(
                 MIcon,
                 {
                   name: isExpanded ? "expand_more" : "chevron_right",
@@ -106880,9 +108060,9 @@ var init_HealthDashboardModal = __esm({
               )
             }
           ) }),
-          /* @__PURE__ */ jsxs84("td", { className: "health-row__domain", children: [
-            /* @__PURE__ */ jsxs84("div", { className: "health-row__domain-head", children: [
-              /* @__PURE__ */ jsx87(
+          /* @__PURE__ */ jsxs85("td", { className: "health-row__domain", children: [
+            /* @__PURE__ */ jsxs85("div", { className: "health-row__domain-head", children: [
+              /* @__PURE__ */ jsx88(
                 "button",
                 {
                   className: "health-row__domain-id",
@@ -106891,7 +108071,7 @@ var init_HealthDashboardModal = __esm({
                   children: row.domainId
                 }
               ),
-              row.isOutdated && /* @__PURE__ */ jsxs84(
+              row.isOutdated && /* @__PURE__ */ jsxs85(
                 "span",
                 {
                   className: "health-row__outdated-badge",
@@ -106899,42 +108079,42 @@ var init_HealthDashboardModal = __esm({
 \u041A\u044D\u0448: ${row.outdatedInfo.cachedUpdatedAt || "\u2014"}` + (row.outdatedInfo.serverVersion ? `
 v${row.outdatedInfo.cachedVersion || "?"} \u2192 v${row.outdatedInfo.serverVersion}` : "") : "\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
                   children: [
-                    /* @__PURE__ */ jsx87(MIcon, { name: "update", size: "sm" }),
+                    /* @__PURE__ */ jsx88(MIcon, { name: "update", size: "sm" }),
                     "new"
                   ]
                 }
               )
             ] }),
-            row.name && row.name !== row.domainId && /* @__PURE__ */ jsx87("div", { className: "health-row__domain-name", children: row.name }),
-            row.version && /* @__PURE__ */ jsxs84("span", { className: "health-row__version", children: [
+            row.name && row.name !== row.domainId && /* @__PURE__ */ jsx88("div", { className: "health-row__domain-name", children: row.name }),
+            row.version && /* @__PURE__ */ jsxs85("span", { className: "health-row__version", children: [
               "v",
               row.version
             ] }),
-            row.tags.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-row__tags", children: [
-              row.tags.slice(0, 3).map((t) => /* @__PURE__ */ jsx87("span", { className: "health-row__tag", children: t }, t)),
-              row.tags.length > 3 && /* @__PURE__ */ jsxs84("span", { className: "health-row__tag", children: [
+            row.tags.length > 0 && /* @__PURE__ */ jsxs85("div", { className: "health-row__tags", children: [
+              row.tags.slice(0, 3).map((t) => /* @__PURE__ */ jsx88("span", { className: "health-row__tag", children: t }, t)),
+              row.tags.length > 3 && /* @__PURE__ */ jsxs85("span", { className: "health-row__tag", children: [
                 "+",
                 row.tags.length - 3
               ] })
             ] })
           ] }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: /* @__PURE__ */ jsxs84("span", { className: "health-grade-badge " + healthGradeClass, children: [
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: /* @__PURE__ */ jsxs85("span", { className: "health-grade-badge " + healthGradeClass, children: [
             row.healthScore,
-            /* @__PURE__ */ jsx87("span", { className: "health-grade-badge__grade", children: row.healthGrade })
+            /* @__PURE__ */ jsx88("span", { className: "health-grade-badge__grade", children: row.healthGrade })
           ] }) }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.problemCount > 0 ? /* @__PURE__ */ jsx87("span", { className: "health-problem-count", children: row.problemCount }) : /* @__PURE__ */ jsx87("span", { className: "health-lint-ok", children: "\u2713" }) }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.entityCount }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.attributeCount }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.linkageCount }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.viewsCount }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.actionsCount }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.dataTypeCount }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.mixinCount > 0 ? row.mixinCount : "\u2014" }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.lintScore != null ? /* @__PURE__ */ jsxs84("span", { className: "health-lint-score " + gradeClass, children: [
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.problemCount > 0 ? /* @__PURE__ */ jsx88("span", { className: "health-problem-count", children: row.problemCount }) : /* @__PURE__ */ jsx88("span", { className: "health-lint-ok", children: "\u2713" }) }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.entityCount }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.attributeCount }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.linkageCount }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.viewsCount }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.actionsCount }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.dataTypeCount }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.mixinCount > 0 ? row.mixinCount : "\u2014" }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.lintScore != null ? /* @__PURE__ */ jsxs85("span", { className: "health-lint-score " + gradeClass, children: [
             row.lintScore,
-            /* @__PURE__ */ jsx87("span", { className: "health-lint-score__grade", children: row.lintGrade })
+            /* @__PURE__ */ jsx88("span", { className: "health-lint-score__grade", children: row.lintGrade })
           ] }) : "\u2014" }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.lintIssueCount > 0 ? /* @__PURE__ */ jsxs84(
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.lintIssueCount > 0 ? /* @__PURE__ */ jsxs85(
             "button",
             {
               className: "health-lint-link",
@@ -106943,15 +108123,15 @@ v${row.outdatedInfo.cachedVersion || "?"} \u2192 v${row.outdatedInfo.serverVersi
 \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C`,
               children: [
                 row.lintIssueCount,
-                row.lintErrorCount > 0 && /* @__PURE__ */ jsxs84("span", { className: "health-lint-link__err", children: [
+                row.lintErrorCount > 0 && /* @__PURE__ */ jsxs85("span", { className: "health-lint-link__err", children: [
                   "\xB7 ",
                   row.lintErrorCount,
                   "e"
                 ] })
               ]
             }
-          ) : /* @__PURE__ */ jsx87("span", { className: "health-lint-ok", children: "\u2713" }) }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.piiHitCount > 0 ? /* @__PURE__ */ jsxs84(
+          ) : /* @__PURE__ */ jsx88("span", { className: "health-lint-ok", children: "\u2713" }) }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.piiHitCount > 0 ? /* @__PURE__ */ jsxs85(
             "button",
             {
               type: "button",
@@ -106968,13 +108148,13 @@ critical: ${row.piiCriticalCount}
 
 \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u0441 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C`,
               children: [
-                row.piiCriticalCount > 0 && /* @__PURE__ */ jsx87("strong", { children: row.piiCriticalCount }),
+                row.piiCriticalCount > 0 && /* @__PURE__ */ jsx88("strong", { children: row.piiCriticalCount }),
                 row.piiCriticalCount > 0 && " / ",
                 row.piiHitCount
               ]
             }
-          ) : /* @__PURE__ */ jsx87("span", { className: "health-pii", children: "\u2014" }) }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.martinZone ? /* @__PURE__ */ jsx87(
+          ) : /* @__PURE__ */ jsx88("span", { className: "health-pii", children: "\u2014" }) }),
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num", children: row.martinZone ? /* @__PURE__ */ jsx88(
             "span",
             {
               className: "health-martin-zone health-martin-zone--" + row.martinZone,
@@ -106982,10 +108162,10 @@ critical: ${row.piiCriticalCount}
               children: row.martinZone === "pain" ? "\u0431\u043E\u043B\u044C" : row.martinZone === "uselessness" ? "\u0431\u0435\u0441\u043F." : row.martinZone === "main-sequence" ? "\u043D\u043E\u0440\u043C\u0430" : "\u2014"
             }
           ) : "\u2014" }),
-          /* @__PURE__ */ jsx87("td", { className: "health-table__num health-row__size", children: formatBytes(row.fileSize) }),
-          /* @__PURE__ */ jsx87("td", { className: "health-row__updated", children: row.updatedAt ? /* @__PURE__ */ jsxs84("span", { title: new Date(row.updatedAt).toLocaleString("ru-RU"), children: [
+          /* @__PURE__ */ jsx88("td", { className: "health-table__num health-row__size", children: formatBytes(row.fileSize) }),
+          /* @__PURE__ */ jsx88("td", { className: "health-row__updated", children: row.updatedAt ? /* @__PURE__ */ jsxs85("span", { title: new Date(row.updatedAt).toLocaleString("ru-RU"), children: [
             relativeTimeShort(row.updatedAt),
-            row.updatedAtSource === "fs" && /* @__PURE__ */ jsx87(
+            row.updatedAtSource === "fs" && /* @__PURE__ */ jsx88(
               "span",
               {
                 className: "health-row__source",
@@ -106994,17 +108174,17 @@ critical: ${row.piiCriticalCount}
               }
             )
           ] }) : "\u2014" }),
-          /* @__PURE__ */ jsx87("td", { children: /* @__PURE__ */ jsx87(
+          /* @__PURE__ */ jsx88("td", { children: /* @__PURE__ */ jsx88(
             "button",
             {
               className: "health-row__schema-btn",
               onClick: () => onOpenSchema(row.domainId),
               title: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430",
-              children: /* @__PURE__ */ jsx87(MIcon, { name: "menu_book", size: "sm" })
+              children: /* @__PURE__ */ jsx88(MIcon, { name: "menu_book", size: "sm" })
             }
           ) })
         ] }),
-        isExpanded && /* @__PURE__ */ jsx87("tr", { className: "health-row-details", children: /* @__PURE__ */ jsx87("td", { colSpan: 17, children: /* @__PURE__ */ jsx87(HealthRowDetails, { row, onOpenSchema, onOpenLint }) }) })
+        isExpanded && /* @__PURE__ */ jsx88("tr", { className: "health-row-details", children: /* @__PURE__ */ jsx88("td", { colSpan: 17, children: /* @__PURE__ */ jsx88(HealthRowDetails, { row, onOpenSchema, onOpenLint }) }) })
       ] });
     });
   }
@@ -107443,7 +108623,7 @@ var init_deletion_simulation = __esm({
 
 // src/web/components/modals/DeletionSimulationModal.tsx
 import { useMemo as useMemo60 } from "react";
-import { jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
+import { jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
 function DeletionSimulationModal() {
   const open2 = useGraphStore((s) => s.deletionSimulationOpen);
   const fqid = useGraphStore((s) => s.deletionSimulationFqid);
@@ -107509,80 +108689,80 @@ function DeletionSimulationModal() {
   };
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx88(
+  return /* @__PURE__ */ jsx89(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 550 },
       onMouseDown: close,
-      children: /* @__PURE__ */ jsxs85(
+      children: /* @__PURE__ */ jsxs86(
         "div",
         {
           className: "help-modal deletion-sim-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs85("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs85("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx88(MIcon, { name: "delete_forever", size: "sm" }),
-                /* @__PURE__ */ jsx88("span", { className: "icon-label", children: "\u0427\u0442\u043E \u0435\u0441\u043B\u0438 \u0443\u0434\u0430\u043B\u0438\u0442\u044C" }),
-                sim && /* @__PURE__ */ jsx88("span", { className: "help-modal__badge", children: sim.entity.entityId })
+            /* @__PURE__ */ jsxs86("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs86("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx89(MIcon, { name: "delete_forever", size: "sm" }),
+                /* @__PURE__ */ jsx89("span", { className: "icon-label", children: "\u0427\u0442\u043E \u0435\u0441\u043B\u0438 \u0443\u0434\u0430\u043B\u0438\u0442\u044C" }),
+                sim && /* @__PURE__ */ jsx89("span", { className: "help-modal__badge", children: sim.entity.entityId })
               ] }),
-              /* @__PURE__ */ jsx88("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+              /* @__PURE__ */ jsx89("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
             ] }),
-            loading && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx88("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
-            error && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs85("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx89("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx89("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx89("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs86("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            !loading && !error && !sim && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx88("div", { className: "deletion-sim-empty", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435" }) }),
-            sim && /* @__PURE__ */ jsxs85("div", { className: "help-modal__body help-modal__body--flush", children: [
-              /* @__PURE__ */ jsxs85(
+            !loading && !error && !sim && /* @__PURE__ */ jsx89("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx89("div", { className: "deletion-sim-empty", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435" }) }),
+            sim && /* @__PURE__ */ jsxs86("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs86(
                 "div",
                 {
                   className: "deletion-sim-header deletion-sim-header--" + sim.summary.severity,
                   children: [
-                    /* @__PURE__ */ jsx88("div", { className: "deletion-sim-header__icon", children: /* @__PURE__ */ jsx88(
+                    /* @__PURE__ */ jsx89("div", { className: "deletion-sim-header__icon", children: /* @__PURE__ */ jsx89(
                       MIcon,
                       {
                         name: SEVERITY_LABEL[sim.summary.severity].icon,
                         size: "xl"
                       }
                     ) }),
-                    /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-header__text", children: [
-                      /* @__PURE__ */ jsx88("div", { className: "deletion-sim-header__title", children: SEVERITY_LABEL[sim.summary.severity].label }),
-                      /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-header__desc", children: [
+                    /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-header__text", children: [
+                      /* @__PURE__ */ jsx89("div", { className: "deletion-sim-header__title", children: SEVERITY_LABEL[sim.summary.severity].label }),
+                      /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-header__desc", children: [
                         sim.summary.severity === "safe" && "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u2014 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u043B\u043E\u043C\u0430\u0435\u0442.",
                         sim.summary.severity === "risky" && `\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F, \u043D\u043E ${sim.summary.warningCount} \u0431\u043B\u043E\u043A(\u043E\u0432) \u0441\u0442\u0430\u043D\u0443\u0442 \xAB\u0432\u0438\u0441\u044F\u0447\u0438\u043C\u0438\xBB \u2014 \u0438\u0445 \u043D\u0430\u0434\u043E \u043F\u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C.`,
                         sim.summary.severity === "breaking" && `${sim.summary.breakingCount} \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442(\u0435\u0439) \u2014 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0441\u043B\u043E\u043C\u0430\u0435\u0442 \u0441\u0445\u0435\u043C\u0443 \u0438\u043B\u0438 \u0434\u0430\u043D\u043D\u044B\u0435.`
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-header__stats", children: [
-                      /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-stat", children: [
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-stat__value deletion-sim-stat__value--err", children: sim.summary.breakingCount }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-stat__label", children: "breaking" })
+                    /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-header__stats", children: [
+                      /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-stat", children: [
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-stat__value deletion-sim-stat__value--err", children: sim.summary.breakingCount }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-stat__label", children: "breaking" })
                       ] }),
-                      /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-stat", children: [
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-stat__value deletion-sim-stat__value--warn", children: sim.summary.warningCount }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-stat__label", children: "warnings" })
+                      /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-stat", children: [
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-stat__value deletion-sim-stat__value--warn", children: sim.summary.warningCount }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-stat__label", children: "warnings" })
                       ] }),
-                      /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-stat", children: [
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-stat__value", children: sim.summary.affectedDomains.length }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-stat__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
+                      /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-stat", children: [
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-stat__value", children: sim.summary.affectedDomains.length }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-stat__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
                       ] })
                     ] })
                   ]
                 }
               ),
-              /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-meta", children: [
-                /* @__PURE__ */ jsx88("code", { children: sim.entity.fqid }),
-                sim.entity.name && sim.entity.name !== sim.entity.entityId && /* @__PURE__ */ jsx88("span", { className: "deletion-sim-meta__name", children: sim.entity.name }),
-                /* @__PURE__ */ jsxs85("span", { className: "deletion-sim-meta__badge", children: [
+              /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-meta", children: [
+                /* @__PURE__ */ jsx89("code", { children: sim.entity.fqid }),
+                sim.entity.name && sim.entity.name !== sim.entity.entityId && /* @__PURE__ */ jsx89("span", { className: "deletion-sim-meta__name", children: sim.entity.name }),
+                /* @__PURE__ */ jsxs86("span", { className: "deletion-sim-meta__badge", children: [
                   "v? \xB7 ",
                   sim.entity.attributes.length,
                   " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
                 ] })
               ] }),
-              sim.references.length > 0 && /* @__PURE__ */ jsx88(
+              sim.references.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "breaking",
@@ -107590,36 +108770,36 @@ function DeletionSimulationModal() {
                   title: "Reference \u043D\u0430 \u044D\u0442\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
                   count: sim.references.length,
                   hint: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u0440\u0443\u0433\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u0445, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u043D\u0430 \u043D\u0435\u0451 \u0447\u0435\u0440\u0435\u0437 Reference / Array<Reference>",
-                  children: sim.references.map((r, i) => /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-item", children: [
-                    /* @__PURE__ */ jsxs85(
+                  children: sim.references.map((r, i) => /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-item", children: [
+                    /* @__PURE__ */ jsxs86(
                       "button",
                       {
                         className: "deletion-sim-item__link",
                         onClick: () => openEntityInCatalog(r.fromEntity.fqid),
                         title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0441\u044B\u043B\u0430\u044E\u0449\u0443\u044E\u0441\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
                         children: [
-                          /* @__PURE__ */ jsx88(MIcon, { name: "data_object", size: "sm" }),
-                          /* @__PURE__ */ jsx88("strong", { children: r.fromEntity.entityId }),
-                          /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: r.fromEntity.domainId })
+                          /* @__PURE__ */ jsx89(MIcon, { name: "data_object", size: "sm" }),
+                          /* @__PURE__ */ jsx89("strong", { children: r.fromEntity.entityId }),
+                          /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: r.fromEntity.domainId })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__arrow", children: "\u2192" }),
-                    /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: r.attributeId }),
-                    /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__type", children: r.dataType }),
-                    /* @__PURE__ */ jsx88(
+                    /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__arrow", children: "\u2192" }),
+                    /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: r.attributeId }),
+                    /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__type", children: r.dataType }),
+                    /* @__PURE__ */ jsx89(
                       "button",
                       {
                         className: "deletion-sim-item__action",
                         onClick: () => openInYaml(r.fromEntity.domainId),
                         title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML \u0434\u043E\u043C\u0435\u043D\u0430",
-                        children: /* @__PURE__ */ jsx88(MIcon, { name: "description", size: "sm" })
+                        children: /* @__PURE__ */ jsx89(MIcon, { name: "description", size: "sm" })
                       }
                     )
                   ] }, i))
                 }
               ),
-              sim.inheritance.length > 0 && /* @__PURE__ */ jsx88(
+              sim.inheritance.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "breaking",
@@ -107627,21 +108807,21 @@ function DeletionSimulationModal() {
                   title: "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438",
                   count: sim.inheritance.length,
                   hint: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u044E\u0442 \u0446\u0435\u043B\u0435\u0432\u0443\u044E. \u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F \u0441\u043B\u043E\u043C\u0430\u0435\u0442 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435.",
-                  children: sim.inheritance.map((i) => /* @__PURE__ */ jsx88("div", { className: "deletion-sim-item", children: /* @__PURE__ */ jsxs85(
+                  children: sim.inheritance.map((i) => /* @__PURE__ */ jsx89("div", { className: "deletion-sim-item", children: /* @__PURE__ */ jsxs86(
                     "button",
                     {
                       className: "deletion-sim-item__link",
                       onClick: () => openEntityInCatalog(i.child.fqid),
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "account_tree", size: "sm" }),
-                        /* @__PURE__ */ jsx88("strong", { children: i.child.entityId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: i.child.domainId })
+                        /* @__PURE__ */ jsx89(MIcon, { name: "account_tree", size: "sm" }),
+                        /* @__PURE__ */ jsx89("strong", { children: i.child.entityId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: i.child.domainId })
                       ]
                     }
                   ) }, i.child.fqid))
                 }
               ),
-              sim.linkages.length > 0 && /* @__PURE__ */ jsx88(
+              sim.linkages.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "breaking",
@@ -107649,15 +108829,15 @@ function DeletionSimulationModal() {
                   title: "\u0421\u0432\u044F\u0437\u0438",
                   count: sim.linkages.length,
                   hint: "Linkages, \u0432 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043A\u0430\u043A side1 \u0438\u043B\u0438 side2.",
-                  children: sim.linkages.map((l) => /* @__PURE__ */ jsxs85(
+                  children: sim.linkages.map((l) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "link", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: l.linkage.id }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: l.linkage.domainId }),
-                        /* @__PURE__ */ jsxs85("span", { className: "deletion-sim-item__type", children: [
+                        /* @__PURE__ */ jsx89(MIcon, { name: "link", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: l.linkage.id }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: l.linkage.domainId }),
+                        /* @__PURE__ */ jsxs86("span", { className: "deletion-sim-item__type", children: [
                           l.linkage.side1Fqid.split("/").pop(),
                           " \u2192",
                           " ",
@@ -107669,7 +108849,7 @@ function DeletionSimulationModal() {
                   ))
                 }
               ),
-              sim.views.length > 0 && /* @__PURE__ */ jsx88(
+              sim.views.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "warning",
@@ -107677,15 +108857,15 @@ function DeletionSimulationModal() {
                   title: "Views",
                   count: sim.views.length,
                   hint: "\u041F\u0440\u0438\u0432\u044F\u0437\u0430\u043D\u044B \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043A\u0430\u043A source.entity \u0438\u043B\u0438 entity. \u041F\u043E\u0441\u043B\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u044F \u0441\u0442\u0430\u043D\u0443\u0442 \xAB\u0432\u0438\u0441\u044F\u0447\u0438\u043C\u0438\xBB.",
-                  children: sim.views.map((v) => /* @__PURE__ */ jsxs85(
+                  children: sim.views.map((v) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "view_quilt", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: v.viewId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: v.domainId }),
-                        /* @__PURE__ */ jsxs85("span", { className: "deletion-sim-item__type", children: [
+                        /* @__PURE__ */ jsx89(MIcon, { name: "view_quilt", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: v.viewId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: v.domainId }),
+                        /* @__PURE__ */ jsxs86("span", { className: "deletion-sim-item__type", children: [
                           v.viewType,
                           v.reason ? ` \xB7 ${v.reason}` : ""
                         ] })
@@ -107695,7 +108875,7 @@ function DeletionSimulationModal() {
                   ))
                 }
               ),
-              sim.dataRules.length > 0 && /* @__PURE__ */ jsx88(
+              sim.dataRules.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "warning",
@@ -107703,22 +108883,22 @@ function DeletionSimulationModal() {
                   title: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445",
                   count: sim.dataRules.length,
                   hint: "dataRules, \u0443 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 entity = \u044D\u0442\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (\u0438\u043B\u0438 linkage-\u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0430 \u0435\u0451 \u0441\u0432\u044F\u0437\u0438).",
-                  children: sim.dataRules.map((r) => /* @__PURE__ */ jsxs85(
+                  children: sim.dataRules.map((r) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "rule", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: r.ruleId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: r.domainId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__type", children: r.effect })
+                        /* @__PURE__ */ jsx89(MIcon, { name: "rule", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: r.ruleId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: r.domainId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__type", children: r.effect })
                       ]
                     },
                     `${r.domainId}#${r.ruleId}`
                   ))
                 }
               ),
-              sim.actions.length > 0 && /* @__PURE__ */ jsx88(
+              sim.actions.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "warning",
@@ -107726,22 +108906,22 @@ function DeletionSimulationModal() {
                   title: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
                   count: sim.actions.length,
                   hint: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 entity = \u044D\u0442\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C. \u0418\u0445 \u043D\u0430\u0434\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0438\u043B\u0438 \u043F\u0435\u0440\u0435\u043D\u0430\u043F\u0440\u0430\u0432\u0438\u0442\u044C.",
-                  children: sim.actions.map((a) => /* @__PURE__ */ jsxs85(
+                  children: sim.actions.map((a) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "bolt", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: a.actionId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: a.domainId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__type", children: a.actionType })
+                        /* @__PURE__ */ jsx89(MIcon, { name: "bolt", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: a.actionId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: a.domainId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__type", children: a.actionType })
                       ]
                     },
                     `${a.domainId}#${a.actionId}`
                   ))
                 }
               ),
-              sim.mixins.length > 0 && /* @__PURE__ */ jsx88(
+              sim.mixins.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "warning",
@@ -107749,15 +108929,15 @@ function DeletionSimulationModal() {
                   title: "\u041F\u0440\u0438\u043C\u0435\u0441\u0438",
                   count: sim.mixins.length,
                   hint: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B, \u0433\u0434\u0435 \u044D\u0442\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u2014 target \u0438\u043B\u0438 from.",
-                  children: sim.mixins.map((m) => /* @__PURE__ */ jsxs85(
+                  children: sim.mixins.map((m) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "merge", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: m.mixinId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: m.domainId }),
-                        /* @__PURE__ */ jsxs85("span", { className: "deletion-sim-item__type", children: [
+                        /* @__PURE__ */ jsx89(MIcon, { name: "merge", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: m.mixinId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: m.domainId }),
+                        /* @__PURE__ */ jsxs86("span", { className: "deletion-sim-item__type", children: [
                           m.mixinType,
                           " \xB7 role: ",
                           m.reason
@@ -107768,7 +108948,7 @@ function DeletionSimulationModal() {
                   ))
                 }
               ),
-              sim.trees.length > 0 && /* @__PURE__ */ jsx88(
+              sim.trees.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "warning",
@@ -107776,21 +108956,21 @@ function DeletionSimulationModal() {
                   title: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F",
                   count: sim.trees.length,
                   hint: "trees[], \u0432 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C.",
-                  children: sim.trees.map((t) => /* @__PURE__ */ jsxs85(
+                  children: sim.trees.map((t) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "account_tree", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: t.treeId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: t.domainId })
+                        /* @__PURE__ */ jsx89(MIcon, { name: "account_tree", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: t.treeId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: t.domainId })
                       ]
                     },
                     `${t.domainId}#${t.treeId}`
                   ))
                 }
               ),
-              sim.transitiveLinkages.length > 0 && /* @__PURE__ */ jsx88(
+              sim.transitiveLinkages.length > 0 && /* @__PURE__ */ jsx89(
                 DeletionSimSection,
                 {
                   level: "warning",
@@ -107798,37 +108978,37 @@ function DeletionSimulationModal() {
                   title: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438",
                   count: sim.transitiveLinkages.length,
                   hint: "transitiveLinkages[], \u0433\u0434\u0435 \u044D\u0442\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u2014 \u043A\u043E\u0440\u0435\u043D\u044C.",
-                  children: sim.transitiveLinkages.map((t) => /* @__PURE__ */ jsxs85(
+                  children: sim.transitiveLinkages.map((t) => /* @__PURE__ */ jsxs86(
                     "div",
                     {
                       className: "deletion-sim-item",
                       children: [
-                        /* @__PURE__ */ jsx88(MIcon, { name: "conversion_path", size: "sm" }),
-                        /* @__PURE__ */ jsx88("code", { className: "deletion-sim-item__attr", children: t.tlId }),
-                        /* @__PURE__ */ jsx88("span", { className: "deletion-sim-item__domain", children: t.domainId })
+                        /* @__PURE__ */ jsx89(MIcon, { name: "conversion_path", size: "sm" }),
+                        /* @__PURE__ */ jsx89("code", { className: "deletion-sim-item__attr", children: t.tlId }),
+                        /* @__PURE__ */ jsx89("span", { className: "deletion-sim-item__domain", children: t.domainId })
                       ]
                     },
                     `${t.domainId}#${t.tlId}`
                   ))
                 }
               ),
-              /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-steps", children: [
-                /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-steps__title", children: [
-                  /* @__PURE__ */ jsx88(MIcon, { name: "checklist", size: "sm" }),
+              /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-steps", children: [
+                /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-steps__title", children: [
+                  /* @__PURE__ */ jsx89(MIcon, { name: "checklist", size: "sm" }),
                   "\u041F\u043B\u0430\u043D \u043C\u0438\u0433\u0440\u0430\u0446\u0438\u0438"
                 ] }),
-                /* @__PURE__ */ jsx88("ol", { children: sim.steps.map((s, i) => /* @__PURE__ */ jsx88("li", { children: s }, i)) })
+                /* @__PURE__ */ jsx89("ol", { children: sim.steps.map((s, i) => /* @__PURE__ */ jsx89("li", { children: s }, i)) })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-footer", children: [
-              /* @__PURE__ */ jsx88("div", { className: "deletion-sim-footer__info", children: sim && sim.summary.externalDomainCount > 0 && /* @__PURE__ */ jsxs85("span", { className: "deletion-sim-footer__warning", children: [
-                /* @__PURE__ */ jsx88(MIcon, { name: "public", size: "sm" }),
+            /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-footer", children: [
+              /* @__PURE__ */ jsx89("div", { className: "deletion-sim-footer__info", children: sim && sim.summary.externalDomainCount > 0 && /* @__PURE__ */ jsxs86("span", { className: "deletion-sim-footer__warning", children: [
+                /* @__PURE__ */ jsx89(MIcon, { name: "public", size: "sm" }),
                 "\u0417\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u044B \u0432\u043D\u0435\u0448\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B: ",
                 sim.summary.externalDomainCount
               ] }) }),
-              /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-footer__actions", children: [
-                /* @__PURE__ */ jsx88("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
-                /* @__PURE__ */ jsxs85(
+              /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-footer__actions", children: [
+                /* @__PURE__ */ jsx89("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+                /* @__PURE__ */ jsxs86(
                   "button",
                   {
                     className: "btn",
@@ -107836,12 +109016,12 @@ function DeletionSimulationModal() {
                     disabled: !sim,
                     title: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043B\u0430\u043D \u043C\u0438\u0433\u0440\u0430\u0446\u0438\u0438 \u0432 \u0431\u0443\u0444\u0435\u0440",
                     children: [
-                      /* @__PURE__ */ jsx88(MIcon, { name: "content_copy", size: "sm" }),
+                      /* @__PURE__ */ jsx89(MIcon, { name: "content_copy", size: "sm" }),
                       "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043B\u0430\u043D"
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs85(
+                /* @__PURE__ */ jsxs86(
                   "button",
                   {
                     className: "btn",
@@ -107849,7 +109029,7 @@ function DeletionSimulationModal() {
                     disabled: !sim,
                     title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0432 Markdown",
                     children: [
-                      /* @__PURE__ */ jsx88(MIcon, { name: "description", size: "sm" }),
+                      /* @__PURE__ */ jsx89(MIcon, { name: "description", size: "sm" }),
                       "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 MD"
                     ]
                   }
@@ -107870,18 +109050,18 @@ function DeletionSimSection({
   hint,
   children
 }) {
-  return /* @__PURE__ */ jsxs85(
+  return /* @__PURE__ */ jsxs86(
     "div",
     {
       className: "deletion-sim-section deletion-sim-section--" + level,
       children: [
-        /* @__PURE__ */ jsxs85("div", { className: "deletion-sim-section__head", children: [
-          /* @__PURE__ */ jsx88(MIcon, { name: icon, size: "sm" }),
-          /* @__PURE__ */ jsx88("span", { className: "deletion-sim-section__title", children: title }),
-          /* @__PURE__ */ jsx88("span", { className: "deletion-sim-section__count", children: count })
+        /* @__PURE__ */ jsxs86("div", { className: "deletion-sim-section__head", children: [
+          /* @__PURE__ */ jsx89(MIcon, { name: icon, size: "sm" }),
+          /* @__PURE__ */ jsx89("span", { className: "deletion-sim-section__title", children: title }),
+          /* @__PURE__ */ jsx89("span", { className: "deletion-sim-section__count", children: count })
         ] }),
-        /* @__PURE__ */ jsx88("div", { className: "deletion-sim-section__hint", children: hint }),
-        /* @__PURE__ */ jsx88("div", { className: "deletion-sim-section__body", children })
+        /* @__PURE__ */ jsx89("div", { className: "deletion-sim-section__hint", children: hint }),
+        /* @__PURE__ */ jsx89("div", { className: "deletion-sim-section__body", children })
       ]
     }
   );
@@ -107911,7 +109091,7 @@ import {
   useState as useState61
 } from "react";
 import { createPortal as createPortal7 } from "react-dom";
-import { jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
+import { jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function buildTree(folders) {
   const byId = /* @__PURE__ */ new Map();
   for (const f of folders)
@@ -108090,8 +109270,8 @@ function FolderTreeSelect({
     onChange(folder.id, folder.name);
     setOpen(false);
   };
-  return /* @__PURE__ */ jsxs86("div", { className: "folder-tree-select", ref: wrapRef, children: [
-    /* @__PURE__ */ jsxs86(
+  return /* @__PURE__ */ jsxs87("div", { className: "folder-tree-select", ref: wrapRef, children: [
+    /* @__PURE__ */ jsxs87(
       "button",
       {
         ref: triggerRef,
@@ -108101,9 +109281,9 @@ function FolderTreeSelect({
         disabled,
         title: currentPath || placeholder,
         children: [
-          /* @__PURE__ */ jsx89(MIcon, { name: "folder", size: "sm" }),
-          /* @__PURE__ */ jsx89("span", { className: "folder-tree-select__trigger-text", children: currentPath || placeholder }),
-          /* @__PURE__ */ jsx89(
+          /* @__PURE__ */ jsx90(MIcon, { name: "folder", size: "sm" }),
+          /* @__PURE__ */ jsx90("span", { className: "folder-tree-select__trigger-text", children: currentPath || placeholder }),
+          /* @__PURE__ */ jsx90(
             MIcon,
             {
               name: open2 ? "expand_less" : "expand_more",
@@ -108114,7 +109294,7 @@ function FolderTreeSelect({
       }
     ),
     open2 && pos && createPortal7(
-      /* @__PURE__ */ jsxs86(
+      /* @__PURE__ */ jsxs87(
         "div",
         {
           ref: dropdownRef,
@@ -108128,9 +109308,9 @@ function FolderTreeSelect({
             zIndex: 1e4
           },
           children: [
-            /* @__PURE__ */ jsxs86("div", { className: "folder-tree-select__search", children: [
-              /* @__PURE__ */ jsx89(MIcon, { name: "search", size: "sm" }),
-              /* @__PURE__ */ jsx89(
+            /* @__PURE__ */ jsxs87("div", { className: "folder-tree-select__search", children: [
+              /* @__PURE__ */ jsx90(MIcon, { name: "search", size: "sm" }),
+              /* @__PURE__ */ jsx90(
                 "input",
                 {
                   ref: inputRef,
@@ -108142,7 +109322,7 @@ function FolderTreeSelect({
                   autoComplete: "off"
                 }
               ),
-              filter && /* @__PURE__ */ jsx89(
+              filter && /* @__PURE__ */ jsx90(
                 "button",
                 {
                   type: "button",
@@ -108155,12 +109335,12 @@ function FolderTreeSelect({
                 }
               )
             ] }),
-            /* @__PURE__ */ jsx89("div", { className: "folder-tree-select__list", children: flat.length === 0 ? /* @__PURE__ */ jsx89("div", { className: "folder-tree-select__empty", children: filter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" : "\u041D\u0435\u0442 \u043F\u0430\u043F\u043E\u043A" }) : flat.map((node) => {
+            /* @__PURE__ */ jsx90("div", { className: "folder-tree-select__list", children: flat.length === 0 ? /* @__PURE__ */ jsx90("div", { className: "folder-tree-select__empty", children: filter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" : "\u041D\u0435\u0442 \u043F\u0430\u043F\u043E\u043A" }) : flat.map((node) => {
               const hasChildren = node.children.length > 0;
               const isExpanded = filter ? true : expanded.has(node.id);
               const isSelected = node.id === value;
               const isMatch = !!filter && node.name.toLowerCase().includes(filter.toLowerCase());
-              return /* @__PURE__ */ jsxs86(
+              return /* @__PURE__ */ jsxs87(
                 "div",
                 {
                   className: "folder-tree-select__item" + (isSelected ? " folder-tree-select__item--selected" : "") + (isMatch ? " folder-tree-select__item--match" : ""),
@@ -108168,7 +109348,7 @@ function FolderTreeSelect({
                     paddingLeft: 6 + node.depth * 16
                   },
                   children: [
-                    /* @__PURE__ */ jsx89(
+                    /* @__PURE__ */ jsx90(
                       "button",
                       {
                         type: "button",
@@ -108179,30 +109359,30 @@ function FolderTreeSelect({
                             toggleExpand(node.id);
                         },
                         disabled: !hasChildren,
-                        children: hasChildren ? /* @__PURE__ */ jsx89(
+                        children: hasChildren ? /* @__PURE__ */ jsx90(
                           MIcon,
                           {
                             name: isExpanded ? "expand_more" : "chevron_right",
                             size: "sm"
                           }
-                        ) : /* @__PURE__ */ jsx89("span", { className: "folder-tree-select__chevron-spacer" })
+                        ) : /* @__PURE__ */ jsx90("span", { className: "folder-tree-select__chevron-spacer" })
                       }
                     ),
-                    /* @__PURE__ */ jsxs86(
+                    /* @__PURE__ */ jsxs87(
                       "button",
                       {
                         type: "button",
                         className: "folder-tree-select__label",
                         onClick: () => commit(node),
                         children: [
-                          /* @__PURE__ */ jsx89(
+                          /* @__PURE__ */ jsx90(
                             MIcon,
                             {
                               name: hasChildren ? isExpanded ? "folder_open" : "folder" : "insert_drive_file",
                               size: "sm"
                             }
                           ),
-                          /* @__PURE__ */ jsx89("span", { children: node.name })
+                          /* @__PURE__ */ jsx90("span", { children: node.name })
                         ]
                       }
                     )
@@ -108698,7 +109878,7 @@ views:
 
 // src/web/components/modals/CreateDomainModal.tsx
 import React68, { useEffect as useEffect60, useMemo as useMemo62, useState as useState62 } from "react";
-import { Fragment as Fragment36, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
+import { Fragment as Fragment37, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
 function CreateDomainModal() {
   const open2 = useGraphStore((s) => s.createDomainOpen);
   const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
@@ -108808,24 +109988,24 @@ function CreateDomainModal() {
   };
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx90(
+  return /* @__PURE__ */ jsx91(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => setOpen(false),
-      children: /* @__PURE__ */ jsxs87(
+      children: /* @__PURE__ */ jsxs88(
         "div",
         {
           className: "help-modal create-domain-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs87("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs87("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx90(MIcon, { name: "add_circle", size: "sm" }),
-                /* @__PURE__ */ jsx90("span", { className: "icon-label", children: "\u041D\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D" }),
-                /* @__PURE__ */ jsx90("span", { className: "help-modal__badge", children: isRemote ? "remote" : remoteInfo?.mode || "local" })
+            /* @__PURE__ */ jsxs88("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs88("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx91(MIcon, { name: "add_circle", size: "sm" }),
+                /* @__PURE__ */ jsx91("span", { className: "icon-label", children: "\u041D\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D" }),
+                /* @__PURE__ */ jsx91("span", { className: "help-modal__badge", children: isRemote ? "remote" : remoteInfo?.mode || "local" })
               ] }),
-              /* @__PURE__ */ jsx90(
+              /* @__PURE__ */ jsx91(
                 "button",
                 {
                   className: "help-modal__close",
@@ -108834,8 +110014,8 @@ function CreateDomainModal() {
                 }
               )
             ] }),
-            success ? /* @__PURE__ */ jsxs87("div", { className: "create-domain-success", children: [
-              /* @__PURE__ */ jsx90(
+            success ? /* @__PURE__ */ jsxs88("div", { className: "create-domain-success", children: [
+              /* @__PURE__ */ jsx91(
                 MIcon,
                 {
                   name: "check_circle",
@@ -108843,21 +110023,21 @@ function CreateDomainModal() {
                   style: { color: "var(--success)", marginBottom: 12 }
                 }
               ),
-              /* @__PURE__ */ jsx90("div", { className: "create-domain-success__title", children: "\u0414\u043E\u043C\u0435\u043D \u0441\u043E\u0437\u0434\u0430\u043D" }),
-              /* @__PURE__ */ jsx90("div", { className: "create-domain-success__path", children: success.filePath }),
-              success.expertiseId && /* @__PURE__ */ jsxs87("div", { className: "create-domain-success__meta", children: [
+              /* @__PURE__ */ jsx91("div", { className: "create-domain-success__title", children: "\u0414\u043E\u043C\u0435\u043D \u0441\u043E\u0437\u0434\u0430\u043D" }),
+              /* @__PURE__ */ jsx91("div", { className: "create-domain-success__path", children: success.filePath }),
+              success.expertiseId && /* @__PURE__ */ jsxs88("div", { className: "create-domain-success__meta", children: [
                 "Expertise ID: ",
-                /* @__PURE__ */ jsx90("code", { children: success.expertiseId })
+                /* @__PURE__ */ jsx91("code", { children: success.expertiseId })
               ] }),
-              /* @__PURE__ */ jsxs87("div", { className: "create-domain-success__hint", children: [
-                /* @__PURE__ */ jsx90(MIcon, { name: "hourglass_top", size: "sm" }),
-                /* @__PURE__ */ jsx90("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
+              /* @__PURE__ */ jsxs88("div", { className: "create-domain-success__hint", children: [
+                /* @__PURE__ */ jsx91(MIcon, { name: "hourglass_top", size: "sm" }),
+                /* @__PURE__ */ jsx91("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
               ] })
-            ] }) : /* @__PURE__ */ jsxs87(Fragment36, { children: [
-              /* @__PURE__ */ jsx90("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs87("div", { className: "create-domain-form", children: [
-                /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
-                  /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
-                  /* @__PURE__ */ jsx90(
+            ] }) : /* @__PURE__ */ jsxs88(Fragment37, { children: [
+              /* @__PURE__ */ jsx91("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs88("div", { className: "create-domain-form", children: [
+                /* @__PURE__ */ jsxs88("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
+                  /* @__PURE__ */ jsx91(
                     "input",
                     {
                       className: "create-domain-input",
@@ -108867,12 +110047,12 @@ function CreateDomainModal() {
                       spellCheck: false
                     }
                   ),
-                  !idValid && /* @__PURE__ */ jsx90("span", { className: "create-domain-error", children: "\u041D\u0435\u0432\u0435\u0440\u043D\u044B\u0439 \u0444\u043E\u0440\u043C\u0430\u0442 (my.domain.tld)" }),
-                  idExists && /* @__PURE__ */ jsx90("span", { className: "create-domain-error", children: "\u0414\u043E\u043C\u0435\u043D \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442" })
+                  !idValid && /* @__PURE__ */ jsx91("span", { className: "create-domain-error", children: "\u041D\u0435\u0432\u0435\u0440\u043D\u044B\u0439 \u0444\u043E\u0440\u043C\u0430\u0442 (my.domain.tld)" }),
+                  idExists && /* @__PURE__ */ jsx91("span", { className: "create-domain-error", children: "\u0414\u043E\u043C\u0435\u043D \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442" })
                 ] }),
-                /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
-                  /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 *" }),
-                  /* @__PURE__ */ jsx90(
+                /* @__PURE__ */ jsxs88("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "create-domain-label", children: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 *" }),
+                  /* @__PURE__ */ jsx91(
                     "input",
                     {
                       className: "create-domain-input",
@@ -108881,9 +110061,9 @@ function CreateDomainModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
-                  /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "\u0410\u0432\u0442\u043E\u0440" }),
-                  /* @__PURE__ */ jsx90(
+                /* @__PURE__ */ jsxs88("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "create-domain-label", children: "\u0410\u0432\u0442\u043E\u0440" }),
+                  /* @__PURE__ */ jsx91(
                     "input",
                     {
                       className: "create-domain-input",
@@ -108892,9 +110072,9 @@ function CreateDomainModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
-                  /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "\u0422\u0435\u0433\u0438 (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)" }),
-                  /* @__PURE__ */ jsx90(
+                /* @__PURE__ */ jsxs88("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "create-domain-label", children: "\u0422\u0435\u0433\u0438 (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)" }),
+                  /* @__PURE__ */ jsx91(
                     "input",
                     {
                       className: "create-domain-input",
@@ -108904,9 +110084,9 @@ function CreateDomainModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs87("label", { className: "create-domain-field create-domain-field--wide", children: [
-                  /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
-                  /* @__PURE__ */ jsx90(
+                /* @__PURE__ */ jsxs88("label", { className: "create-domain-field create-domain-field--wide", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "create-domain-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+                  /* @__PURE__ */ jsx91(
                     "textarea",
                     {
                       className: "create-domain-input",
@@ -108916,12 +110096,12 @@ function CreateDomainModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs87("label", { className: "create-domain-field create-domain-field--wide", children: [
-                  /* @__PURE__ */ jsxs87("span", { className: "create-domain-label", children: [
+                /* @__PURE__ */ jsxs88("label", { className: "create-domain-field create-domain-field--wide", children: [
+                  /* @__PURE__ */ jsxs88("span", { className: "create-domain-label", children: [
                     "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 ",
                     isRemote ? "*" : "(\u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0435\u043B\u044C\u043D\u043E \u043A\u043E\u0440\u043D\u044F)"
                   ] }),
-                  isRemote ? /* @__PURE__ */ jsx90(
+                  isRemote ? /* @__PURE__ */ jsx91(
                     FolderTreeSelect,
                     {
                       value: folderId,
@@ -108930,7 +110110,7 @@ function CreateDomainModal() {
                       placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0430\u043F\u043A\u0443",
                       disabled: folders.length === 0
                     }
-                  ) : /* @__PURE__ */ jsx90(
+                  ) : /* @__PURE__ */ jsx91(
                     "input",
                     {
                       className: "create-domain-input",
@@ -108940,9 +110120,9 @@ function CreateDomainModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs87("div", { className: "create-domain-field create-domain-field--wide", children: [
-                  /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "\u0428\u0430\u0431\u043B\u043E\u043D \u043F\u0440\u0435\u0434\u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u044F" }),
-                  /* @__PURE__ */ jsx90(
+                /* @__PURE__ */ jsxs88("div", { className: "create-domain-field create-domain-field--wide", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "create-domain-label", children: "\u0428\u0430\u0431\u043B\u043E\u043D \u043F\u0440\u0435\u0434\u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u044F" }),
+                  /* @__PURE__ */ jsx91(
                     Combobox,
                     {
                       value: templateId,
@@ -108959,38 +110139,38 @@ function CreateDomainModal() {
                       placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0448\u0430\u0431\u043B\u043E\u043D"
                     }
                   ),
-                  selectedTemplate && /* @__PURE__ */ jsxs87("div", { className: "create-domain-template-preview", children: [
-                    /* @__PURE__ */ jsxs87("div", { className: "create-domain-template-preview__head", children: [
-                      /* @__PURE__ */ jsx90(MIcon, { name: selectedTemplate.icon, size: "sm" }),
-                      /* @__PURE__ */ jsx90("span", { className: "create-domain-template-preview__title", children: selectedTemplate.label }),
-                      /* @__PURE__ */ jsx90("span", { className: "create-domain-template-preview__category", children: CATEGORY_LABELS7[selectedTemplate.category] })
+                  selectedTemplate && /* @__PURE__ */ jsxs88("div", { className: "create-domain-template-preview", children: [
+                    /* @__PURE__ */ jsxs88("div", { className: "create-domain-template-preview__head", children: [
+                      /* @__PURE__ */ jsx91(MIcon, { name: selectedTemplate.icon, size: "sm" }),
+                      /* @__PURE__ */ jsx91("span", { className: "create-domain-template-preview__title", children: selectedTemplate.label }),
+                      /* @__PURE__ */ jsx91("span", { className: "create-domain-template-preview__category", children: CATEGORY_LABELS7[selectedTemplate.category] })
                     ] }),
-                    /* @__PURE__ */ jsx90("div", { className: "create-domain-template-preview__desc", children: selectedTemplate.description }),
-                    /* @__PURE__ */ jsx90(TemplateIncludesSummary, { template: selectedTemplate }),
-                    /* @__PURE__ */ jsxs87("div", { className: "create-domain-template-preview__toolbar", children: [
-                      /* @__PURE__ */ jsxs87(
+                    /* @__PURE__ */ jsx91("div", { className: "create-domain-template-preview__desc", children: selectedTemplate.description }),
+                    /* @__PURE__ */ jsx91(TemplateIncludesSummary, { template: selectedTemplate }),
+                    /* @__PURE__ */ jsxs88("div", { className: "create-domain-template-preview__toolbar", children: [
+                      /* @__PURE__ */ jsxs88(
                         "button",
                         {
                           type: "button",
                           className: "create-domain-yaml-toggle",
                           onClick: () => setYamlPreviewOpen((v) => !v),
                           children: [
-                            /* @__PURE__ */ jsx90(
+                            /* @__PURE__ */ jsx91(
                               MIcon,
                               {
                                 name: yamlPreviewOpen ? "expand_less" : "expand_more",
                                 size: "sm"
                               }
                             ),
-                            /* @__PURE__ */ jsx90("span", { children: yamlPreviewOpen ? "\u0421\u043A\u0440\u044B\u0442\u044C YAML" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C YAML" }),
-                            selectedTemplate.body && /* @__PURE__ */ jsxs87("span", { className: "create-domain-yaml-toggle__lines", children: [
+                            /* @__PURE__ */ jsx91("span", { children: yamlPreviewOpen ? "\u0421\u043A\u0440\u044B\u0442\u044C YAML" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C YAML" }),
+                            selectedTemplate.body && /* @__PURE__ */ jsxs88("span", { className: "create-domain-yaml-toggle__lines", children: [
                               selectedTemplate.body.split("\n").length,
                               " \u0441\u0442\u0440."
                             ] })
                           ]
                         }
                       ),
-                      yamlPreviewOpen && selectedTemplate.body && /* @__PURE__ */ jsx90(
+                      yamlPreviewOpen && selectedTemplate.body && /* @__PURE__ */ jsx91(
                         "button",
                         {
                           type: "button",
@@ -109004,23 +110184,23 @@ function CreateDomainModal() {
                             );
                           },
                           title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C YAML \u0432 \u0431\u0443\u0444\u0435\u0440",
-                          children: /* @__PURE__ */ jsx90(MIcon, { name: "content_copy", size: "sm" })
+                          children: /* @__PURE__ */ jsx91(MIcon, { name: "content_copy", size: "sm" })
                         }
                       )
                     ] }),
-                    yamlPreviewOpen && /* @__PURE__ */ jsx90("pre", { className: "create-domain-yaml-preview", children: selectedTemplate.body || "// \u041F\u0443\u0441\u0442\u043E\u0439 \u0448\u0430\u0431\u043B\u043E\u043D \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u0441 \u0432\u0430\u0448\u0438\u043C\u0438 \u043F\u043E\u043B\u044F\u043C\u0438 id, name, description, author, tags." })
+                    yamlPreviewOpen && /* @__PURE__ */ jsx91("pre", { className: "create-domain-yaml-preview", children: selectedTemplate.body || "// \u041F\u0443\u0441\u0442\u043E\u0439 \u0448\u0430\u0431\u043B\u043E\u043D \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u0441 \u0432\u0430\u0448\u0438\u043C\u0438 \u043F\u043E\u043B\u044F\u043C\u0438 id, name, description, author, tags." })
                   ] })
                 ] }),
-                error && /* @__PURE__ */ jsxs87("div", { className: "create-domain-error-banner create-domain-error-banner--wide", children: [
-                  /* @__PURE__ */ jsx90(MIcon, { name: "error", size: "sm" }),
-                  /* @__PURE__ */ jsx90("span", { children: error })
+                error && /* @__PURE__ */ jsxs88("div", { className: "create-domain-error-banner create-domain-error-banner--wide", children: [
+                  /* @__PURE__ */ jsx91(MIcon, { name: "error", size: "sm" }),
+                  /* @__PURE__ */ jsx91("span", { children: error })
                 ] })
               ] }) }),
-              /* @__PURE__ */ jsxs87("div", { className: "create-domain-footer", children: [
-                /* @__PURE__ */ jsx90("div", { className: "create-domain-footer__hint", children: isRemote ? "\u0421\u0445\u0435\u043C\u0430 \u0431\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u043D\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (\u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A)." : "\u0424\u0430\u0439\u043B \u0431\u0443\u0434\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0430\u043D \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u043A\u0430\u0442\u0430\u043B\u043E\u0433." }),
-                /* @__PURE__ */ jsxs87("div", { className: "create-domain-footer__actions", children: [
-                  /* @__PURE__ */ jsx90("button", { className: "btn", onClick: () => setOpen(false), children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
-                  /* @__PURE__ */ jsx90(
+              /* @__PURE__ */ jsxs88("div", { className: "create-domain-footer", children: [
+                /* @__PURE__ */ jsx91("div", { className: "create-domain-footer__hint", children: isRemote ? "\u0421\u0445\u0435\u043C\u0430 \u0431\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u043D\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (\u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A)." : "\u0424\u0430\u0439\u043B \u0431\u0443\u0434\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0430\u043D \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u043A\u0430\u0442\u0430\u043B\u043E\u0433." }),
+                /* @__PURE__ */ jsxs88("div", { className: "create-domain-footer__actions", children: [
+                  /* @__PURE__ */ jsx91("button", { className: "btn", onClick: () => setOpen(false), children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+                  /* @__PURE__ */ jsx91(
                     "button",
                     {
                       className: "btn btn--primary",
@@ -109060,11 +110240,11 @@ function TemplateIncludesSummary({ template }) {
   if (inc.hasMedias)
     items.push({ key: "md", label: "\u0438\u043A\u043E\u043D\u043A\u0438" });
   if (items.length === 0) {
-    return /* @__PURE__ */ jsx90("div", { className: "create-domain-template-preview__summary create-domain-template-preview__summary--empty", children: "\u041F\u0443\u0441\u0442\u043E\u0439 \u0434\u043E\u043C\u0435\u043D" });
+    return /* @__PURE__ */ jsx91("div", { className: "create-domain-template-preview__summary create-domain-template-preview__summary--empty", children: "\u041F\u0443\u0441\u0442\u043E\u0439 \u0434\u043E\u043C\u0435\u043D" });
   }
-  return /* @__PURE__ */ jsx90("div", { className: "create-domain-template-preview__summary", children: items.map((it, i) => /* @__PURE__ */ jsxs87(React68.Fragment, { children: [
-    i > 0 && /* @__PURE__ */ jsx90("span", { className: "create-domain-template-preview__sep", children: "\xB7" }),
-    /* @__PURE__ */ jsx90(
+  return /* @__PURE__ */ jsx91("div", { className: "create-domain-template-preview__summary", children: items.map((it, i) => /* @__PURE__ */ jsxs88(React68.Fragment, { children: [
+    i > 0 && /* @__PURE__ */ jsx91("span", { className: "create-domain-template-preview__sep", children: "\xB7" }),
+    /* @__PURE__ */ jsx91(
       "span",
       {
         className: "create-domain-template-preview__chip" + (it.accent ? " create-domain-template-preview__chip--accent" : ""),
@@ -109089,7 +110269,7 @@ var init_CreateDomainModal = __esm({
 
 // src/web/components/modals/DeleteDomainModal.tsx
 import { useEffect as useEffect61, useMemo as useMemo63, useState as useState63 } from "react";
-import { Fragment as Fragment37, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
+import { Fragment as Fragment38, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
 function downloadMarkdown(domainId, refs, metrics) {
   const now = (/* @__PURE__ */ new Date()).toLocaleString("ru-RU");
   const breaking = refs.filter((r) => r.severity === "breaking");
@@ -109399,20 +110579,20 @@ function DeleteDomainModal() {
   if (!open2 || !target)
     return null;
   const severityClass = summary.breakingCount > 0 ? "err" : summary.warningCount > 0 ? "warn" : "ok";
-  return /* @__PURE__ */ jsx91(
+  return /* @__PURE__ */ jsx92(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => !deleting && setTarget(null),
-      children: /* @__PURE__ */ jsxs88(
+      children: /* @__PURE__ */ jsxs89(
         "div",
         {
           className: "help-modal delete-domain-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs88("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs88("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx91(
+            /* @__PURE__ */ jsxs89("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs89("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx92(
                   MIcon,
                   {
                     name: "delete_forever",
@@ -109420,10 +110600,10 @@ function DeleteDomainModal() {
                     style: { color: "var(--danger)" }
                   }
                 ),
-                /* @__PURE__ */ jsx91("span", { className: "icon-label", children: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D" }),
-                /* @__PURE__ */ jsx91("span", { className: "help-modal__badge", children: target.domainId })
+                /* @__PURE__ */ jsx92("span", { className: "icon-label", children: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D" }),
+                /* @__PURE__ */ jsx92("span", { className: "help-modal__badge", children: target.domainId })
               ] }),
-              /* @__PURE__ */ jsx91(
+              /* @__PURE__ */ jsx92(
                 "button",
                 {
                   className: "help-modal__close",
@@ -109433,47 +110613,47 @@ function DeleteDomainModal() {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs88("div", { className: "help-modal__body help-modal__body--flush", children: [
-              deleting && stage && /* @__PURE__ */ jsxs88("div", { className: "delete-domain-progress", children: [
-                /* @__PURE__ */ jsx91(MIcon, { name: "hourglass_top", size: "sm" }),
-                /* @__PURE__ */ jsx91("span", { children: stage.label })
+            /* @__PURE__ */ jsxs89("div", { className: "help-modal__body help-modal__body--flush", children: [
+              deleting && stage && /* @__PURE__ */ jsxs89("div", { className: "delete-domain-progress", children: [
+                /* @__PURE__ */ jsx92(MIcon, { name: "hourglass_top", size: "sm" }),
+                /* @__PURE__ */ jsx92("span", { children: stage.label })
               ] }),
-              !deleting && /* @__PURE__ */ jsxs88(Fragment37, { children: [
-                /* @__PURE__ */ jsxs88("div", { className: `delete-domain-banner delete-domain-banner--${severityClass}`, children: [
-                  /* @__PURE__ */ jsx91(
+              !deleting && /* @__PURE__ */ jsxs89(Fragment38, { children: [
+                /* @__PURE__ */ jsxs89("div", { className: `delete-domain-banner delete-domain-banner--${severityClass}`, children: [
+                  /* @__PURE__ */ jsx92(
                     MIcon,
                     {
                       name: severityClass === "err" ? "dangerous" : severityClass === "warn" ? "warning" : "check_circle",
                       size: "sm"
                     }
                   ),
-                  /* @__PURE__ */ jsxs88("div", { className: "delete-domain-banner__text", children: [
-                    severityClass === "err" && /* @__PURE__ */ jsxs88(Fragment37, { children: [
-                      /* @__PURE__ */ jsx91("strong", { children: summary.breakingCount }),
+                  /* @__PURE__ */ jsxs89("div", { className: "delete-domain-banner__text", children: [
+                    severityClass === "err" && /* @__PURE__ */ jsxs89(Fragment38, { children: [
+                      /* @__PURE__ */ jsx92("strong", { children: summary.breakingCount }),
                       " ",
                       summary.breakingCount === 1 ? "\u043A\u0440\u0438\u0442\u0438\u0447\u043D\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430" : "\u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A",
                       " \u2014 \u0441\u0445\u0435\u043C\u0430 \u0438\u043B\u0438 \u0434\u0430\u043D\u043D\u044B\u0435 ",
-                      /* @__PURE__ */ jsx91("strong", { children: "\u0441\u043B\u043E\u043C\u0430\u044E\u0442\u0441\u044F" }),
+                      /* @__PURE__ */ jsx92("strong", { children: "\u0441\u043B\u043E\u043C\u0430\u044E\u0442\u0441\u044F" }),
                       ". \u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u0443\u0441\u0442\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u0445."
                     ] }),
-                    severityClass === "warn" && /* @__PURE__ */ jsxs88(Fragment37, { children: [
+                    severityClass === "warn" && /* @__PURE__ */ jsxs89(Fragment38, { children: [
                       "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F, \u043D\u043E \u043E\u0441\u0442\u0430\u043D\u0435\u0442\u0441\u044F",
                       " ",
-                      /* @__PURE__ */ jsx91("strong", { children: summary.warningCount }),
+                      /* @__PURE__ */ jsx92("strong", { children: summary.warningCount }),
                       " ",
                       summary.warningCount === 1 ? "\u0432\u0438\u0441\u044F\u0447\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430" : "\u0432\u0438\u0441\u044F\u0447\u0438\u0445 \u0441\u0441\u044B\u043B\u043E\u043A",
                       " \u2014 \u043D\u0443\u0436\u043D\u043E \u0431\u0443\u0434\u0435\u0442 \u043F\u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C."
                     ] }),
-                    severityClass === "ok" && /* @__PURE__ */ jsx91(Fragment37, { children: "\u041D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u044D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D. \u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E." })
+                    severityClass === "ok" && /* @__PURE__ */ jsx92(Fragment38, { children: "\u041D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u044D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D. \u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E." })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs88("div", { className: "delete-domain-metrics", children: [
-                  /* @__PURE__ */ jsxs88("div", { className: "delete-domain-metrics__title", children: [
-                    /* @__PURE__ */ jsx91(MIcon, { name: "inventory_2", size: "sm" }),
+                /* @__PURE__ */ jsxs89("div", { className: "delete-domain-metrics", children: [
+                  /* @__PURE__ */ jsxs89("div", { className: "delete-domain-metrics__title", children: [
+                    /* @__PURE__ */ jsx92(MIcon, { name: "inventory_2", size: "sm" }),
                     "\u0427\u0442\u043E \u0431\u0443\u0434\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u043E"
                   ] }),
-                  /* @__PURE__ */ jsxs88("div", { className: "delete-domain-metrics__grid", children: [
-                    /* @__PURE__ */ jsx91(
+                  /* @__PURE__ */ jsxs89("div", { className: "delete-domain-metrics__grid", children: [
+                    /* @__PURE__ */ jsx92(
                       MetricCard,
                       {
                         icon: "data_object",
@@ -109482,7 +110662,7 @@ function DeleteDomainModal() {
                         tone: metrics.entities > 0 ? "danger" : "muted"
                       }
                     ),
-                    /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsx92(
                       MetricCard,
                       {
                         icon: "edit_note",
@@ -109491,7 +110671,7 @@ function DeleteDomainModal() {
                         tone: metrics.attributes > 0 ? "danger" : "muted"
                       }
                     ),
-                    /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsx92(
                       MetricCard,
                       {
                         icon: "link",
@@ -109500,7 +110680,7 @@ function DeleteDomainModal() {
                         tone: metrics.linkages > 0 ? "danger" : "muted"
                       }
                     ),
-                    /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsx92(
                       MetricCard,
                       {
                         icon: "view_quilt",
@@ -109509,7 +110689,7 @@ function DeleteDomainModal() {
                         tone: metrics.views > 0 ? "danger" : "muted"
                       }
                     ),
-                    /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsx92(
                       MetricCard,
                       {
                         icon: "bolt",
@@ -109518,7 +110698,7 @@ function DeleteDomainModal() {
                         tone: metrics.actions > 0 ? "danger" : "muted"
                       }
                     ),
-                    /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsx92(
                       MetricCard,
                       {
                         icon: "category",
@@ -109529,22 +110709,22 @@ function DeleteDomainModal() {
                     )
                   ] })
                 ] }),
-                refs.length > 0 && /* @__PURE__ */ jsxs88("div", { className: "delete-domain-refs-block", children: [
-                  /* @__PURE__ */ jsxs88("div", { className: "delete-domain-refs-header", children: [
-                    /* @__PURE__ */ jsxs88("div", { className: "delete-domain-refs-title", children: [
-                      /* @__PURE__ */ jsx91(MIcon, { name: "call_received", size: "sm" }),
+                refs.length > 0 && /* @__PURE__ */ jsxs89("div", { className: "delete-domain-refs-block", children: [
+                  /* @__PURE__ */ jsxs89("div", { className: "delete-domain-refs-header", children: [
+                    /* @__PURE__ */ jsxs89("div", { className: "delete-domain-refs-title", children: [
+                      /* @__PURE__ */ jsx92(MIcon, { name: "call_received", size: "sm" }),
                       "\u0421\u0441\u044B\u043B\u043A\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (",
                       summary.total,
                       ")",
-                      summary.domainsCount > 0 && /* @__PURE__ */ jsxs88("span", { className: "delete-domain-refs-domains", children: [
+                      summary.domainsCount > 0 && /* @__PURE__ */ jsxs89("span", { className: "delete-domain-refs-domains", children: [
                         "\u0438\u0437 ",
                         summary.domainsCount,
                         " ",
                         summary.domainsCount === 1 ? "\u0434\u043E\u043C\u0435\u043D\u0430" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432"
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsxs88("div", { className: "delete-domain-refs-actions", children: [
-                      /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsxs89("div", { className: "delete-domain-refs-actions", children: [
+                      /* @__PURE__ */ jsx92(
                         "button",
                         {
                           type: "button",
@@ -109552,10 +110732,10 @@ function DeleteDomainModal() {
                           onClick: expandAll,
                           disabled: expandedGroups.size === groups.length,
                           title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435",
-                          children: /* @__PURE__ */ jsx91(MIcon, { name: "unfold_more", size: "sm" })
+                          children: /* @__PURE__ */ jsx92(MIcon, { name: "unfold_more", size: "sm" })
                         }
                       ),
-                      /* @__PURE__ */ jsx91(
+                      /* @__PURE__ */ jsx92(
                         "button",
                         {
                           type: "button",
@@ -109563,66 +110743,66 @@ function DeleteDomainModal() {
                           onClick: collapseAll,
                           disabled: expandedGroups.size === 0,
                           title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435",
-                          children: /* @__PURE__ */ jsx91(MIcon, { name: "unfold_less", size: "sm" })
+                          children: /* @__PURE__ */ jsx92(MIcon, { name: "unfold_less", size: "sm" })
                         }
                       ),
-                      /* @__PURE__ */ jsx91(
+                      /* @__PURE__ */ jsx92(
                         "button",
                         {
                           type: "button",
                           className: "delete-domain-refs-btn",
                           onClick: copyRefs,
                           title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A",
-                          children: /* @__PURE__ */ jsx91(MIcon, { name: "content_copy", size: "sm" })
+                          children: /* @__PURE__ */ jsx92(MIcon, { name: "content_copy", size: "sm" })
                         }
                       ),
-                      /* @__PURE__ */ jsx91(
+                      /* @__PURE__ */ jsx92(
                         "button",
                         {
                           type: "button",
                           className: "delete-domain-refs-btn",
                           onClick: exportReport,
                           title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0447\u0451\u0442\u0430 \u0432 Markdown",
-                          children: /* @__PURE__ */ jsx91(MIcon, { name: "description", size: "sm" })
+                          children: /* @__PURE__ */ jsx92(MIcon, { name: "description", size: "sm" })
                         }
                       )
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsx91("div", { className: "delete-domain-refs-list", children: groups.map((g) => {
+                  /* @__PURE__ */ jsx92("div", { className: "delete-domain-refs-list", children: groups.map((g) => {
                     const isExpanded = expandedGroups.has(g.fromDomainId);
                     const hasBreaking = g.breaking.length > 0;
-                    return /* @__PURE__ */ jsxs88(
+                    return /* @__PURE__ */ jsxs89(
                       "div",
                       {
                         className: "delete-domain-group" + (hasBreaking ? " delete-domain-group--err" : " delete-domain-group--warn"),
                         children: [
-                          /* @__PURE__ */ jsxs88(
+                          /* @__PURE__ */ jsxs89(
                             "button",
                             {
                               type: "button",
                               className: "delete-domain-group__head",
                               onClick: () => toggleGroup(g.fromDomainId),
                               children: [
-                                /* @__PURE__ */ jsx91(
+                                /* @__PURE__ */ jsx92(
                                   MIcon,
                                   {
                                     name: isExpanded ? "expand_more" : "chevron_right",
                                     size: "sm"
                                   }
                                 ),
-                                /* @__PURE__ */ jsx91(MIcon, { name: "folder", size: "sm" }),
-                                /* @__PURE__ */ jsx91("code", { className: "delete-domain-group__id", children: g.fromDomainId }),
-                                /* @__PURE__ */ jsxs88("div", { className: "delete-domain-group__badges", children: [
-                                  g.breaking.length > 0 && /* @__PURE__ */ jsxs88("span", { className: "delete-domain-badge delete-domain-badge--err", children: [
+                                /* @__PURE__ */ jsx92(MIcon, { name: "folder", size: "sm" }),
+                                /* @__PURE__ */ jsx92("code", { className: "delete-domain-group__id", children: g.fromDomainId }),
+                                /* @__PURE__ */ jsxs89("div", { className: "delete-domain-group__badges", children: [
+                                  g.breaking.length > 0 && /* @__PURE__ */ jsxs89("span", { className: "delete-domain-badge delete-domain-badge--err", children: [
                                     "\u{1F6D1} ",
                                     g.breaking.length
                                   ] }),
-                                  g.warning.length > 0 && /* @__PURE__ */ jsxs88("span", { className: "delete-domain-badge delete-domain-badge--warn", children: [
+                                  g.warning.length > 0 && /* @__PURE__ */ jsxs89("span", { className: "delete-domain-badge delete-domain-badge--warn", children: [
                                     "\u26A0\uFE0F ",
                                     g.warning.length
                                   ] })
                                 ] }),
-                                /* @__PURE__ */ jsx91(
+                                /* @__PURE__ */ jsx92(
                                   "button",
                                   {
                                     type: "button",
@@ -109632,20 +110812,20 @@ function DeleteDomainModal() {
                                       openDomainSchema(g.fromDomainId);
                                     },
                                     title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430-\u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0430",
-                                    children: /* @__PURE__ */ jsx91(MIcon, { name: "open_in_new", size: "sm" })
+                                    children: /* @__PURE__ */ jsx92(MIcon, { name: "open_in_new", size: "sm" })
                                   }
                                 )
                               ]
                             }
                           ),
-                          isExpanded && /* @__PURE__ */ jsxs88("div", { className: "delete-domain-group__body", children: [
-                            g.breaking.length > 0 && /* @__PURE__ */ jsxs88("div", { className: "delete-domain-group__section", children: [
-                              /* @__PURE__ */ jsxs88("div", { className: "delete-domain-group__section-title delete-domain-group__section-title--err", children: [
+                          isExpanded && /* @__PURE__ */ jsxs89("div", { className: "delete-domain-group__body", children: [
+                            g.breaking.length > 0 && /* @__PURE__ */ jsxs89("div", { className: "delete-domain-group__section", children: [
+                              /* @__PURE__ */ jsxs89("div", { className: "delete-domain-group__section-title delete-domain-group__section-title--err", children: [
                                 "\u{1F6D1} \u041A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0435 (",
                                 g.breaking.length,
                                 ")"
                               ] }),
-                              g.breaking.map((r, i) => /* @__PURE__ */ jsx91(
+                              g.breaking.map((r, i) => /* @__PURE__ */ jsx92(
                                 RefRow,
                                 {
                                   refItem: r,
@@ -109654,13 +110834,13 @@ function DeleteDomainModal() {
                                 `b-${i}`
                               ))
                             ] }),
-                            g.warning.length > 0 && /* @__PURE__ */ jsxs88("div", { className: "delete-domain-group__section", children: [
-                              /* @__PURE__ */ jsxs88("div", { className: "delete-domain-group__section-title delete-domain-group__section-title--warn", children: [
+                            g.warning.length > 0 && /* @__PURE__ */ jsxs89("div", { className: "delete-domain-group__section", children: [
+                              /* @__PURE__ */ jsxs89("div", { className: "delete-domain-group__section-title delete-domain-group__section-title--warn", children: [
                                 "\u26A0\uFE0F \u041D\u0435\u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0435 (",
                                 g.warning.length,
                                 ")"
                               ] }),
-                              g.warning.map((r, i) => /* @__PURE__ */ jsx91(
+                              g.warning.map((r, i) => /* @__PURE__ */ jsx92(
                                 RefRow,
                                 {
                                   refItem: r,
@@ -109676,29 +110856,29 @@ function DeleteDomainModal() {
                     );
                   }) })
                 ] }),
-                isRemote && expertiseReady && !expertiseId && /* @__PURE__ */ jsxs88("div", { className: "create-domain-error-banner", children: [
-                  /* @__PURE__ */ jsx91(MIcon, { name: "error", size: "sm" }),
-                  /* @__PURE__ */ jsxs88("span", { children: [
+                isRemote && expertiseReady && !expertiseId && /* @__PURE__ */ jsxs89("div", { className: "create-domain-error-banner", children: [
+                  /* @__PURE__ */ jsx92(MIcon, { name: "error", size: "sm" }),
+                  /* @__PURE__ */ jsxs89("span", { children: [
                     "expertise-id \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 _index.json \u2014 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u043D\u0435\u043B\u044C\u0437\u044F. \u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 ",
-                    /* @__PURE__ */ jsx91("code", { children: "--refresh" }),
+                    /* @__PURE__ */ jsx92("code", { children: "--refresh" }),
                     ", \u0437\u0430\u0442\u0435\u043C \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435."
                   ] })
                 ] }),
-                error && /* @__PURE__ */ jsxs88("div", { className: "create-domain-error-banner", children: [
-                  /* @__PURE__ */ jsx91(MIcon, { name: "error", size: "sm" }),
-                  /* @__PURE__ */ jsx91("span", { children: error })
+                error && /* @__PURE__ */ jsxs89("div", { className: "create-domain-error-banner", children: [
+                  /* @__PURE__ */ jsx92(MIcon, { name: "error", size: "sm" }),
+                  /* @__PURE__ */ jsx92("span", { children: error })
                 ] }),
-                /* @__PURE__ */ jsxs88("div", { className: "delete-domain-confirm-block", children: [
-                  /* @__PURE__ */ jsxs88("div", { className: "delete-domain-confirm-title", children: [
-                    /* @__PURE__ */ jsx91(MIcon, { name: "verified_user", size: "sm" }),
+                /* @__PURE__ */ jsxs89("div", { className: "delete-domain-confirm-block", children: [
+                  /* @__PURE__ */ jsxs89("div", { className: "delete-domain-confirm-title", children: [
+                    /* @__PURE__ */ jsx92(MIcon, { name: "verified_user", size: "sm" }),
                     "\u0414\u043B\u044F \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u044F \u0432\u0432\u0435\u0434\u0438\u0442\u0435 ID \u0434\u043E\u043C\u0435\u043D\u0430"
                   ] }),
-                  /* @__PURE__ */ jsxs88("div", { className: "delete-domain-confirm-hint", children: [
+                  /* @__PURE__ */ jsxs89("div", { className: "delete-domain-confirm-hint", children: [
                     "\u0421\u043A\u043E\u043F\u0438\u0440\u0443\u0439\u0442\u0435 ",
-                    /* @__PURE__ */ jsx91("code", { children: target.domainId }),
+                    /* @__PURE__ */ jsx92("code", { children: target.domainId }),
                     " \u0438\u043B\u0438 \u0432\u0432\u0435\u0434\u0438\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E. \u042D\u0442\u043E \u0437\u0430\u0449\u0438\u0442\u0430 \u043E\u0442 \u0441\u043B\u0443\u0447\u0430\u0439\u043D\u043E\u0433\u043E \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u044F."
                   ] }),
-                  /* @__PURE__ */ jsx91(
+                  /* @__PURE__ */ jsx92(
                     "input",
                     {
                       type: "text",
@@ -109714,16 +110894,16 @@ function DeleteDomainModal() {
                       }
                     }
                   ),
-                  confirmInput.length > 0 && confirmInput !== target.domainId && /* @__PURE__ */ jsxs88("div", { className: "delete-domain-confirm-mismatch", children: [
-                    /* @__PURE__ */ jsx91(MIcon, { name: "warning", size: "sm" }),
+                  confirmInput.length > 0 && confirmInput !== target.domainId && /* @__PURE__ */ jsxs89("div", { className: "delete-domain-confirm-mismatch", children: [
+                    /* @__PURE__ */ jsx92(MIcon, { name: "warning", size: "sm" }),
                     "\u041D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441 ",
-                    /* @__PURE__ */ jsx91("code", { children: target.domainId })
+                    /* @__PURE__ */ jsx92("code", { children: target.domainId })
                   ] })
                 ] })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs88("div", { className: "delete-domain-footer", children: [
-              /* @__PURE__ */ jsx91("div", { className: "delete-domain-footer__left", children: refs.length > 0 && !deleting && /* @__PURE__ */ jsxs88(
+            /* @__PURE__ */ jsxs89("div", { className: "delete-domain-footer", children: [
+              /* @__PURE__ */ jsx92("div", { className: "delete-domain-footer__left", children: refs.length > 0 && !deleting && /* @__PURE__ */ jsxs89(
                 "button",
                 {
                   type: "button",
@@ -109731,13 +110911,13 @@ function DeleteDomainModal() {
                   onClick: exportReport,
                   title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0434\u043B\u044F \u0441\u043E\u0433\u043B\u0430\u0441\u043E\u0432\u0430\u043D\u0438\u044F",
                   children: [
-                    /* @__PURE__ */ jsx91(MIcon, { name: "description", size: "sm" }),
+                    /* @__PURE__ */ jsx92(MIcon, { name: "description", size: "sm" }),
                     "\u041E\u0442\u0447\u0451\u0442 MD"
                   ]
                 }
               ) }),
-              /* @__PURE__ */ jsxs88("div", { className: "delete-domain-footer__right", children: [
-                /* @__PURE__ */ jsx91(
+              /* @__PURE__ */ jsxs89("div", { className: "delete-domain-footer__right", children: [
+                /* @__PURE__ */ jsx92(
                   "button",
                   {
                     className: "btn",
@@ -109746,7 +110926,7 @@ function DeleteDomainModal() {
                     children: "\u041E\u0442\u043C\u0435\u043D\u0430"
                   }
                 ),
-                /* @__PURE__ */ jsx91(
+                /* @__PURE__ */ jsx92(
                   "button",
                   {
                     className: `btn btn--danger ${confirmInput === target.domainId && !deleting ? "btn--danger-armed" : ""}`,
@@ -109770,10 +110950,10 @@ function MetricCard({
   value,
   tone
 }) {
-  return /* @__PURE__ */ jsxs88("div", { className: `delete-domain-metric delete-domain-metric--${tone}`, children: [
-    /* @__PURE__ */ jsx91(MIcon, { name: icon, size: "sm" }),
-    /* @__PURE__ */ jsx91("div", { className: "delete-domain-metric__value", children: value }),
-    /* @__PURE__ */ jsx91("div", { className: "delete-domain-metric__label", children: label })
+  return /* @__PURE__ */ jsxs89("div", { className: `delete-domain-metric delete-domain-metric--${tone}`, children: [
+    /* @__PURE__ */ jsx92(MIcon, { name: icon, size: "sm" }),
+    /* @__PURE__ */ jsx92("div", { className: "delete-domain-metric__value", children: value }),
+    /* @__PURE__ */ jsx92("div", { className: "delete-domain-metric__label", children: label })
   ] });
 }
 function RefRow({
@@ -109781,8 +110961,8 @@ function RefRow({
   onOpenEntity
 }) {
   const canOpenEntity = !!refItem.fromEntityFqid;
-  return /* @__PURE__ */ jsxs88("div", { className: "delete-domain-ref-row", children: [
-    /* @__PURE__ */ jsx91(
+  return /* @__PURE__ */ jsxs89("div", { className: "delete-domain-ref-row", children: [
+    /* @__PURE__ */ jsx92(
       MIcon,
       {
         name: KIND_ICON[refItem.kind],
@@ -109790,8 +110970,8 @@ function RefRow({
         className: "delete-domain-ref-row__icon"
       }
     ),
-    /* @__PURE__ */ jsx91("span", { className: "delete-domain-ref-row__kind", children: KIND_LABEL[refItem.kind] }),
-    canOpenEntity ? /* @__PURE__ */ jsx91(
+    /* @__PURE__ */ jsx92("span", { className: "delete-domain-ref-row__kind", children: KIND_LABEL[refItem.kind] }),
+    canOpenEntity ? /* @__PURE__ */ jsx92(
       "button",
       {
         type: "button",
@@ -109800,7 +110980,7 @@ function RefRow({
         title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C-\u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
         children: refItem.description
       }
-    ) : /* @__PURE__ */ jsx91("span", { className: "delete-domain-ref-row__text", children: refItem.description })
+    ) : /* @__PURE__ */ jsx92("span", { className: "delete-domain-ref-row__text", children: refItem.description })
   ] });
 }
 var KIND_ICON, KIND_LABEL;
@@ -110334,7 +111514,7 @@ import ReactFlow4, {
   useReactFlow as useReactFlow4
 } from "reactflow";
 import dagre4 from "dagre";
-import { Fragment as Fragment38, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
+import { Fragment as Fragment39, jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
 function layoutDagre2(nodes, edges, rankdir) {
   if (nodes.length === 0)
     return nodes;
@@ -110431,30 +111611,30 @@ function ViewNodeComponent({ data }) {
 ${n.kind}${n.entity ? " \xB7 " + shortEntity(n.entity) : ""}
 ${n.domainId}
 \u2193${n.inDegree} \u2191${n.outDegree}`;
-  return /* @__PURE__ */ jsxs89(Fragment38, { children: [
-    /* @__PURE__ */ jsx92(Handle4, { type: "target", position: Position4.Left, className: "view-graph-handle" }),
-    /* @__PURE__ */ jsxs89(
+  return /* @__PURE__ */ jsxs90(Fragment39, { children: [
+    /* @__PURE__ */ jsx93(Handle4, { type: "target", position: Position4.Left, className: "view-graph-handle" }),
+    /* @__PURE__ */ jsxs90(
       "div",
       {
         className: cls.join(" "),
         style: { borderLeftColor: color },
         title,
         children: [
-          /* @__PURE__ */ jsx92("div", { className: "view-graph-node__id", children: n.viewId }),
-          /* @__PURE__ */ jsxs89("div", { className: "view-graph-node__meta", children: [
-            /* @__PURE__ */ jsx92("span", { className: "view-graph-node__kind", style: { color }, children: n.kind }),
-            n.entity && /* @__PURE__ */ jsxs89("span", { className: "view-graph-node__entity", children: [
+          /* @__PURE__ */ jsx93("div", { className: "view-graph-node__id", children: n.viewId }),
+          /* @__PURE__ */ jsxs90("div", { className: "view-graph-node__meta", children: [
+            /* @__PURE__ */ jsx93("span", { className: "view-graph-node__kind", style: { color }, children: n.kind }),
+            n.entity && /* @__PURE__ */ jsxs90("span", { className: "view-graph-node__entity", children: [
               "\xB7 ",
               shortEntity(n.entity)
             ] })
           ] }),
-          n.isHub && /* @__PURE__ */ jsx92("span", { className: "vg-badge vg-badge--hub", children: "HUB" }),
-          n.isOrphan && /* @__PURE__ */ jsx92("span", { className: "vg-badge vg-badge--orphan", children: "\u2205" }),
-          n.unresolved && /* @__PURE__ */ jsx92("span", { className: "vg-badge vg-badge--warn", title: "Entity \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430", children: "\u26A0" })
+          n.isHub && /* @__PURE__ */ jsx93("span", { className: "vg-badge vg-badge--hub", children: "HUB" }),
+          n.isOrphan && /* @__PURE__ */ jsx93("span", { className: "vg-badge vg-badge--orphan", children: "\u2205" }),
+          n.unresolved && /* @__PURE__ */ jsx93("span", { className: "vg-badge vg-badge--warn", title: "Entity \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430", children: "\u26A0" })
         ]
       }
     ),
-    /* @__PURE__ */ jsx92(Handle4, { type: "source", position: Position4.Right, className: "view-graph-handle" })
+    /* @__PURE__ */ jsx93(Handle4, { type: "source", position: Position4.Right, className: "view-graph-handle" })
   ] });
 }
 function ViewEdgeComponent({
@@ -110479,9 +111659,9 @@ function ViewEdgeComponent({
     borderRadius: 8
   });
   const title = data && data.title || "";
-  return /* @__PURE__ */ jsxs89(Fragment38, { children: [
-    /* @__PURE__ */ jsx92(BaseEdge3, { id, path, style, markerEnd }),
-    /* @__PURE__ */ jsx92("path", { d: path, fill: "none", stroke: "transparent", strokeWidth: 18, style: { cursor: "pointer" }, children: /* @__PURE__ */ jsx92("title", { children: title }) })
+  return /* @__PURE__ */ jsxs90(Fragment39, { children: [
+    /* @__PURE__ */ jsx93(BaseEdge3, { id, path, style, markerEnd }),
+    /* @__PURE__ */ jsx93("path", { d: path, fill: "none", stroke: "transparent", strokeWidth: 18, style: { cursor: "pointer" }, children: /* @__PURE__ */ jsx93("title", { children: title }) })
   ] });
 }
 function Inner({ nodes, edges, onNodeClick, onNodeHover, onNodeLeave, onReady }) {
@@ -110513,7 +111693,7 @@ function Inner({ nodes, edges, onNodeClick, onNodeHover, onNodeLeave, onReady })
     }, 120);
     return () => clearTimeout(t);
   }, [nodes.length, edges.length, rf]);
-  return /* @__PURE__ */ jsxs89(
+  return /* @__PURE__ */ jsxs90(
     ReactFlow4,
     {
       nodes,
@@ -110531,9 +111711,9 @@ function Inner({ nodes, edges, onNodeClick, onNodeHover, onNodeLeave, onReady })
       nodesConnectable: false,
       elementsSelectable: true,
       children: [
-        /* @__PURE__ */ jsx92(Background4, { variant: BackgroundVariant4.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx92(Controls4, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx92(
+        /* @__PURE__ */ jsx93(Background4, { variant: BackgroundVariant4.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx93(Controls4, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx93(
           MiniMap4,
           {
             position: "bottom-right",
@@ -110564,69 +111744,69 @@ function ViewDetailPanel({
     neighborIds.add(e.source);
   for (const e of outgoing)
     neighborIds.add(e.target);
-  return /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail", children: [
-    /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__head", children: [
-      /* @__PURE__ */ jsx92(
+  return /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail", children: [
+    /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__head", children: [
+      /* @__PURE__ */ jsx93(
         "span",
         {
           className: "view-graph-detail__kind-dot",
           style: { background: NODE_COLORS[node.kind] || "#64748b" }
         }
       ),
-      /* @__PURE__ */ jsx92("code", { className: "view-graph-detail__id", children: node.viewId }),
-      /* @__PURE__ */ jsx92("button", { className: "view-graph-detail__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C", children: "\u2715" })
+      /* @__PURE__ */ jsx93("code", { className: "view-graph-detail__id", children: node.viewId }),
+      /* @__PURE__ */ jsx93("button", { className: "view-graph-detail__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C", children: "\u2715" })
     ] }),
-    node.label && /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__label", children: node.label }),
-    /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__meta", children: [
-      /* @__PURE__ */ jsx92("span", { className: "view-graph-detail__badge", children: node.kind }),
-      /* @__PURE__ */ jsx92("span", { className: "view-graph-detail__badge", children: node.domainId }),
-      node.isMixin && /* @__PURE__ */ jsx92("span", { className: "view-graph-detail__badge view-graph-detail__badge--mixin", children: "mixin" }),
-      node.unresolved && /* @__PURE__ */ jsx92("span", { className: "view-graph-detail__badge view-graph-detail__badge--err", title: "Entity \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430", children: "\u26A0 unresolved" }),
-      node.isOrphan && /* @__PURE__ */ jsx92("span", { className: "view-graph-detail__badge view-graph-detail__badge--warn", children: "\u2205 \u0441\u0438\u0440\u043E\u0442\u0430" }),
-      node.isHub && /* @__PURE__ */ jsx92("span", { className: "view-graph-detail__badge view-graph-detail__badge--hub", children: "\u2605 hub" })
+    node.label && /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__label", children: node.label }),
+    /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__meta", children: [
+      /* @__PURE__ */ jsx93("span", { className: "view-graph-detail__badge", children: node.kind }),
+      /* @__PURE__ */ jsx93("span", { className: "view-graph-detail__badge", children: node.domainId }),
+      node.isMixin && /* @__PURE__ */ jsx93("span", { className: "view-graph-detail__badge view-graph-detail__badge--mixin", children: "mixin" }),
+      node.unresolved && /* @__PURE__ */ jsx93("span", { className: "view-graph-detail__badge view-graph-detail__badge--err", title: "Entity \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430", children: "\u26A0 unresolved" }),
+      node.isOrphan && /* @__PURE__ */ jsx93("span", { className: "view-graph-detail__badge view-graph-detail__badge--warn", children: "\u2205 \u0441\u0438\u0440\u043E\u0442\u0430" }),
+      node.isHub && /* @__PURE__ */ jsx93("span", { className: "view-graph-detail__badge view-graph-detail__badge--hub", children: "\u2605 hub" })
     ] }),
-    node.entity && /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__entity", children: [
-      /* @__PURE__ */ jsx92(MIcon, { name: "data_object", size: "sm" }),
-      /* @__PURE__ */ jsx92("code", { children: node.entity })
+    node.entity && /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__entity", children: [
+      /* @__PURE__ */ jsx93(MIcon, { name: "data_object", size: "sm" }),
+      /* @__PURE__ */ jsx93("code", { children: node.entity })
     ] }),
-    /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__stats", children: [
-      /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__stat", children: [
-        /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__stat-value", children: node.inDegree }),
-        /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__stat-label", children: "\u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445" })
+    /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__stats", children: [
+      /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__stat", children: [
+        /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__stat-value", children: node.inDegree }),
+        /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__stat-label", children: "\u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445" })
       ] }),
-      /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__stat", children: [
-        /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__stat-value", children: node.outDegree }),
-        /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__stat-label", children: "\u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445" })
+      /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__stat", children: [
+        /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__stat-value", children: node.outDegree }),
+        /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__stat-label", children: "\u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445" })
       ] }),
-      /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__stat", children: [
-        /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__stat-value", children: neighborIds.size }),
-        /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__stat-label", children: "\u0441\u043E\u0441\u0435\u0434\u0435\u0439" })
+      /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__stat", children: [
+        /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__stat-value", children: neighborIds.size }),
+        /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__stat-label", children: "\u0441\u043E\u0441\u0435\u0434\u0435\u0439" })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__actions", children: [
-      /* @__PURE__ */ jsxs89("button", { className: "btn btn--primary btn--small", onClick: onFocus, children: [
-        /* @__PURE__ */ jsx92(MIcon, { name: "center_focus_strong", size: "sm" }),
+    /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__actions", children: [
+      /* @__PURE__ */ jsxs90("button", { className: "btn btn--primary btn--small", onClick: onFocus, children: [
+        /* @__PURE__ */ jsx93(MIcon, { name: "center_focus_strong", size: "sm" }),
         " \u0424\u043E\u043A\u0443\u0441"
       ] }),
-      /* @__PURE__ */ jsxs89("button", { className: "btn btn--small", onClick: onPath, title: "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C \u0434\u043E\u2026", children: [
-        /* @__PURE__ */ jsx92(MIcon, { name: "route", size: "sm" }),
+      /* @__PURE__ */ jsxs90("button", { className: "btn btn--small", onClick: onPath, title: "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C \u0434\u043E\u2026", children: [
+        /* @__PURE__ */ jsx93(MIcon, { name: "route", size: "sm" }),
         " \u041F\u0443\u0442\u044C"
       ] }),
-      /* @__PURE__ */ jsx92("button", { className: "btn btn--small", onClick: onOpenYaml, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML", children: /* @__PURE__ */ jsx92(MIcon, { name: "description", size: "sm" }) }),
-      /* @__PURE__ */ jsx92("button", { className: "btn btn--small", onClick: onOpenSchema, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430", children: /* @__PURE__ */ jsx92(MIcon, { name: "menu_book", size: "sm" }) }),
-      node.entity && /* @__PURE__ */ jsx92("button", { className: "btn btn--small", onClick: onOpenEntity, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435", children: /* @__PURE__ */ jsx92(MIcon, { name: "hub", size: "sm" }) })
+      /* @__PURE__ */ jsx93("button", { className: "btn btn--small", onClick: onOpenYaml, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML", children: /* @__PURE__ */ jsx93(MIcon, { name: "description", size: "sm" }) }),
+      /* @__PURE__ */ jsx93("button", { className: "btn btn--small", onClick: onOpenSchema, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430", children: /* @__PURE__ */ jsx93(MIcon, { name: "menu_book", size: "sm" }) }),
+      node.entity && /* @__PURE__ */ jsx93("button", { className: "btn btn--small", onClick: onOpenEntity, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435", children: /* @__PURE__ */ jsx93(MIcon, { name: "hub", size: "sm" }) })
     ] }),
-    outgoing.length > 0 && /* @__PURE__ */ jsxs89(DetailSection2, { title: `\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 (${outgoing.length})`, icon: "call_made", children: [
+    outgoing.length > 0 && /* @__PURE__ */ jsxs90(DetailSection2, { title: `\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 (${outgoing.length})`, icon: "call_made", children: [
       outgoing.slice(0, 12).map((e) => {
         const target = graph.nodes.find((n) => n.id === e.target);
-        return /* @__PURE__ */ jsxs89(
+        return /* @__PURE__ */ jsxs90(
           "button",
           {
             className: "view-graph-detail__edge",
             onClick: () => onSelectNode(e.target),
             title: e.detail || e.label || "",
             children: [
-              /* @__PURE__ */ jsx92(
+              /* @__PURE__ */ jsx93(
                 "span",
                 {
                   className: "view-graph-detail__edge-kind",
@@ -110634,28 +111814,28 @@ function ViewDetailPanel({
                   children: EDGE_LABELS[e.kind]
                 }
               ),
-              /* @__PURE__ */ jsx92("code", { children: target?.viewId || e.target })
+              /* @__PURE__ */ jsx93("code", { children: target?.viewId || e.target })
             ]
           },
           e.id
         );
       }),
-      outgoing.length > 12 && /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__more", children: [
+      outgoing.length > 12 && /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__more", children: [
         "+",
         outgoing.length - 12
       ] })
     ] }),
-    incoming.length > 0 && /* @__PURE__ */ jsxs89(DetailSection2, { title: `\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 (${incoming.length})`, icon: "call_received", children: [
+    incoming.length > 0 && /* @__PURE__ */ jsxs90(DetailSection2, { title: `\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 (${incoming.length})`, icon: "call_received", children: [
       incoming.slice(0, 12).map((e) => {
         const src = graph.nodes.find((n) => n.id === e.source);
-        return /* @__PURE__ */ jsxs89(
+        return /* @__PURE__ */ jsxs90(
           "button",
           {
             className: "view-graph-detail__edge",
             onClick: () => onSelectNode(e.source),
             title: e.detail || e.label || "",
             children: [
-              /* @__PURE__ */ jsx92(
+              /* @__PURE__ */ jsx93(
                 "span",
                 {
                   className: "view-graph-detail__edge-kind",
@@ -110663,13 +111843,13 @@ function ViewDetailPanel({
                   children: EDGE_LABELS[e.kind]
                 }
               ),
-              /* @__PURE__ */ jsx92("code", { children: src?.viewId || e.source })
+              /* @__PURE__ */ jsx93("code", { children: src?.viewId || e.source })
             ]
           },
           e.id
         );
       }),
-      incoming.length > 12 && /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__more", children: [
+      incoming.length > 12 && /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__more", children: [
         "+",
         incoming.length - 12
       ] })
@@ -110677,12 +111857,12 @@ function ViewDetailPanel({
   ] });
 }
 function DetailSection2({ title, icon, children }) {
-  return /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__section", children: [
-    /* @__PURE__ */ jsxs89("div", { className: "view-graph-detail__section-title", children: [
-      /* @__PURE__ */ jsx92(MIcon, { name: icon, size: "sm" }),
+  return /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__section", children: [
+    /* @__PURE__ */ jsxs90("div", { className: "view-graph-detail__section-title", children: [
+      /* @__PURE__ */ jsx93(MIcon, { name: icon, size: "sm" }),
       title
     ] }),
-    /* @__PURE__ */ jsx92("div", { className: "view-graph-detail__section-body", children })
+    /* @__PURE__ */ jsx93("div", { className: "view-graph-detail__section-body", children })
   ] });
 }
 function loadPrefs2() {
@@ -111096,17 +112276,17 @@ function ViewGraphModal() {
   if (!open2)
     return null;
   const selectedNode = selectedId && graph ? graph.nodes.find((n) => n.id === selectedId) || null : null;
-  return /* @__PURE__ */ jsx92("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs89("div", { className: "help-modal view-graph-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs89("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs89("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx92(MIcon, { name: "schema", size: "sm" }),
-        /* @__PURE__ */ jsx92("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 views" }),
-        graph && /* @__PURE__ */ jsxs89("span", { className: "help-modal__badge", children: [
+  return /* @__PURE__ */ jsx93("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs90("div", { className: "help-modal view-graph-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs90("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs90("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx93(MIcon, { name: "schema", size: "sm" }),
+        /* @__PURE__ */ jsx93("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 views" }),
+        graph && /* @__PURE__ */ jsxs90("span", { className: "help-modal__badge", children: [
           graph.stats.totalNodes,
           " \xB7 ",
           graph.stats.totalEdges
         ] }),
-        graph && graph.stats.orphans > 0 && /* @__PURE__ */ jsxs89(
+        graph && graph.stats.orphans > 0 && /* @__PURE__ */ jsxs90(
           "span",
           {
             className: "help-modal__badge",
@@ -111118,7 +112298,7 @@ function ViewGraphModal() {
             ]
           }
         ),
-        graph && graph.stats.unresolved > 0 && /* @__PURE__ */ jsxs89(
+        graph && graph.stats.unresolved > 0 && /* @__PURE__ */ jsxs90(
           "span",
           {
             className: "help-modal__badge",
@@ -111130,7 +112310,7 @@ function ViewGraphModal() {
             ]
           }
         ),
-        graph && graph.stats.crossDomainEdges > 0 && /* @__PURE__ */ jsxs89(
+        graph && graph.stats.crossDomainEdges > 0 && /* @__PURE__ */ jsxs90(
           "span",
           {
             className: "help-modal__badge",
@@ -111143,158 +112323,158 @@ function ViewGraphModal() {
           }
         )
       ] }),
-      /* @__PURE__ */ jsxs89("div", { className: "help-modal__actions", children: [
-        /* @__PURE__ */ jsx92(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
-        /* @__PURE__ */ jsx92("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+      /* @__PURE__ */ jsxs90("div", { className: "help-modal__actions", children: [
+        /* @__PURE__ */ jsx93(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
+        /* @__PURE__ */ jsx93("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
       ] })
     ] }),
-    loading && /* @__PURE__ */ jsx92("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx92("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
-    error && /* @__PURE__ */ jsx92("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs89("div", { style: { color: "var(--danger)" }, children: [
+    loading && /* @__PURE__ */ jsx93("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx93("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+    error && /* @__PURE__ */ jsx93("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs90("div", { style: { color: "var(--danger)" }, children: [
       "\u041E\u0448\u0438\u0431\u043A\u0430: ",
       error
     ] }) }),
-    index && graph && /* @__PURE__ */ jsxs89("div", { className: "view-graph-body", children: [
-      /* @__PURE__ */ jsxs89(ModalHelp, { visible: showHelp, children: [
-        /* @__PURE__ */ jsx92(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs89(HelpText, { children: [
+    index && graph && /* @__PURE__ */ jsxs90("div", { className: "view-graph-body", children: [
+      /* @__PURE__ */ jsxs90(ModalHelp, { visible: showHelp, children: [
+        /* @__PURE__ */ jsx93(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs90(HelpText, { children: [
           "\u0413\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 UI-\u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439 \u0434\u043E\u043C\u0435\u043D\u0430. \u0423\u0437\u043B\u044B \u2014 ",
-          /* @__PURE__ */ jsx92("strong", { children: "views" }),
+          /* @__PURE__ */ jsx93("strong", { children: "views" }),
           ",",
           " ",
           "\u043F\u0443\u043D\u043A\u0442\u044B \u043C\u0435\u043D\u044E \u0438 \u043E\u0431\u0451\u0440\u0442\u043A\u0438 ",
-          /* @__PURE__ */ jsx92("code", { children: "dashboard_tree" }),
+          /* @__PURE__ */ jsx93("code", { children: "dashboard_tree" }),
           ". \u0420\u0451\u0431\u0440\u0430 \u2014 \u043A\u0442\u043E \u043A\u043E\u0433\u043E \u0432\u044B\u0437\u044B\u0432\u0430\u0435\u0442."
         ] }) }),
-        /* @__PURE__ */ jsx92(HelpSection, { title: "\u0422\u0438\u043F\u044B \u0443\u0437\u043B\u043E\u0432 (\u0446\u0432\u0435\u0442 \u043F\u043E\u043B\u043E\u0441\u043A\u0438 \u0441\u043B\u0435\u0432\u0430)", children: /* @__PURE__ */ jsxs89(HelpList, { children: [
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#6366f1" }, children: "entity" }),
+        /* @__PURE__ */ jsx93(HelpSection, { title: "\u0422\u0438\u043F\u044B \u0443\u0437\u043B\u043E\u0432 (\u0446\u0432\u0435\u0442 \u043F\u043E\u043B\u043E\u0441\u043A\u0438 \u0441\u043B\u0435\u0432\u0430)", children: /* @__PURE__ */ jsxs90(HelpList, { children: [
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#6366f1" }, children: "entity" }),
             " \u2014 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#10b981" }, children: "list" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#10b981" }, children: "list" }),
             " \u2014 \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#a78bfa" }, children: "panel" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#a78bfa" }, children: "panel" }),
             " \u2014 \u043F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435)"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#f59e0b" }, children: "modal" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#f59e0b" }, children: "modal" }),
             " \u2014 \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#ec4899" }, children: "page" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#ec4899" }, children: "page" }),
             " \u2014 \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#06b6d4" }, children: "tabs_list" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#06b6d4" }, children: "tabs_list" }),
             " \u2014 \u043D\u0430\u0431\u043E\u0440 \u0432\u043A\u043B\u0430\u0434\u043E\u043A"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#f97316" }, children: "dashboard / dashboard_tree" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#f97316" }, children: "dashboard / dashboard_tree" }),
             " \u2014 \u0434\u0430\u0448\u0431\u043E\u0440\u0434\u044B"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#818cf8" }, children: "menu / menuItem" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#818cf8" }, children: "menu / menuItem" }),
             " \u2014 \u043F\u0443\u043D\u043A\u0442\u044B \u043C\u0435\u043D\u044E"
           ] })
         ] }) }),
-        /* @__PURE__ */ jsx92(HelpSection, { title: "\u0422\u0438\u043F\u044B \u0440\u0451\u0431\u0435\u0440", children: /* @__PURE__ */ jsxs89(HelpList, { children: [
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#f59e0b" }, children: "Action" }),
+        /* @__PURE__ */ jsx93(HelpSection, { title: "\u0422\u0438\u043F\u044B \u0440\u0451\u0431\u0435\u0440", children: /* @__PURE__ */ jsxs90(HelpList, { children: [
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#f59e0b" }, children: "Action" }),
             " \u2014 action \u0432\u044B\u0437\u044B\u0432\u0430\u0435\u0442 view (modal/panel/pageView/view)"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#10b981" }, children: "Tabs" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#10b981" }, children: "Tabs" }),
             " \u2014 tabs_list \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 view-\u0432\u043A\u043B\u0430\u0434\u043A\u0443"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#a78bfa" }, children: "Nested" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#a78bfa" }, children: "Nested" }),
             " \u2014 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0439 view (panel/modal/page \u0432\u043D\u0443\u0442\u0440\u0438 entity)"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#6366f1" }, children: "Menu" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#6366f1" }, children: "Menu" }),
             " \u2014 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0432\u0435\u0434\u0451\u0442 \u043D\u0430 view"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#06b6d4" }, children: "Dashboard" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#06b6d4" }, children: "Dashboard" }),
             " \u2014 dashboard_tree \u0441\u043E\u0431\u0438\u0440\u0430\u0435\u0442 view"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#ec4899" }, children: "Mixin" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#ec4899" }, children: "Mixin" }),
             " \u2014 \u043C\u0438\u043A\u0441\u0438\u043D \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442 entity-view"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { style: { color: "#fbbf24" }, children: "\u0422\u043E\u043B\u0441\u0442\u044B\u0435 \u0440\u0451\u0431\u0440\u0430" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { style: { color: "#fbbf24" }, children: "\u0422\u043E\u043B\u0441\u0442\u044B\u0435 \u0440\u0451\u0431\u0440\u0430" }),
             " \u2014 cross-domain"
           ] })
         ] }) }),
-        /* @__PURE__ */ jsx92(HelpSection, { title: "\u0411\u0435\u0439\u0434\u0436\u0438", children: /* @__PURE__ */ jsxs89(HelpList, { children: [
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { children: "HUB" }),
+        /* @__PURE__ */ jsx93(HelpSection, { title: "\u0411\u0435\u0439\u0434\u0436\u0438", children: /* @__PURE__ */ jsxs90(HelpList, { children: [
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { children: "HUB" }),
             " \u2014 \u0442\u043E\u043F \u043F\u043E degree (\u043C\u043D\u043E\u0433\u043E \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445 + \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445)"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { children: "\u2205" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { children: "\u2205" }),
             " \u2014 \u0441\u0438\u0440\u043E\u0442\u0430 (\u043D\u0435\u0442 \u0441\u0432\u044F\u0437\u0435\u0439)"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("strong", { children: "\u26A0" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("strong", { children: "\u26A0" }),
             " \u2014 entity \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435"
           ] })
         ] }) }),
-        /* @__PURE__ */ jsx92(HelpSection, { title: "\u0424\u043E\u043A\u0443\u0441 / Path finder / \u041F\u043E\u0438\u0441\u043A", children: /* @__PURE__ */ jsxs89(HelpText, { children: [
-          /* @__PURE__ */ jsx92("strong", { children: "\u0424\u043E\u043A\u0443\u0441" }),
+        /* @__PURE__ */ jsx93(HelpSection, { title: "\u0424\u043E\u043A\u0443\u0441 / Path finder / \u041F\u043E\u0438\u0441\u043A", children: /* @__PURE__ */ jsxs90(HelpText, { children: [
+          /* @__PURE__ */ jsx93("strong", { children: "\u0424\u043E\u043A\u0443\u0441" }),
           " \u2014 \u043E\u0441\u0442\u0430\u0432\u0438\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u043A\u0440\u0435\u0441\u0442\u043D\u043E\u0441\u0442\u044C view \u043D\u0430 N \u0448\u0430\u0433\u043E\u0432.",
-          /* @__PURE__ */ jsx92("strong", { children: " \u041F\u0443\u0442\u044C" }),
+          /* @__PURE__ */ jsx93("strong", { children: " \u041F\u0443\u0442\u044C" }),
           " \u2014 \u043A\u0440\u0430\u0442\u0447\u0430\u0439\u0448\u0438\u0439 \u043F\u0443\u0442\u044C \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F views.",
-          /* @__PURE__ */ jsx92("strong", { children: " \u041F\u043E\u0438\u0441\u043A" }),
+          /* @__PURE__ */ jsx93("strong", { children: " \u041F\u043E\u0438\u0441\u043A" }),
           " (",
-          /* @__PURE__ */ jsx92("kbd", { children: "/" }),
+          /* @__PURE__ */ jsx93("kbd", { children: "/" }),
           ") \u2014 \u043F\u043E\u0434\u0441\u0432\u0435\u0442\u043A\u0430 + dropdown.",
-          /* @__PURE__ */ jsx92("strong", { children: " Hover" }),
+          /* @__PURE__ */ jsx93("strong", { children: " Hover" }),
           " \u2014 \u0441\u043E\u0441\u0435\u0434\u0438 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F."
         ] }) }),
-        /* @__PURE__ */ jsx92(HelpSection, { title: "\u041A\u043B\u0430\u0432\u0438\u0430\u0442\u0443\u0440\u0430", children: /* @__PURE__ */ jsxs89(HelpList, { children: [
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("kbd", { children: "/" }),
+        /* @__PURE__ */ jsx93(HelpSection, { title: "\u041A\u043B\u0430\u0432\u0438\u0430\u0442\u0443\u0440\u0430", children: /* @__PURE__ */ jsxs90(HelpList, { children: [
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("kbd", { children: "/" }),
             " \u2014 \u043F\u043E\u0438\u0441\u043A"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("kbd", { children: "F" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("kbd", { children: "F" }),
             " \u2014 fit view"
           ] }),
-          /* @__PURE__ */ jsxs89("li", { children: [
-            /* @__PURE__ */ jsx92("kbd", { children: "Esc" }),
+          /* @__PURE__ */ jsxs90("li", { children: [
+            /* @__PURE__ */ jsx93("kbd", { children: "Esc" }),
             " \u2014 \u0441\u043D\u044F\u0442\u044C \u043F\u0443\u0442\u044C / \u0444\u043E\u043A\u0443\u0441 / \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u0435 / \u0437\u0430\u043A\u0440\u044B\u0442\u044C"
           ] })
         ] }) })
       ] }),
-      !showHelp && /* @__PURE__ */ jsxs89(Fragment38, { children: [
-        /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats", children: [
-          /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats__item", children: [
-            /* @__PURE__ */ jsx92(MIcon, { name: "data_object", size: "sm" }),
-            /* @__PURE__ */ jsx92("strong", { children: graph.stats.totalNodes }),
+      !showHelp && /* @__PURE__ */ jsxs90(Fragment39, { children: [
+        /* @__PURE__ */ jsxs90("div", { className: "view-graph-stats", children: [
+          /* @__PURE__ */ jsxs90("div", { className: "view-graph-stats__item", children: [
+            /* @__PURE__ */ jsx93(MIcon, { name: "data_object", size: "sm" }),
+            /* @__PURE__ */ jsx93("strong", { children: graph.stats.totalNodes }),
             " \u0443\u0437\u043B\u043E\u0432"
           ] }),
-          /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats__item", children: [
-            /* @__PURE__ */ jsx92(MIcon, { name: "link", size: "sm" }),
-            /* @__PURE__ */ jsx92("strong", { children: graph.stats.totalEdges }),
+          /* @__PURE__ */ jsxs90("div", { className: "view-graph-stats__item", children: [
+            /* @__PURE__ */ jsx93(MIcon, { name: "link", size: "sm" }),
+            /* @__PURE__ */ jsx93("strong", { children: graph.stats.totalEdges }),
             " \u0440\u0451\u0431\u0435\u0440"
           ] }),
-          ["action", "tabs", "nested", "menu", "dashboard", "mixin"].filter((k) => graph.stats.byEdgeKind[k] > 0).map((k) => /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats__item", style: { color: EDGE_COLORS2[k] }, children: [
+          ["action", "tabs", "nested", "menu", "dashboard", "mixin"].filter((k) => graph.stats.byEdgeKind[k] > 0).map((k) => /* @__PURE__ */ jsxs90("div", { className: "view-graph-stats__item", style: { color: EDGE_COLORS2[k] }, children: [
             EDGE_LABELS[k],
             ": ",
             graph.stats.byEdgeKind[k]
           ] }, k)),
-          graph.stats.truncated > 0 && /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats__item view-graph-stats__item--warn", children: [
+          graph.stats.truncated > 0 && /* @__PURE__ */ jsxs90("div", { className: "view-graph-stats__item view-graph-stats__item--warn", children: [
             "+",
             graph.stats.truncated,
             " \u0441\u043A\u0440\u044B\u0442\u043E"
           ] })
         ] }),
-        /* @__PURE__ */ jsxs89("div", { className: "view-graph-toolbar", children: [
-          /* @__PURE__ */ jsxs89("div", { className: "view-graph-toolbar__row", children: [
-            /* @__PURE__ */ jsx92(
+        /* @__PURE__ */ jsxs90("div", { className: "view-graph-toolbar", children: [
+          /* @__PURE__ */ jsxs90("div", { className: "view-graph-toolbar__row", children: [
+            /* @__PURE__ */ jsx93(
               DomainCombobox,
               {
                 value: domainFilter,
@@ -111305,9 +112485,9 @@ function ViewGraphModal() {
                 emptyLabel: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
               }
             ),
-            /* @__PURE__ */ jsxs89("div", { className: "view-graph-search", children: [
-              /* @__PURE__ */ jsx92(MIcon, { name: "search", size: "sm" }),
-              /* @__PURE__ */ jsx92(
+            /* @__PURE__ */ jsxs90("div", { className: "view-graph-search", children: [
+              /* @__PURE__ */ jsx93(MIcon, { name: "search", size: "sm" }),
+              /* @__PURE__ */ jsx93(
                 "input",
                 {
                   ref: searchInputRef,
@@ -111318,8 +112498,8 @@ function ViewGraphModal() {
                   spellCheck: false
                 }
               ),
-              searchQuery && /* @__PURE__ */ jsx92("button", { className: "view-graph-search__clear", onClick: () => setSearchQuery(""), children: "\u2715" }),
-              searchResults.length > 0 && /* @__PURE__ */ jsx92("div", { className: "view-graph-search__dropdown", children: searchResults.map((n) => /* @__PURE__ */ jsxs89(
+              searchQuery && /* @__PURE__ */ jsx93("button", { className: "view-graph-search__clear", onClick: () => setSearchQuery(""), children: "\u2715" }),
+              searchResults.length > 0 && /* @__PURE__ */ jsx93("div", { className: "view-graph-search__dropdown", children: searchResults.map((n) => /* @__PURE__ */ jsxs90(
                 "button",
                 {
                   className: "view-graph-search__item",
@@ -111329,40 +112509,40 @@ function ViewGraphModal() {
                     setSearchQuery("");
                   },
                   children: [
-                    /* @__PURE__ */ jsx92(
+                    /* @__PURE__ */ jsx93(
                       "span",
                       {
                         className: "view-graph-search__dot",
                         style: { background: NODE_COLORS[n.kind] || "#64748b" }
                       }
                     ),
-                    /* @__PURE__ */ jsx92("code", { children: n.viewId }),
-                    /* @__PURE__ */ jsx92("span", { children: n.kind }),
-                    n.isHub && /* @__PURE__ */ jsx92("span", { className: "vg-badge vg-badge--hub", children: "HUB" })
+                    /* @__PURE__ */ jsx93("code", { children: n.viewId }),
+                    /* @__PURE__ */ jsx93("span", { children: n.kind }),
+                    n.isHub && /* @__PURE__ */ jsx93("span", { className: "vg-badge vg-badge--hub", children: "HUB" })
                   ]
                 },
                 n.id
               )) })
             ] }),
-            /* @__PURE__ */ jsx92("div", { className: "view-graph-toolbar__spacer" }),
-            /* @__PURE__ */ jsxs89(
+            /* @__PURE__ */ jsx93("div", { className: "view-graph-toolbar__spacer" }),
+            /* @__PURE__ */ jsxs90(
               "button",
               {
                 className: "btn btn--small" + (pathMode !== "none" || pathResult ? " btn--active" : ""),
                 onClick: () => pathMode !== "none" || pathResult ? cancelPath() : startPath(),
                 title: "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F views",
                 children: [
-                  /* @__PURE__ */ jsx92(MIcon, { name: "route", size: "sm" }),
+                  /* @__PURE__ */ jsx93(MIcon, { name: "route", size: "sm" }),
                   pathMode !== "none" || pathResult ? "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0443\u0442\u044C" : "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C"
                 ]
               }
             )
           ] }),
-          /* @__PURE__ */ jsxs89("div", { className: "view-graph-toolbar__row", children: [
-            /* @__PURE__ */ jsx92("span", { className: "view-graph-toolbar__label", children: "\u0420\u0451\u0431\u0440\u0430:" }),
+          /* @__PURE__ */ jsxs90("div", { className: "view-graph-toolbar__row", children: [
+            /* @__PURE__ */ jsx93("span", { className: "view-graph-toolbar__label", children: "\u0420\u0451\u0431\u0440\u0430:" }),
             ["action", "tabs", "nested", "menu", "dashboard", "mixin"].map((k) => {
               const active = edgeKinds.has(k);
-              return /* @__PURE__ */ jsxs89(
+              return /* @__PURE__ */ jsxs90(
                 "button",
                 {
                   type: "button",
@@ -111375,21 +112555,21 @@ function ViewGraphModal() {
                     background: active ? `${EDGE_COLORS2[k]}18` : void 0
                   },
                   children: [
-                    /* @__PURE__ */ jsx92("span", { className: "view-graph-edge-chip__dot", style: { background: EDGE_COLORS2[k] } }),
+                    /* @__PURE__ */ jsx93("span", { className: "view-graph-edge-chip__dot", style: { background: EDGE_COLORS2[k] } }),
                     EDGE_LABELS[k]
                   ]
                 },
                 k
               );
             }),
-            /* @__PURE__ */ jsx92("div", { className: "view-graph-toolbar__divider" }),
-            /* @__PURE__ */ jsx92("span", { className: "view-graph-toolbar__label", children: "Views:" }),
+            /* @__PURE__ */ jsx93("div", { className: "view-graph-toolbar__divider" }),
+            /* @__PURE__ */ jsx93("span", { className: "view-graph-toolbar__label", children: "Views:" }),
             ["entity", "list", "panel", "modal", "page", "tabs_list", "dashboard_tree"].map((k) => {
               const active = nodeKinds.has(k);
               const has = (graph.stats.byNodeKind[k] || 0) > 0;
               if (!active && !has)
                 return null;
-              return /* @__PURE__ */ jsxs89(
+              return /* @__PURE__ */ jsxs90(
                 "button",
                 {
                   type: "button",
@@ -111402,59 +112582,59 @@ function ViewGraphModal() {
                     background: active ? `${NODE_COLORS[k]}18` : void 0
                   },
                   children: [
-                    /* @__PURE__ */ jsx92("span", { className: "view-graph-edge-chip__dot", style: { background: NODE_COLORS[k] } }),
+                    /* @__PURE__ */ jsx93("span", { className: "view-graph-edge-chip__dot", style: { background: NODE_COLORS[k] } }),
                     k,
-                    /* @__PURE__ */ jsx92("span", { className: "view-graph-edge-chip__count", children: graph.stats.byNodeKind[k] || 0 })
+                    /* @__PURE__ */ jsx93("span", { className: "view-graph-edge-chip__count", children: graph.stats.byNodeKind[k] || 0 })
                   ]
                 },
                 k
               );
             }),
-            /* @__PURE__ */ jsx92("div", { className: "view-graph-toolbar__spacer" }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("input", { type: "checkbox", checked: hideOrphans, onChange: (e) => setHideOrphans(e.target.checked) }),
-              /* @__PURE__ */ jsx92("span", { children: "\u0421\u043A\u0440\u044B\u0442\u044C \u0441\u0438\u0440\u043E\u0442" })
+            /* @__PURE__ */ jsx93("div", { className: "view-graph-toolbar__spacer" }),
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("input", { type: "checkbox", checked: hideOrphans, onChange: (e) => setHideOrphans(e.target.checked) }),
+              /* @__PURE__ */ jsx93("span", { children: "\u0421\u043A\u0440\u044B\u0442\u044C \u0441\u0438\u0440\u043E\u0442" })
             ] }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("input", { type: "checkbox", checked: includeNested, onChange: (e) => setIncludeNested(e.target.checked) }),
-              /* @__PURE__ */ jsx92("span", { children: "Nested" })
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("input", { type: "checkbox", checked: includeNested, onChange: (e) => setIncludeNested(e.target.checked) }),
+              /* @__PURE__ */ jsx93("span", { children: "Nested" })
             ] }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("input", { type: "checkbox", checked: includeMixins, onChange: (e) => setIncludeMixins(e.target.checked) }),
-              /* @__PURE__ */ jsx92("span", { children: "Mixins" })
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("input", { type: "checkbox", checked: includeMixins, onChange: (e) => setIncludeMixins(e.target.checked) }),
+              /* @__PURE__ */ jsx93("span", { children: "Mixins" })
             ] }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("input", { type: "checkbox", checked: includeDash, onChange: (e) => setIncludeDash(e.target.checked) }),
-              /* @__PURE__ */ jsx92("span", { children: "Dashboard" })
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("input", { type: "checkbox", checked: includeDash, onChange: (e) => setIncludeDash(e.target.checked) }),
+              /* @__PURE__ */ jsx93("span", { children: "Dashboard" })
             ] }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("input", { type: "checkbox", checked: includeMenus, onChange: (e) => setIncludeMenus(e.target.checked) }),
-              /* @__PURE__ */ jsx92("span", { children: "Menu" })
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("input", { type: "checkbox", checked: includeMenus, onChange: (e) => setIncludeMenus(e.target.checked) }),
+              /* @__PURE__ */ jsx93("span", { children: "Menu" })
             ] }),
-            /* @__PURE__ */ jsx92("div", { className: "view-graph-toolbar__divider" }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("span", { children: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430:" }),
-              /* @__PURE__ */ jsxs89("select", { value: layout, onChange: (e) => setLayout(e.target.value), className: "view-graph-select", children: [
-                /* @__PURE__ */ jsx92("option", { value: "LR", children: "LR" }),
-                /* @__PURE__ */ jsx92("option", { value: "TB", children: "TB" }),
-                /* @__PURE__ */ jsx92("option", { value: "force", children: "Force" })
+            /* @__PURE__ */ jsx93("div", { className: "view-graph-toolbar__divider" }),
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("span", { children: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430:" }),
+              /* @__PURE__ */ jsxs90("select", { value: layout, onChange: (e) => setLayout(e.target.value), className: "view-graph-select", children: [
+                /* @__PURE__ */ jsx93("option", { value: "LR", children: "LR" }),
+                /* @__PURE__ */ jsx93("option", { value: "TB", children: "TB" }),
+                /* @__PURE__ */ jsx93("option", { value: "force", children: "Force" })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs89("label", { className: "view-graph-check", children: [
-              /* @__PURE__ */ jsx92("input", { type: "checkbox", checked: showEdgeLabels, onChange: (e) => setShowEdgeLabels(e.target.checked) }),
-              /* @__PURE__ */ jsx92("span", { children: "\u041F\u043E\u0434\u043F\u0438\u0441\u0438" })
+            /* @__PURE__ */ jsxs90("label", { className: "view-graph-check", children: [
+              /* @__PURE__ */ jsx93("input", { type: "checkbox", checked: showEdgeLabels, onChange: (e) => setShowEdgeLabels(e.target.checked) }),
+              /* @__PURE__ */ jsx93("span", { children: "\u041F\u043E\u0434\u043F\u0438\u0441\u0438" })
             ] }),
-            /* @__PURE__ */ jsx92("button", { className: "btn btn--icon btn--small", onClick: exportPNG2, title: "PNG", children: /* @__PURE__ */ jsx92(MIcon, { name: "image", size: "sm" }) }),
-            /* @__PURE__ */ jsx92("button", { className: "btn btn--icon btn--small", onClick: exportDot, title: "Graphviz DOT", children: /* @__PURE__ */ jsx92(MIcon, { name: "account_tree", size: "sm" }) })
+            /* @__PURE__ */ jsx93("button", { className: "btn btn--icon btn--small", onClick: exportPNG2, title: "PNG", children: /* @__PURE__ */ jsx93(MIcon, { name: "image", size: "sm" }) }),
+            /* @__PURE__ */ jsx93("button", { className: "btn btn--icon btn--small", onClick: exportDot, title: "Graphviz DOT", children: /* @__PURE__ */ jsx93(MIcon, { name: "account_tree", size: "sm" }) })
           ] })
         ] }),
-        focusId && /* @__PURE__ */ jsxs89("div", { className: "view-graph-focus-bar", children: [
-          /* @__PURE__ */ jsx92(MIcon, { name: "center_focus_strong", size: "sm" }),
-          /* @__PURE__ */ jsx92("span", { children: "\u0424\u043E\u043A\u0443\u0441:" }),
-          /* @__PURE__ */ jsx92("code", { children: graph.nodes.find((n) => n.id === focusId)?.viewId || focusId }),
-          /* @__PURE__ */ jsxs89("span", { className: "view-graph-focus-bar__depth", children: [
+        focusId && /* @__PURE__ */ jsxs90("div", { className: "view-graph-focus-bar", children: [
+          /* @__PURE__ */ jsx93(MIcon, { name: "center_focus_strong", size: "sm" }),
+          /* @__PURE__ */ jsx93("span", { children: "\u0424\u043E\u043A\u0443\u0441:" }),
+          /* @__PURE__ */ jsx93("code", { children: graph.nodes.find((n) => n.id === focusId)?.viewId || focusId }),
+          /* @__PURE__ */ jsxs90("span", { className: "view-graph-focus-bar__depth", children: [
             "\u0433\u043B\u0443\u0431\u0438\u043D\u0430",
-            /* @__PURE__ */ jsx92(
+            /* @__PURE__ */ jsx93(
               "input",
               {
                 type: "range",
@@ -111464,48 +112644,48 @@ function ViewGraphModal() {
                 onChange: (e) => setFocusDepth(parseInt(e.target.value, 10))
               }
             ),
-            /* @__PURE__ */ jsx92("strong", { children: focusDepth })
+            /* @__PURE__ */ jsx93("strong", { children: focusDepth })
           ] }),
-          /* @__PURE__ */ jsx92("button", { className: "view-graph-focus-bar__close", onClick: () => setFocusId(null), children: "\u2715" })
+          /* @__PURE__ */ jsx93("button", { className: "view-graph-focus-bar__close", onClick: () => setFocusId(null), children: "\u2715" })
         ] }),
-        pathMode === "pick-first" && /* @__PURE__ */ jsxs89("div", { className: "view-graph-path-bar", children: [
-          /* @__PURE__ */ jsx92(MIcon, { name: "ads_click", size: "sm" }),
+        pathMode === "pick-first" && /* @__PURE__ */ jsxs90("div", { className: "view-graph-path-bar", children: [
+          /* @__PURE__ */ jsx93(MIcon, { name: "ads_click", size: "sm" }),
           "\u041A\u043B\u0438\u043A\u043D\u0438\u0442\u0435 ",
-          /* @__PURE__ */ jsx92("strong", { children: "\u043F\u0435\u0440\u0432\u044B\u0439 view" }),
+          /* @__PURE__ */ jsx93("strong", { children: "\u043F\u0435\u0440\u0432\u044B\u0439 view" }),
           " \u043F\u0443\u0442\u0438"
         ] }),
-        pathMode === "pick-second" && pathFrom && /* @__PURE__ */ jsxs89("div", { className: "view-graph-path-bar", children: [
-          /* @__PURE__ */ jsx92(MIcon, { name: "route", size: "sm" }),
+        pathMode === "pick-second" && pathFrom && /* @__PURE__ */ jsxs90("div", { className: "view-graph-path-bar", children: [
+          /* @__PURE__ */ jsx93(MIcon, { name: "route", size: "sm" }),
           "\u041D\u0430\u0447\u0430\u043B\u043E: ",
-          /* @__PURE__ */ jsx92("code", { children: graph.nodes.find((n) => n.id === pathFrom)?.viewId || pathFrom }),
+          /* @__PURE__ */ jsx93("code", { children: graph.nodes.find((n) => n.id === pathFrom)?.viewId || pathFrom }),
           ". \u041A\u043B\u0438\u043A\u043D\u0438\u0442\u0435 ",
-          /* @__PURE__ */ jsx92("strong", { children: "\u043A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 view" })
+          /* @__PURE__ */ jsx93("strong", { children: "\u043A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 view" })
         ] }),
-        pathResult && pathFrom && pathTo && /* @__PURE__ */ jsxs89("div", { className: "view-graph-path-bar view-graph-path-bar--found", children: [
-          /* @__PURE__ */ jsx92(MIcon, { name: "check_circle", size: "sm" }),
+        pathResult && pathFrom && pathTo && /* @__PURE__ */ jsxs90("div", { className: "view-graph-path-bar view-graph-path-bar--found", children: [
+          /* @__PURE__ */ jsx93(MIcon, { name: "check_circle", size: "sm" }),
           "\u041F\u0443\u0442\u044C:",
           " ",
-          /* @__PURE__ */ jsx92("code", { children: graph.nodes.find((n) => n.id === pathFrom)?.viewId || pathFrom }),
+          /* @__PURE__ */ jsx93("code", { children: graph.nodes.find((n) => n.id === pathFrom)?.viewId || pathFrom }),
           " \u2192 ",
-          /* @__PURE__ */ jsx92("code", { children: graph.nodes.find((n) => n.id === pathTo)?.viewId || pathTo }),
-          /* @__PURE__ */ jsxs89("span", { className: "view-graph-path-bar__meta", children: [
+          /* @__PURE__ */ jsx93("code", { children: graph.nodes.find((n) => n.id === pathTo)?.viewId || pathTo }),
+          /* @__PURE__ */ jsxs90("span", { className: "view-graph-path-bar__meta", children: [
             pathResult.nodes.length,
             " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
             pathResult.edges.length,
             " \u0440\u0451\u0431\u0435\u0440"
           ] }),
-          /* @__PURE__ */ jsx92("button", { className: "view-graph-path-bar__close", onClick: cancelPath, children: "\u2715" })
+          /* @__PURE__ */ jsx93("button", { className: "view-graph-path-bar__close", onClick: cancelPath, children: "\u2715" })
         ] }),
-        /* @__PURE__ */ jsxs89("div", { className: "view-graph-canvas view-graph-canvas--with-detail", children: [
-          /* @__PURE__ */ jsx92("div", { className: "view-graph-flow", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsxs89("div", { className: "view-graph-empty", children: [
-            /* @__PURE__ */ jsx92(MIcon, { name: "info", size: "xl" }),
-            /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__title", children: graph.stats.focusedId ? "\u041E\u043A\u0440\u0435\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u043F\u0443\u0441\u0442\u0430" : hideOrphans ? "\u0412\u0441\u0435 views \u2014 \u0441\u0438\u0440\u043E\u0442\u044B" : !domainFilter ? "\u041D\u0435\u0442 cross-domain \u0441\u0432\u044F\u0437\u0435\u0439. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D" : "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 views" }),
-            (hideOrphans || nodeKinds.size > 0 || edgeKinds.size < 6) && /* @__PURE__ */ jsx92("button", { className: "btn", onClick: () => {
+        /* @__PURE__ */ jsxs90("div", { className: "view-graph-canvas view-graph-canvas--with-detail", children: [
+          /* @__PURE__ */ jsx93("div", { className: "view-graph-flow", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsxs90("div", { className: "view-graph-empty", children: [
+            /* @__PURE__ */ jsx93(MIcon, { name: "info", size: "xl" }),
+            /* @__PURE__ */ jsx93("div", { className: "view-graph-empty__title", children: graph.stats.focusedId ? "\u041E\u043A\u0440\u0435\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u043F\u0443\u0441\u0442\u0430" : hideOrphans ? "\u0412\u0441\u0435 views \u2014 \u0441\u0438\u0440\u043E\u0442\u044B" : !domainFilter ? "\u041D\u0435\u0442 cross-domain \u0441\u0432\u044F\u0437\u0435\u0439. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D" : "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 views" }),
+            (hideOrphans || nodeKinds.size > 0 || edgeKinds.size < 6) && /* @__PURE__ */ jsx93("button", { className: "btn", onClick: () => {
               setHideOrphans(false);
               setNodeKinds(/* @__PURE__ */ new Set());
               setEdgeKinds(/* @__PURE__ */ new Set(["action", "tabs", "nested", "menu", "dashboard", "mixin"]));
             }, children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B" })
-          ] }) : /* @__PURE__ */ jsx92(ReactFlowProvider4, { children: /* @__PURE__ */ jsx92(
+          ] }) : /* @__PURE__ */ jsx93(ReactFlowProvider4, { children: /* @__PURE__ */ jsx93(
             Inner,
             {
               nodes: styledNodes,
@@ -111516,7 +112696,7 @@ function ViewGraphModal() {
               onReady: setRfApi
             }
           ) }) }),
-          selectedNode && /* @__PURE__ */ jsx92(
+          selectedNode && /* @__PURE__ */ jsx93(
             ViewDetailPanel,
             {
               node: selectedNode,
@@ -111695,7 +112875,7 @@ import {
   useRef as useRef41,
   useState as useState66
 } from "react";
-import { Fragment as Fragment39, jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
+import { Fragment as Fragment40, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
 function escapeCsv6(v) {
   const s = String(v ?? "");
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -112253,24 +113433,24 @@ function YamlFulltextSearchModal() {
   const showEmpty = hasQuery && !isSearching && !error && filteredHits.length === 0;
   const showTooShort = query.trim().length > 0 && query.trim().length < MIN_QUERY;
   const showHistory = !query && history.length > 0;
-  return /* @__PURE__ */ jsx93(
+  return /* @__PURE__ */ jsx94(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 500 },
       onMouseDown: () => setOpen(false),
-      children: /* @__PURE__ */ jsxs90(
+      children: /* @__PURE__ */ jsxs91(
         "div",
         {
           className: "help-modal yaml-fulltext-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs90("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs90("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx93(MIcon, { name: "search", size: "sm" }),
-                /* @__PURE__ */ jsx93("span", { className: "icon-label", children: "\u041F\u043E\u043B\u043D\u043E\u0442\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u043F\u043E\u0438\u0441\u043A \u043F\u043E YAML" }),
-                hits.length > 0 && /* @__PURE__ */ jsx93("span", { className: "help-modal__badge", children: total }),
-                fieldFilter !== "any" && /* @__PURE__ */ jsx93(
+            /* @__PURE__ */ jsxs91("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs91("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx94(MIcon, { name: "search", size: "sm" }),
+                /* @__PURE__ */ jsx94("span", { className: "icon-label", children: "\u041F\u043E\u043B\u043D\u043E\u0442\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u043F\u043E\u0438\u0441\u043A \u043F\u043E YAML" }),
+                hits.length > 0 && /* @__PURE__ */ jsx94("span", { className: "help-modal__badge", children: total }),
+                fieldFilter !== "any" && /* @__PURE__ */ jsx94(
                   "span",
                   {
                     className: "help-modal__badge",
@@ -112283,37 +113463,37 @@ function YamlFulltextSearchModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxs90("div", { className: "help-modal__actions", children: [
-                filteredHits.length > 0 && /* @__PURE__ */ jsxs90(Fragment39, { children: [
-                  /* @__PURE__ */ jsx93(
+              /* @__PURE__ */ jsxs91("div", { className: "help-modal__actions", children: [
+                filteredHits.length > 0 && /* @__PURE__ */ jsxs91(Fragment40, { children: [
+                  /* @__PURE__ */ jsx94(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: exportJSON,
                       title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 JSON",
-                      children: /* @__PURE__ */ jsx93(MIcon, { name: "data_object" })
+                      children: /* @__PURE__ */ jsx94(MIcon, { name: "data_object" })
                     }
                   ),
-                  /* @__PURE__ */ jsx93(
+                  /* @__PURE__ */ jsx94(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: exportCSV2,
                       title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 CSV",
-                      children: /* @__PURE__ */ jsx93(MIcon, { name: "table_view" })
+                      children: /* @__PURE__ */ jsx94(MIcon, { name: "table_view" })
                     }
                   ),
-                  /* @__PURE__ */ jsx93(
+                  /* @__PURE__ */ jsx94(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: exportMD,
                       title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 Markdown",
-                      children: /* @__PURE__ */ jsx93(MIcon, { name: "description" })
+                      children: /* @__PURE__ */ jsx94(MIcon, { name: "description" })
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94(
                   "button",
                   {
                     className: "help-modal__close",
@@ -112323,9 +113503,9 @@ function YamlFulltextSearchModal() {
                 )
               ] })
             ] }),
-            /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-search", children: [
-              /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-search__input", children: [
-                /* @__PURE__ */ jsx93(
+            /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-search", children: [
+              /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-search__input", children: [
+                /* @__PURE__ */ jsx94(
                   MIcon,
                   {
                     name: isSearching ? "hourglass_top" : "search",
@@ -112335,7 +113515,7 @@ function YamlFulltextSearchModal() {
                     }
                   }
                 ),
-                /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94(
                   "input",
                   {
                     ref: inputRef,
@@ -112348,8 +113528,8 @@ function YamlFulltextSearchModal() {
                     autoComplete: "off"
                   }
                 ),
-                isSearching && /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-search__spinner" }),
-                query && /* @__PURE__ */ jsx93(
+                isSearching && /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-search__spinner" }),
+                query && /* @__PURE__ */ jsx94(
                   "button",
                   {
                     className: "yaml-fulltext-search__clear",
@@ -112359,22 +113539,22 @@ function YamlFulltextSearchModal() {
                   }
                 )
               ] }),
-              showHistory && /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-history", children: [
-                /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-history__label", children: "\u041D\u0435\u0434\u0430\u0432\u043D\u0438\u0435:" }),
-                history.map((h) => /* @__PURE__ */ jsxs90(
+              showHistory && /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-history", children: [
+                /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-history__label", children: "\u041D\u0435\u0434\u0430\u0432\u043D\u0438\u0435:" }),
+                history.map((h) => /* @__PURE__ */ jsxs91(
                   "button",
                   {
                     className: "yaml-fulltext-history__item",
                     onClick: () => applyHistory(h),
                     title: `\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C: ${h}`,
                     children: [
-                      /* @__PURE__ */ jsx93(MIcon, { name: "history", size: "sm" }),
-                      /* @__PURE__ */ jsx93("span", { children: h })
+                      /* @__PURE__ */ jsx94(MIcon, { name: "history", size: "sm" }),
+                      /* @__PURE__ */ jsx94("span", { children: h })
                     ]
                   },
                   h
                 )),
-                /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94(
                   "button",
                   {
                     className: "yaml-fulltext-history__clear",
@@ -112384,8 +113564,8 @@ function YamlFulltextSearchModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-search__toggles", children: [
-                /* @__PURE__ */ jsx93(
+              /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-search__toggles", children: [
+                /* @__PURE__ */ jsx94(
                   "button",
                   {
                     type: "button",
@@ -112395,7 +113575,7 @@ function YamlFulltextSearchModal() {
                     children: ".*"
                   }
                 ),
-                /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94(
                   "button",
                   {
                     type: "button",
@@ -112405,7 +113585,7 @@ function YamlFulltextSearchModal() {
                     children: "Aa"
                   }
                 ),
-                /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94(
                   "button",
                   {
                     type: "button",
@@ -112416,7 +113596,7 @@ function YamlFulltextSearchModal() {
                     children: "\\b"
                   }
                 ),
-                /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94(
                   "button",
                   {
                     type: "button",
@@ -112426,7 +113606,7 @@ function YamlFulltextSearchModal() {
                     children: "#"
                   }
                 ),
-                /* @__PURE__ */ jsx93("div", { className: "yaml-fulltext-search__domain", children: /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsx94("div", { className: "yaml-fulltext-search__domain", children: /* @__PURE__ */ jsx94(
                   DomainCombobox,
                   {
                     value: domainFilter,
@@ -112437,7 +113617,7 @@ function YamlFulltextSearchModal() {
                     emptyLabel: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
                   }
                 ) }),
-                hits.length > 0 && /* @__PURE__ */ jsxs90(
+                hits.length > 0 && /* @__PURE__ */ jsxs91(
                   "button",
                   {
                     className: "btn",
@@ -112452,8 +113632,8 @@ function YamlFulltextSearchModal() {
                     },
                     title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u0441\u0435 \u0432\u0438\u0434\u0438\u043C\u044B\u0435 \u0441\u0442\u0440\u043E\u043A\u0438",
                     children: [
-                      /* @__PURE__ */ jsx93(MIcon, { name: "content_copy", size: "sm" }),
-                      /* @__PURE__ */ jsxs90("span", { children: [
+                      /* @__PURE__ */ jsx94(MIcon, { name: "content_copy", size: "sm" }),
+                      /* @__PURE__ */ jsxs91("span", { children: [
                         "\u0421\u0442\u0440\u043E\u043A\u0438 (",
                         filteredHits.length,
                         ")"
@@ -112462,9 +113642,9 @@ function YamlFulltextSearchModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx93("div", { className: "yaml-fulltext-fields", children: FIELD_LABELS.map((f) => {
+              /* @__PURE__ */ jsx94("div", { className: "yaml-fulltext-fields", children: FIELD_LABELS.map((f) => {
                 const active = fieldFilter === f.id;
-                return /* @__PURE__ */ jsxs90(
+                return /* @__PURE__ */ jsxs91(
                   "button",
                   {
                     type: "button",
@@ -112476,41 +113656,41 @@ function YamlFulltextSearchModal() {
                     },
                     title: f.id === "any" ? "\u0418\u0441\u043A\u0430\u0442\u044C \u0432\u043E \u0432\u0441\u0435\u0445 \u043F\u043E\u043B\u044F\u0445" : `\u0422\u043E\u043B\u044C\u043A\u043E \u0432 \u043F\u043E\u043B\u0435 \xAB${f.id}\xBB`,
                     children: [
-                      /* @__PURE__ */ jsx93(MIcon, { name: f.icon, size: "sm" }),
-                      /* @__PURE__ */ jsx93("span", { children: f.label })
+                      /* @__PURE__ */ jsx94(MIcon, { name: f.icon, size: "sm" }),
+                      /* @__PURE__ */ jsx94("span", { children: f.label })
                     ]
                   },
                   f.id
                 );
               }) }),
-              hasQuery && !showEmpty && /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-stats", children: [
-                isSearching && hits.length === 0 && /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item", children: [
-                  /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-search__spinner yaml-fulltext-search__spinner--inline" }),
+              hasQuery && !showEmpty && /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-stats", children: [
+                isSearching && hits.length === 0 && /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-stats__item", children: [
+                  /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-search__spinner yaml-fulltext-search__spinner--inline" }),
                   "\u041F\u043E\u0438\u0441\u043A\u2026"
                 ] }),
-                hits.length > 0 && /* @__PURE__ */ jsxs90(Fragment39, { children: [
-                  /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item", children: [
-                    /* @__PURE__ */ jsx93("strong", { children: filteredHits.length }),
+                hits.length > 0 && /* @__PURE__ */ jsxs91(Fragment40, { children: [
+                  /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-stats__item", children: [
+                    /* @__PURE__ */ jsx94("strong", { children: filteredHits.length }),
                     fieldFilter !== "any" || deferredSearchInResults.trim() ? ` / ${total}` : "",
                     " ",
                     "\u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439"
                   ] }),
-                  /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item", children: [
-                    /* @__PURE__ */ jsx93(MIcon, { name: "description", size: "sm" }),
+                  /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-stats__item", children: [
+                    /* @__PURE__ */ jsx94(MIcon, { name: "description", size: "sm" }),
                     stats.files,
                     " \u0444\u0430\u0439\u043B(\u043E\u0432)"
                   ] }),
-                  /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item", children: [
-                    /* @__PURE__ */ jsx93(MIcon, { name: "folder", size: "sm" }),
+                  /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-stats__item", children: [
+                    /* @__PURE__ */ jsx94(MIcon, { name: "folder", size: "sm" }),
                     stats.domains,
                     " \u0434\u043E\u043C\u0435\u043D(\u043E\u0432)"
                   ] }),
-                  /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item", children: [
-                    /* @__PURE__ */ jsx93(MIcon, { name: "schedule", size: "sm" }),
+                  /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-stats__item", children: [
+                    /* @__PURE__ */ jsx94(MIcon, { name: "schedule", size: "sm" }),
                     elapsedMs,
                     " \u043C\u0441"
                   ] }),
-                  truncated && /* @__PURE__ */ jsxs90(
+                  truncated && /* @__PURE__ */ jsxs91(
                     "span",
                     {
                       className: "yaml-fulltext-stats__item yaml-fulltext-stats__item--warn",
@@ -112522,15 +113702,15 @@ function YamlFulltextSearchModal() {
                     }
                   )
                 ] }),
-                error && /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item yaml-fulltext-stats__item--err", children: [
-                  /* @__PURE__ */ jsx93(MIcon, { name: "error", size: "sm" }),
+                error && /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-stats__item yaml-fulltext-stats__item--err", children: [
+                  /* @__PURE__ */ jsx94(MIcon, { name: "error", size: "sm" }),
                   error
                 ] })
               ] }),
-              hits.length > 0 && /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-toolbar", children: [
-                /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-toolbar__search", children: [
-                  /* @__PURE__ */ jsx93(MIcon, { name: "filter_alt", size: "sm" }),
-                  /* @__PURE__ */ jsx93(
+              hits.length > 0 && /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-toolbar", children: [
+                /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-toolbar__search", children: [
+                  /* @__PURE__ */ jsx94(MIcon, { name: "filter_alt", size: "sm" }),
+                  /* @__PURE__ */ jsx94(
                     "input",
                     {
                       type: "text",
@@ -112540,7 +113720,7 @@ function YamlFulltextSearchModal() {
                       spellCheck: false
                     }
                   ),
-                  searchInResults && /* @__PURE__ */ jsx93(
+                  searchInResults && /* @__PURE__ */ jsx94(
                     "button",
                     {
                       onClick: () => setSearchInResults(""),
@@ -112550,96 +113730,96 @@ function YamlFulltextSearchModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs90("label", { className: "yaml-fulltext-toolbar__select", children: [
-                  /* @__PURE__ */ jsx93("span", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
-                  /* @__PURE__ */ jsxs90(
+                /* @__PURE__ */ jsxs91("label", { className: "yaml-fulltext-toolbar__select", children: [
+                  /* @__PURE__ */ jsx94("span", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                  /* @__PURE__ */ jsxs91(
                     "select",
                     {
                       value: groupMode,
                       onChange: (e) => setGroupMode(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx93("option", { value: "none", children: "\u041F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A" }),
-                        /* @__PURE__ */ jsx93("option", { value: "file", children: "\u041F\u043E \u0444\u0430\u0439\u043B\u0443" }),
-                        /* @__PURE__ */ jsx93("option", { value: "domain", children: "\u041F\u043E \u0434\u043E\u043C\u0435\u043D\u0443" })
+                        /* @__PURE__ */ jsx94("option", { value: "none", children: "\u041F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A" }),
+                        /* @__PURE__ */ jsx94("option", { value: "file", children: "\u041F\u043E \u0444\u0430\u0439\u043B\u0443" }),
+                        /* @__PURE__ */ jsx94("option", { value: "domain", children: "\u041F\u043E \u0434\u043E\u043C\u0435\u043D\u0443" })
                       ]
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-toolbar__actions", children: [
-                  /* @__PURE__ */ jsx93(
+                /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-toolbar__actions", children: [
+                  /* @__PURE__ */ jsx94(
                     "button",
                     {
                       className: "btn btn--icon btn--small",
                       onClick: expandAll,
                       title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0433\u0440\u0443\u043F\u043F\u044B",
                       disabled: collapsedGroups.size === 0,
-                      children: /* @__PURE__ */ jsx93(MIcon, { name: "unfold_more", size: "sm" })
+                      children: /* @__PURE__ */ jsx94(MIcon, { name: "unfold_more", size: "sm" })
                     }
                   ),
-                  /* @__PURE__ */ jsx93(
+                  /* @__PURE__ */ jsx94(
                     "button",
                     {
                       className: "btn btn--icon btn--small",
                       onClick: collapseAll,
                       title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0433\u0440\u0443\u043F\u043F\u044B",
                       disabled: collapsedGroups.size === grouped.length,
-                      children: /* @__PURE__ */ jsx93(MIcon, { name: "unfold_less", size: "sm" })
+                      children: /* @__PURE__ */ jsx94(MIcon, { name: "unfold_less", size: "sm" })
                     }
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-search__results", ref: listRef, children: [
-                showTooShort && /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-empty", children: [
-                  /* @__PURE__ */ jsx93(MIcon, { name: "keyboard", size: "lg" }),
-                  /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-empty__title", children: [
+              /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-search__results", ref: listRef, children: [
+                showTooShort && /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-empty", children: [
+                  /* @__PURE__ */ jsx94(MIcon, { name: "keyboard", size: "lg" }),
+                  /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-empty__title", children: [
                     "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043C\u0438\u043D\u0438\u043C\u0443\u043C ",
                     MIN_QUERY,
                     " \u0441\u0438\u043C\u0432\u043E\u043B\u0430"
                   ] }),
-                  /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-empty__hint", children: [
+                  /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-empty__hint", children: [
                     "\u041F\u043E\u0438\u0441\u043A \u0437\u0430\u043F\u0443\u0441\u043A\u0430\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0447\u0435\u0440\u0435\u0437 ",
                     DEBOUNCE_MS2,
                     " \u043C\u0441 \u043F\u043E\u0441\u043B\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u043D\u0430\u0436\u0430\u0442\u0438\u044F."
                   ] })
                 ] }),
-                showEmpty && /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-empty", children: [
-                  /* @__PURE__ */ jsx93(MIcon, { name: "search_off", size: "lg" }),
-                  /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-empty__title", children: [
+                showEmpty && /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-empty", children: [
+                  /* @__PURE__ */ jsx94(MIcon, { name: "search_off", size: "lg" }),
+                  /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-empty__title", children: [
                     "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB",
                     query,
                     "\xBB"
                   ] }),
-                  /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-empty__tips", children: [
-                    /* @__PURE__ */ jsx93("div", { className: "yaml-fulltext-empty__tips-title", children: "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435:" }),
-                    /* @__PURE__ */ jsxs90("ul", { children: [
-                      /* @__PURE__ */ jsxs90("li", { children: [
+                  /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-empty__tips", children: [
+                    /* @__PURE__ */ jsx94("div", { className: "yaml-fulltext-empty__tips-title", children: "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435:" }),
+                    /* @__PURE__ */ jsxs91("ul", { children: [
+                      /* @__PURE__ */ jsxs91("li", { children: [
                         "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C ",
-                        /* @__PURE__ */ jsx93("strong", { children: "whole word" }),
+                        /* @__PURE__ */ jsx94("strong", { children: "whole word" }),
                         " \u2014 \u0432\u0434\u0440\u0443\u0433 \u0438\u0449\u0435\u0442\u0435 \u0447\u0430\u0441\u0442\u044C \u0441\u043B\u043E\u0432\u0430"
                       ] }),
-                      /* @__PURE__ */ jsxs90("li", { children: [
+                      /* @__PURE__ */ jsxs91("li", { children: [
                         "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C ",
-                        /* @__PURE__ */ jsx93("strong", { children: "Aa" }),
+                        /* @__PURE__ */ jsx94("strong", { children: "Aa" }),
                         " \u0438\u043B\u0438 \u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u2014 \u0440\u0435\u0433\u0438\u0441\u0442\u0440"
                       ] }),
-                      !includeComments && /* @__PURE__ */ jsxs90("li", { children: [
+                      !includeComments && /* @__PURE__ */ jsxs91("li", { children: [
                         "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C ",
-                        /* @__PURE__ */ jsx93("strong", { children: "#" }),
+                        /* @__PURE__ */ jsx94("strong", { children: "#" }),
                         " \u2014 \u0432\u0434\u0440\u0443\u0433 \u044D\u0442\u043E \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445"
                       ] }),
-                      /* @__PURE__ */ jsxs90("li", { children: [
+                      /* @__PURE__ */ jsxs91("li", { children: [
                         "\u0421\u043D\u044F\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E\u043B\u044F \u2014 \u0441\u0435\u0439\u0447\u0430\u0441 \u0438\u0449\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0432",
                         " ",
-                        /* @__PURE__ */ jsx93("code", { children: fieldFilter })
+                        /* @__PURE__ */ jsx94("code", { children: fieldFilter })
                       ] }),
-                      /* @__PURE__ */ jsxs90("li", { children: [
+                      /* @__PURE__ */ jsxs91("li", { children: [
                         "\u0421\u043D\u044F\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440 \u0434\u043E\u043C\u0435\u043D\u0430 \u2014 \u0441\u0435\u0439\u0447\u0430\u0441 \u0438\u0449\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0432",
                         " ",
-                        /* @__PURE__ */ jsx93("code", { children: domainFilter })
+                        /* @__PURE__ */ jsx94("code", { children: domainFilter })
                       ] }),
-                      /* @__PURE__ */ jsxs90("li", { children: [
+                      /* @__PURE__ */ jsxs91("li", { children: [
                         "\u041F\u043E\u043F\u0440\u043E\u0431\u043E\u0432\u0430\u0442\u044C ",
-                        /* @__PURE__ */ jsx93("strong", { children: "regex" }),
+                        /* @__PURE__ */ jsx94("strong", { children: "regex" }),
                         " \u0434\u043B\u044F \u0441\u043B\u043E\u0436\u043D\u044B\u0445 \u0437\u0430\u043F\u0440\u043E\u0441\u043E\u0432"
                       ] })
                     ] })
@@ -112648,39 +113828,39 @@ function YamlFulltextSearchModal() {
                 !showEmpty && grouped.map((group) => {
                   const isCollapsed = collapsedGroups.has(group.key);
                   const showGroupHeader = groupMode !== "none";
-                  return /* @__PURE__ */ jsxs90(
+                  return /* @__PURE__ */ jsxs91(
                     "div",
                     {
                       className: "yaml-fulltext-group" + (isCollapsed ? " yaml-fulltext-group--collapsed" : ""),
                       children: [
-                        showGroupHeader && /* @__PURE__ */ jsxs90(
+                        showGroupHeader && /* @__PURE__ */ jsxs91(
                           "button",
                           {
                             className: "yaml-fulltext-group__head",
                             onClick: () => toggleGroup(group.key),
                             title: isCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443",
                             children: [
-                              /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-group__chevron", children: isCollapsed ? "\u25B8" : "\u25BE" }),
-                              /* @__PURE__ */ jsx93(
+                              /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-group__chevron", children: isCollapsed ? "\u25B8" : "\u25BE" }),
+                              /* @__PURE__ */ jsx94(
                                 MIcon,
                                 {
                                   name: groupMode === "domain" ? "folder" : "description",
                                   size: "sm"
                                 }
                               ),
-                              /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-group__info", children: [
-                                /* @__PURE__ */ jsx93("code", { className: "yaml-fulltext-group__domain", children: group.label }),
-                                group.sublabel && /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-group__sublabel", children: group.sublabel })
+                              /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-group__info", children: [
+                                /* @__PURE__ */ jsx94("code", { className: "yaml-fulltext-group__domain", children: group.label }),
+                                group.sublabel && /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-group__sublabel", children: group.sublabel })
                               ] }),
-                              /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-group__count", children: group.hits.length })
+                              /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-group__count", children: group.hits.length })
                             ]
                           }
                         ),
-                        !isCollapsed && /* @__PURE__ */ jsx93("div", { className: "yaml-fulltext-group__body", children: group.hits.map((h, i) => {
+                        !isCollapsed && /* @__PURE__ */ jsx94("div", { className: "yaml-fulltext-group__body", children: group.hits.map((h, i) => {
                           const globalIdx = navHits.findIndex(
                             (nh) => nh.hit.filePath === h.filePath && nh.hit.line === h.line && nh.hit.column === h.column
                           );
-                          return /* @__PURE__ */ jsx93(
+                          return /* @__PURE__ */ jsx94(
                             HitRow,
                             {
                               hit: h,
@@ -112701,34 +113881,34 @@ function YamlFulltextSearchModal() {
                 })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-footer", children: [
-              /* @__PURE__ */ jsxs90("span", { children: [
-                /* @__PURE__ */ jsx93("kbd", { children: "\u2191" }),
-                /* @__PURE__ */ jsx93("kbd", { children: "\u2193" }),
+            /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-footer", children: [
+              /* @__PURE__ */ jsxs91("span", { children: [
+                /* @__PURE__ */ jsx94("kbd", { children: "\u2191" }),
+                /* @__PURE__ */ jsx94("kbd", { children: "\u2193" }),
                 " \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F"
               ] }),
-              /* @__PURE__ */ jsxs90("span", { children: [
-                /* @__PURE__ */ jsx93("kbd", { children: "Enter" }),
+              /* @__PURE__ */ jsxs91("span", { children: [
+                /* @__PURE__ */ jsx94("kbd", { children: "Enter" }),
                 " \u043E\u0442\u043A\u0440\u044B\u0442\u044C"
               ] }),
-              /* @__PURE__ */ jsxs90("span", { children: [
-                /* @__PURE__ */ jsx93("kbd", { children: "Shift" }),
+              /* @__PURE__ */ jsxs91("span", { children: [
+                /* @__PURE__ */ jsx94("kbd", { children: "Shift" }),
                 "+",
-                /* @__PURE__ */ jsx93("kbd", { children: "Enter" }),
+                /* @__PURE__ */ jsx94("kbd", { children: "Enter" }),
                 " \u0432 \u0444\u043E\u043D"
               ] }),
-              /* @__PURE__ */ jsxs90("span", { children: [
-                /* @__PURE__ */ jsx93("kbd", { children: "Esc" }),
+              /* @__PURE__ */ jsxs91("span", { children: [
+                /* @__PURE__ */ jsx94("kbd", { children: "Esc" }),
                 " \u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C / \u0437\u0430\u043A\u0440\u044B\u0442\u044C"
               ] }),
-              /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-footer__active", children: activeIdx >= 0 && navHits[activeIdx] ? /* @__PURE__ */ jsxs90(Fragment39, { children: [
-                /* @__PURE__ */ jsx93(MIcon, { name: "my_location", size: "sm" }),
-                /* @__PURE__ */ jsxs90("code", { children: [
+              /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-footer__active", children: activeIdx >= 0 && navHits[activeIdx] ? /* @__PURE__ */ jsxs91(Fragment40, { children: [
+                /* @__PURE__ */ jsx94(MIcon, { name: "my_location", size: "sm" }),
+                /* @__PURE__ */ jsxs91("code", { children: [
                   basename(navHits[activeIdx].hit.filePath),
                   ":",
                   navHits[activeIdx].hit.line
                 ] })
-              ] }) : /* @__PURE__ */ jsx93("span", { style: { opacity: 0.5 }, children: "\u2014" }) })
+              ] }) : /* @__PURE__ */ jsx94("span", { style: { opacity: 0.5 }, children: "\u2014" }) })
             ] })
           ]
         }
@@ -112750,7 +113930,7 @@ function HitRow({
     hit.column - 1,
     hit.column - 1 + hit.length
   );
-  return /* @__PURE__ */ jsxs90(
+  return /* @__PURE__ */ jsxs91(
     "div",
     {
       className: "yaml-fulltext-hit" + (isActive ? " yaml-fulltext-hit--active" : ""),
@@ -112759,11 +113939,11 @@ function HitRow({
       "data-hit-id": `hit-${hit.filePath}-${hit.line}-${hit.column}`,
       title: `${hit.filePath}:${hit.line}:${hit.column}`,
       children: [
-        /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-hit__line", children: [
+        /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-hit__line", children: [
           ":",
           hit.line
         ] }),
-        field && /* @__PURE__ */ jsxs90(
+        field && /* @__PURE__ */ jsxs91(
           "span",
           {
             className: "yaml-fulltext-hit__field" + (hit.inComment ? " yaml-fulltext-hit__field--comment" : ""),
@@ -112773,20 +113953,20 @@ function HitRow({
             ]
           }
         ),
-        /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-hit__context", children: [
-          /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-hit__plain", children: hit.contextBefore }),
-          /* @__PURE__ */ jsx93(
+        /* @__PURE__ */ jsxs91("span", { className: "yaml-fulltext-hit__context", children: [
+          /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-hit__plain", children: hit.contextBefore }),
+          /* @__PURE__ */ jsx94(
             "span",
             {
               className: "yaml-fulltext-hit__match" + (hit.inComment ? " in-comment" : ""),
               children: matchText
             }
           ),
-          /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-hit__plain", children: hit.contextAfter })
+          /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-hit__plain", children: hit.contextAfter })
         ] }),
-        hit.inComment && /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-hit__comment-badge", children: "#" }),
-        /* @__PURE__ */ jsxs90("div", { className: "yaml-fulltext-hit__actions", children: [
-          /* @__PURE__ */ jsx93(
+        hit.inComment && /* @__PURE__ */ jsx94("span", { className: "yaml-fulltext-hit__comment-badge", children: "#" }),
+        /* @__PURE__ */ jsxs91("div", { className: "yaml-fulltext-hit__actions", children: [
+          /* @__PURE__ */ jsx94(
             "button",
             {
               className: "yaml-fulltext-hit__action",
@@ -112795,10 +113975,10 @@ function HitRow({
                 onCopyText();
               },
               title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043D\u0430\u0439\u0434\u0435\u043D\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442",
-              children: /* @__PURE__ */ jsx93(MIcon, { name: "content_copy", size: "sm" })
+              children: /* @__PURE__ */ jsx94(MIcon, { name: "content_copy", size: "sm" })
             }
           ),
-          /* @__PURE__ */ jsx93(
+          /* @__PURE__ */ jsx94(
             "button",
             {
               className: "yaml-fulltext-hit__action",
@@ -112807,10 +113987,10 @@ function HitRow({
                 onCopyLocation();
               },
               title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u0443\u0442\u044C:\u0441\u0442\u0440\u043E\u043A\u0430:\u043A\u043E\u043B\u043E\u043D\u043A\u0430",
-              children: /* @__PURE__ */ jsx93(MIcon, { name: "link", size: "sm" })
+              children: /* @__PURE__ */ jsx94(MIcon, { name: "link", size: "sm" })
             }
           ),
-          /* @__PURE__ */ jsx93(
+          /* @__PURE__ */ jsx94(
             "button",
             {
               className: "yaml-fulltext-hit__action",
@@ -112819,7 +113999,7 @@ function HitRow({
                 onOpenInBackground();
               },
               title: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0444\u043E\u043D\u043E\u0432\u044B\u0435 \u0442\u0430\u0431\u044B \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430",
-              children: /* @__PURE__ */ jsx93(MIcon, { name: "add", size: "sm" })
+              children: /* @__PURE__ */ jsx94(MIcon, { name: "add", size: "sm" })
             }
           )
         ] })
@@ -112855,26 +114035,84 @@ var init_YamlFulltextSearchModal = __esm({
 });
 
 // src/web/lib/model/schema-preview.ts
+function resolveAttributeChain(fqid, index) {
+  const result = {
+    chain: [],
+    attributes: /* @__PURE__ */ new Map()
+  };
+  if (!fqid || !index)
+    return result;
+  let cur = index.entitiesByFqid[fqid.toLowerCase()];
+  const seen = /* @__PURE__ */ new Set();
+  while (cur && !seen.has(cur.fqid)) {
+    seen.add(cur.fqid);
+    result.chain.push(cur);
+    for (const a of cur.attributes) {
+      if (!result.attributes.has(a.id))
+        result.attributes.set(a.id, a);
+    }
+    cur = cur.inherits ? index.entitiesByFqid[cur.inherits] : void 0;
+  }
+  return result;
+}
+function enrichAttribute(attrId, attributesMap, index, domainId) {
+  if (!attrId || !attributesMap.has(attrId)) {
+    return attrId ? { attributeId: attrId } : {};
+  }
+  const a = attributesMap.get(attrId);
+  const out = {
+    attributeId: attrId,
+    attributeRecord: a,
+    dataType: a.dataType,
+    dataTypeKind: a.dataTypeKind,
+    constraints: a.constraints,
+    required: a.constraints.includes("required"),
+    readonly: a.readonly === true
+  };
+  if (a.dataTypeKind === "custom" && index && domainId) {
+    const dt = index.dataTypes.find(
+      (d) => d.domainId === domainId && d.id === a.dataType
+    );
+    if (dt?.kind === "Enum") {
+      out.enumValues = dt.values || [];
+    } else if (dt?.kind === "Workflow") {
+      out.workflowStatuses = dt.statuses || [];
+      out.initialStatus = dt.initial;
+    }
+  }
+  const ref = a.referenceEntity || a.itemReferenceEntity;
+  if (ref)
+    out.referenceTarget = ref;
+  return out;
+}
 function buildSchemaPreview(blocks, meta) {
-  const widgets2 = /* @__PURE__ */ new Map();
-  const groups = /* @__PURE__ */ new Map();
+  const index = meta.index ?? null;
+  const entityFqid = meta.entityId && meta.domainId ? `${meta.domainId}/${meta.entityId}`.toLowerCase() : null;
+  const { chain, attributes } = resolveAttributeChain(entityFqid, index);
+  const widgetBlocks = /* @__PURE__ */ new Map();
+  const groupBlocks = /* @__PURE__ */ new Map();
   const viewBlocks = /* @__PURE__ */ new Map();
-  const actions2 = /* @__PURE__ */ new Map();
+  const actionBlocks = /* @__PURE__ */ new Map();
   let skipped = 0;
   for (const b of blocks) {
     const kind = b.blockId.split(":")[0];
+    const id = b.payload?.id;
+    if (!id) {
+      skipped++;
+      continue;
+    }
     switch (kind) {
       case "widget":
-        widgets2.set(b.payload?.id, b);
+        widgetBlocks.set(id, b);
         break;
       case "group":
-        groups.set(b.payload?.id, b);
+        groupBlocks.set(id, b);
         break;
       case "view":
-        viewBlocks.set(b.payload?.id, b);
+        viewBlocks.set(id, b);
         break;
       case "action":
-        actions2.set(b.payload?.id, b);
+        actionBlocks.set(id, b);
         break;
       default:
         skipped++;
@@ -112882,23 +114120,49 @@ function buildSchemaPreview(blocks, meta) {
     }
   }
   const resolveWidget = (id) => {
-    const b = widgets2.get(id);
+    const b = widgetBlocks.get(id);
     if (!b)
       return null;
     const p = b.payload;
-    return {
+    const base = {
       id: p.id,
       type: p.type || "",
       label: p.label ?? p.attribute ?? p.linkage ?? p.action,
       controlType: p.control?.type,
       linkageId: p.linkage,
-      actions: p.actions || (p.action ? [p.action] : void 0)
+      actionIds: p.actions || (p.action ? [p.action] : void 0)
     };
+    if (p.type === "attribute" && p.attribute) {
+      Object.assign(
+        base,
+        enrichAttribute(p.attribute, attributes, index, meta.domainId)
+      );
+      if (p.control?.type)
+        base.controlType = p.control.type;
+      if (p.control?.trueText || p.control?.falseText) {
+        base.trueText = p.control.trueText;
+        base.falseText = p.control.falseText;
+      }
+    }
+    if (p.type === "linkage" && p.linkage && index) {
+      const lk = index.entityLinkages.find(
+        (l) => l.domainId === meta.domainId && (l.id === p.linkage || `${l.domainId}/${l.id}` === p.linkage)
+      );
+      if (lk) {
+        base.linkageName = lk.name;
+        base.linkageType = lk.type;
+        base.linkageSide = p.side === 2 ? 2 : 1;
+        const targetFqid = base.linkageSide === 1 ? lk.side2Fqid : lk.side1Fqid;
+        base.targetEntityId = targetFqid.split("/")[1];
+        base.targetEntityName = index.entitiesByFqid[targetFqid]?.name;
+      }
+    }
+    return base;
   };
   const resolveGroup = (id, depth = 0) => {
     if (depth > 5)
       return null;
-    const b = groups.get(id);
+    const b = groupBlocks.get(id);
     if (!b)
       return null;
     const p = b.payload;
@@ -112922,82 +114186,153 @@ function buildSchemaPreview(blocks, meta) {
       type: p.type || "block",
       label: p.label,
       widgets: childWidgets,
-      nestedGroups: childGroups
+      nestedGroups: childGroups,
+      isEmpty: childWidgets.length === 0 && childGroups.length === 0
     };
   };
+  const actions2 = [];
+  for (const [id, b] of actionBlocks) {
+    const p = b.payload;
+    const action = {
+      id,
+      name: p.name || id,
+      type: p.type || "",
+      operation: p.operation,
+      entity: p.entity,
+      modal: p.modal,
+      panel: p.panel,
+      view: p.view,
+      pageView: p.pageView
+    };
+    action.targetViewId = p.modal || p.panel || p.pageView || p.view;
+    actions2.push(action);
+  }
   const views2 = [];
+  const processedViewIds = /* @__PURE__ */ new Set();
   for (const [viewId, b] of viewBlocks) {
+    if (processedViewIds.has(viewId))
+      continue;
     const p = b.payload || {};
     const viewType = String(p.type || "");
     if (viewType === "list") {
       const columns = Array.isArray(p.table?.columns) ? p.table.columns : [];
+      const enrichedColumns = columns.map((c) => {
+        const attrId = typeof c.attribute === "string" ? c.attribute : void 0;
+        const enriched = enrichAttribute(
+          attrId,
+          attributes,
+          index,
+          meta.domainId
+        );
+        return {
+          id: c.id,
+          label: c.label || c.id,
+          attribute: attrId || "",
+          attributeRecord: enriched.attributeRecord,
+          dataType: enriched.dataType,
+          required: enriched.required,
+          readonly: enriched.readonly
+        };
+      });
+      const rowActions = Array.isArray(p.table?.actions) ? p.table.actions : [];
+      let rowClickAction;
+      let rowContextMenu = [];
+      for (const a of rowActions) {
+        if (a.type === "row_click" && a.action)
+          rowClickAction = a.action;
+        else if (a.type === "row_context_menu" && Array.isArray(a.items)) {
+          rowContextMenu = a.items.map((it) => ({
+            action: it.action,
+            label: it.label,
+            icon: it.icon
+          }));
+        }
+      }
       views2.push({
         id: viewId,
         kind: "list",
         label: p.label,
+        entityFqid,
+        parentViewId: b.parentViewId,
         widgets: [],
         groups: [],
         tabs: [],
         menu: [],
-        tableColumns: columns.map((c) => ({
-          id: c.id,
-          label: c.label || c.id,
-          attribute: c.attribute || ""
-        })),
-        actionPanel: Array.isArray(p.actionPanel) ? p.actionPanel.map((ap) => ap.widget).filter(Boolean) : []
+        tableColumns: enrichedColumns,
+        actionPanel: Array.isArray(p.actionPanel) ? p.actionPanel.map((ap) => ap.widget).filter(Boolean) : [],
+        sourceEntity: p.source?.entity,
+        rowClickAction,
+        rowContextMenu,
+        selection: !!p.table?.selection,
+        paging: p.table?.paging ? {
+          sizes: Array.isArray(p.table.paging.sizes) ? p.table.paging.sizes : [],
+          defaultSize: p.table.paging.defaultSize
+        } : void 0
       });
+      processedViewIds.add(viewId);
       continue;
     }
     if (viewType === "entity") {
       const childWidgets = [];
       const childGroups = [];
-      const childViews = [];
-      for (const [, wb] of widgets2) {
-        if (wb.parentViewId === viewId) {
-          const w = resolveWidget(wb.payload?.id);
-          if (w)
-            childWidgets.push(w);
-        }
+      for (const [wid, wb] of widgetBlocks) {
+        if (wb.parentViewId !== viewId)
+          continue;
+        const w = resolveWidget(wid);
+        if (w)
+          childWidgets.push(w);
       }
-      for (const [gid, gb] of groups) {
-        if (gb.parentViewId === viewId && gb.payload?.type !== "form") {
-          const g = resolveGroup(gid);
-          if (g)
-            childGroups.push(g);
-        }
-      }
-      for (const [vid, vb] of viewBlocks) {
-        if (vb.parentViewId === viewId) {
-          const sub = buildSingleNestedView(
-            vid,
-            vb,
-            resolveWidget,
-            resolveGroup
-          );
-          if (sub)
-            childViews.push(sub);
-        }
+      for (const [gid, gb] of groupBlocks) {
+        if (gb.parentViewId !== viewId)
+          continue;
+        if (gb.payload?.type === "form")
+          continue;
+        const g = resolveGroup(gid);
+        if (g)
+          childGroups.push(g);
       }
       views2.push({
         id: viewId,
         kind: "entity",
         label: p.label,
+        description: p.description,
+        entityFqid,
         widgets: childWidgets,
         groups: childGroups,
         tabs: [],
         menu: []
       });
-      views2.push(...childViews);
+      processedViewIds.add(viewId);
+      for (const [vid, vb] of viewBlocks) {
+        if (vb.parentViewId !== viewId)
+          continue;
+        const nested2 = buildNestedView(
+          vid,
+          vb,
+          resolveWidget,
+          resolveGroup,
+          entityFqid,
+          meta.domainId
+        );
+        if (nested2) {
+          views2.push(nested2);
+          processedViewIds.add(vid);
+        }
+      }
       continue;
     }
-    const nested = buildSingleNestedView(
+    const nested = buildNestedView(
       viewId,
       b,
       resolveWidget,
-      resolveGroup
+      resolveGroup,
+      entityFqid,
+      meta.domainId
     );
-    if (nested)
+    if (nested) {
       views2.push(nested);
+      processedViewIds.add(viewId);
+    }
   }
   const order = {
     entity: 0,
@@ -113007,14 +114342,19 @@ function buildSchemaPreview(blocks, meta) {
     page: 4
   };
   views2.sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9));
+  const issues = checkIntegrity(views2, actions2);
   return {
     entityId: meta.entityId,
+    entityFqid,
     domainId: meta.domainId,
     views: views2,
+    actions: actions2,
+    entityChain: chain,
+    issues,
     skippedBlocks: skipped
   };
 }
-function buildSingleNestedView(viewId, b, resolveWidget, resolveGroup) {
+function buildNestedView(viewId, b, resolveWidget, resolveGroup, entityFqid, domainId) {
   const p = b.payload || {};
   const t = String(p.type || "");
   if (t !== "panel" && t !== "modal" && t !== "page")
@@ -113033,11 +114373,18 @@ function buildSingleNestedView(viewId, b, resolveWidget, resolveGroup) {
     for (const t2 of p.tabs) {
       if (!t2?.tab)
         continue;
-      const g = groups.find((x) => x.id === t2.tab) || resolveGroup(t2.tab);
+      const g = resolveGroup(t2.tab);
       if (g) {
         if (!groups.find((x) => x.id === g.id))
           groups.push(g);
         tabs.push({ id: t2.tab, label: g.label || t2.tab, groupId: g.id });
+      } else {
+        tabs.push({
+          id: t2.tab,
+          label: t2.tab,
+          groupId: t2.tab,
+          missingGroup: true
+        });
       }
     }
   }
@@ -113045,6 +114392,13 @@ function buildSingleNestedView(viewId, b, resolveWidget, resolveGroup) {
     const g = resolveGroup(p.form);
     if (g)
       groups.push(g);
+    else
+      tabs.push({
+        id: p.form,
+        label: p.form,
+        groupId: p.form,
+        missingGroup: true
+      });
   }
   if (t === "page" && p.block) {
     const g = resolveGroup(p.block);
@@ -113055,27 +114409,88 @@ function buildSingleNestedView(viewId, b, resolveWidget, resolveGroup) {
     id: viewId,
     kind: t,
     label: p.label,
+    description: p.description,
+    entityFqid,
+    parentViewId: b.parentViewId,
     widgets: widgets2,
     groups,
     tabs,
-    menu
+    menu,
+    actionPanel: Array.isArray(p.actionPanel) ? p.actionPanel.map((ap) => ap.widget).filter(Boolean) : []
   };
 }
-function collectPreviewActions(blocks) {
-  const m = /* @__PURE__ */ new Map();
-  for (const b of blocks) {
-    if (b.section !== "actions")
-      continue;
-    const id = b.payload?.id;
-    if (!id)
-      continue;
-    m.set(id, {
-      id,
-      name: b.payload.name || id,
-      type: b.payload.type || ""
-    });
+function checkIntegrity(views2, actions2) {
+  const issues = [];
+  const viewIds = new Set(views2.map((v) => v.id));
+  const groupIds = /* @__PURE__ */ new Set();
+  for (const v of views2) {
+    const walk = (g) => {
+      groupIds.add(g.id);
+      for (const ng of g.nestedGroups)
+        walk(ng);
+    };
+    for (const g of v.groups)
+      walk(g);
   }
-  return m;
+  for (const a of actions2) {
+    if (a.targetViewId && !viewIds.has(a.targetViewId)) {
+      issues.push({
+        severity: "error",
+        subject: `action ${a.id}`,
+        message: `${a.type} \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 view \xAB${a.targetViewId}\xBB`
+      });
+    }
+  }
+  for (const v of views2) {
+    for (const t of v.tabs) {
+      if (t.missingGroup) {
+        issues.push({
+          severity: "error",
+          subject: `view ${v.id}`,
+          message: `Tab \xAB${t.id}\xBB \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0443\u044E \u0433\u0440\u0443\u043F\u043F\u0443`
+        });
+      }
+    }
+  }
+  for (const v of views2) {
+    const walk = (g) => {
+      if (g.isEmpty) {
+        issues.push({
+          severity: "warning",
+          subject: `group ${g.id}`,
+          message: `\u0413\u0440\u0443\u043F\u043F\u0430 \xAB${g.id}\xBB \u043F\u0443\u0441\u0442\u0430 \u2014 \u043D\u0438 \u043E\u0434\u0438\u043D widget/block \u043D\u0435 \u0432 \u043D\u0435\u0451 \u043F\u0440\u0438\u0448\u0451\u043B`
+        });
+      }
+      for (const ng of g.nestedGroups)
+        walk(ng);
+    };
+    for (const g of v.groups)
+      walk(g);
+  }
+  for (const v of views2) {
+    const walk = (g) => {
+      for (const w of g.widgets) {
+        if (w.type === "attribute" && w.attributeId && !w.attributeRecord) {
+          issues.push({
+            severity: "warning",
+            subject: `widget ${w.id}`,
+            message: `\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \xAB${w.attributeId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0439 id)`
+          });
+        }
+      }
+      for (const ng of g.nestedGroups)
+        walk(ng);
+    };
+    for (const g of v.groups)
+      walk(g);
+  }
+  return issues;
+}
+function countPreviewActionsByType(actions2) {
+  const c = {};
+  for (const a of actions2)
+    c[a.type] = (c[a.type] || 0) + 1;
+  return c;
 }
 var init_schema_preview = __esm({
   "src/web/lib/model/schema-preview.ts"() {
@@ -113084,126 +114499,190 @@ var init_schema_preview = __esm({
 });
 
 // src/web/components/modals/GeneratedPreviewModal.tsx
-import React72, { useMemo as useMemo66 } from "react";
-import { Fragment as Fragment40, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
-function viewIcon(kind) {
-  switch (kind) {
-    case "entity":
-      return "view_quilt";
-    case "list":
-      return "table_rows";
-    case "panel":
-      return "view_sidebar";
-    case "modal":
-      return "open_in_new";
-    case "page":
-      return "fullscreen";
-    default:
-      return "view";
-  }
-}
+import React72, { useCallback as useCallback45, useEffect as useEffect65, useMemo as useMemo66, useRef as useRef42, useState as useState67 } from "react";
+import { Fragment as Fragment41, jsx as jsx95, jsxs as jsxs92 } from "react/jsx-runtime";
 function GeneratedPreviewModal() {
   const open2 = useGraphStore((s) => s.generatedPreviewOpen);
   const setOpen = useGraphStore((s) => s.setGeneratedPreviewOpen);
   const data = useGraphStore((s) => s.generatedPreviewData);
+  const { index } = useModelIndex();
   const preview = useMemo66(() => {
     if (!data)
       return null;
     return buildSchemaPreview(data.blocks, {
       entityId: data.entityId,
-      domainId: data.domainId
+      domainId: data.domainId,
+      index
     });
-  }, [data]);
-  const actions2 = useMemo66(
-    () => data ? collectPreviewActions(data.blocks) : /* @__PURE__ */ new Map(),
-    [data]
-  );
-  const [activeViewId, setActiveViewId] = React72.useState(null);
+  }, [data, index]);
+  const [activeViewId, setActiveViewId] = useState67(null);
+  const [inspector, setInspector] = useState67(null);
+  const [breadcrumbs, setBreadcrumbs] = useState67([]);
   React72.useEffect(() => {
     if (!preview)
       return;
-    if (preview.views.length === 0) {
-      setActiveViewId(null);
+    if (activeViewId && preview.views.find((v) => v.id === activeViewId))
       return;
-    }
-    if (!activeViewId || !preview.views.find((v) => v.id === activeViewId)) {
-      const firstCard = preview.views.find((v) => v.kind !== "list");
-      setActiveViewId(firstCard?.id || preview.views[0].id);
-    }
+    const first = preview.views.find((v) => v.kind !== "list") || preview.views[0];
+    setActiveViewId(first?.id || null);
+    setBreadcrumbs([]);
   }, [preview, activeViewId]);
+  const navigateTo = useCallback45((viewId) => {
+    if (!preview)
+      return;
+    if (!preview.views.find((v) => v.id === viewId))
+      return;
+    if (viewId === activeViewId)
+      return;
+    setBreadcrumbs((prev) => {
+      const idx = prev.indexOf(viewId);
+      if (idx >= 0) {
+        return prev.slice(0, idx);
+      }
+      return activeViewId ? [...prev, activeViewId] : prev;
+    });
+    setActiveViewId(viewId);
+    setInspector(null);
+  }, [preview, activeViewId]);
+  const navigateBack = useCallback45(() => {
+    if (breadcrumbs.length === 0)
+      return;
+    const prevId = breadcrumbs[breadcrumbs.length - 1];
+    setBreadcrumbs(breadcrumbs.slice(0, -1));
+    setActiveViewId(prevId);
+    setInspector(null);
+  }, [breadcrumbs]);
+  const jumpToBreadcrumb = useCallback45((idx) => {
+    if (idx < 0 || idx >= breadcrumbs.length)
+      return;
+    const target = breadcrumbs[idx];
+    setBreadcrumbs(breadcrumbs.slice(0, idx));
+    setActiveViewId(target);
+    setInspector(null);
+  }, [breadcrumbs]);
+  const trailRef = useRef42(null);
+  useEffect65(() => {
+    const el = trailRef.current;
+    if (!el)
+      return;
+    el.scrollLeft = el.scrollWidth;
+  }, [breadcrumbs.length, activeViewId]);
   if (!open2 || !data || !preview)
     return null;
   const active = preview.views.find((v) => v.id === activeViewId) || null;
-  return /* @__PURE__ */ jsx94(
+  const problemsByViewId = /* @__PURE__ */ new Map();
+  for (const iss of preview.issues) {
+    const m = iss.subject.match(/^view (\S+)/);
+    if (m) {
+      if (!problemsByViewId.has(m[1]))
+        problemsByViewId.set(m[1], []);
+      problemsByViewId.get(m[1]).push(iss);
+    }
+  }
+  return /* @__PURE__ */ jsx95(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 500 },
       onMouseDown: () => setOpen(false),
-      children: /* @__PURE__ */ jsxs91(
+      children: /* @__PURE__ */ jsxs92(
         "div",
         {
           className: "help-modal generated-preview-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs91("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs91("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx94(MIcon, { name: "visibility", size: "sm" }),
-                /* @__PURE__ */ jsx94("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0432\u044C\u044E \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438" }),
-                data.entityId && /* @__PURE__ */ jsx94("span", { className: "help-modal__badge", children: data.entityId }),
-                /* @__PURE__ */ jsx94(
+            /* @__PURE__ */ jsxs92("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs92("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx95(MIcon, { name: "visibility", size: "sm" }),
+                /* @__PURE__ */ jsx95("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0432\u044C\u044E \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438" }),
+                data.entityId && /* @__PURE__ */ jsx95("span", { className: "help-modal__badge", children: data.entityId }),
+                /* @__PURE__ */ jsxs92("span", { className: "help-modal__badge", children: [
+                  preview.views.length,
+                  " view \xB7 ",
+                  preview.actions.length,
+                  " actions"
+                ] }),
+                preview.issues.length > 0 && /* @__PURE__ */ jsxs92(
                   "span",
                   {
+                    className: "help-modal__badge",
                     style: {
-                      marginLeft: 10,
-                      paddingLeft: 10,
-                      borderLeft: "1px solid var(--border)",
-                      fontSize: 11,
-                      color: "var(--text-500)",
-                      fontWeight: 400
+                      background: "rgba(245,158,11,0.15)",
+                      color: "#f59e0b"
                     },
-                    children: "\u0421\u0445\u0435\u043C\u0430\u0442\u0438\u0447\u043D\u044B\u0439 wireframe \xB7 \u043D\u0435 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 UI"
+                    title: preview.issues.map((i) => `[${i.severity}] ${i.message}`).join("\n"),
+                    children: [
+                      "\u26A0 ",
+                      preview.issues.length,
+                      " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
+                    ]
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx94("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+              /* @__PURE__ */ jsx95("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
             ] }),
-            /* @__PURE__ */ jsxs91("div", { className: "generated-preview-body", children: [
-              /* @__PURE__ */ jsxs91("div", { className: "generated-preview-sidebar", children: [
-                /* @__PURE__ */ jsxs91("div", { className: "generated-preview-sidebar__title", children: [
-                  "Views (",
-                  preview.views.length,
-                  ")"
-                ] }),
-                preview.views.length === 0 && /* @__PURE__ */ jsx94("div", { className: "generated-preview-sidebar__empty", children: "\u0412 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u0430\u0445 \u043D\u0435\u0442 views" }),
-                preview.views.map((v) => /* @__PURE__ */ jsxs91(
-                  "button",
+            /* @__PURE__ */ jsxs92("div", { className: "generated-preview-body", children: [
+              /* @__PURE__ */ jsx95(
+                ViewTree,
+                {
+                  preview,
+                  activeViewId,
+                  problemsByViewId,
+                  onNavigate: navigateTo
+                }
+              ),
+              /* @__PURE__ */ jsxs92("div", { className: "generated-preview-canvas", children: [
+                /* @__PURE__ */ jsx95(
+                  Breadcrumbs,
                   {
-                    className: "generated-preview-nav" + (v.id === activeViewId ? " active" : ""),
-                    onClick: () => setActiveViewId(v.id),
-                    children: [
-                      /* @__PURE__ */ jsx94(MIcon, { name: viewIcon(v.kind), size: "sm" }),
-                      /* @__PURE__ */ jsx94("span", { className: "generated-preview-nav__id", children: v.id }),
-                      /* @__PURE__ */ jsx94("span", { className: "generated-preview-nav__type", children: v.kind })
-                    ]
-                  },
-                  v.id
-                ))
+                    view: active,
+                    breadcrumbs,
+                    onBack: navigateBack,
+                    onJump: jumpToBreadcrumb,
+                    trailRef
+                  }
+                ),
+                active ? /* @__PURE__ */ jsx95(
+                  ViewPreview,
+                  {
+                    view: active,
+                    actions: preview.actions,
+                    entityChain: preview.entityChain,
+                    onNavigate: navigateTo,
+                    onInspect: setInspector,
+                    inspector
+                  }
+                ) : /* @__PURE__ */ jsx95("div", { className: "generated-preview-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 view" })
               ] }),
-              /* @__PURE__ */ jsx94("div", { className: "generated-preview-canvas", children: active ? /* @__PURE__ */ jsx94(ViewPreview, { view: active, actions: actions2 }) : /* @__PURE__ */ jsx94("div", { className: "generated-preview-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 view" }) })
+              inspector && /* @__PURE__ */ jsx95(
+                Inspector,
+                {
+                  subject: inspector,
+                  actions: preview.actions,
+                  onClose: () => setInspector(null),
+                  onNavigate: navigateTo
+                }
+              )
             ] }),
-            /* @__PURE__ */ jsxs91("div", { className: "generated-preview-footer", children: [
-              /* @__PURE__ */ jsxs91("span", { className: "generated-preview-footer__hint", children: [
-                /* @__PURE__ */ jsx94(MIcon, { name: "info", size: "sm" }),
-                "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u043E\u0441\u0442\u0430\u0432 \u043F\u043E\u043B\u0435\u0439, \u0433\u0440\u0443\u043F\u043F \u0438 \u043A\u043D\u043E\u043F\u043E\u043A. \u0415\u0441\u043B\u0438 \u0447\u0442\u043E-\u0442\u043E \u043D\u0435 \u0442\u0430\u043A \u2014 \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u043A \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0430\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438 \u043F\u043E\u043F\u0440\u0430\u0432\u044C\u0442\u0435.",
-                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment40, { children: [
+            preview.actions.length > 0 && /* @__PURE__ */ jsx95(
+              ActionsSummary,
+              {
+                actions: preview.actions,
+                onNavigate: navigateTo,
+                viewIds: preview.views.map((v) => v.id)
+              }
+            ),
+            /* @__PURE__ */ jsxs92("div", { className: "generated-preview-footer", children: [
+              /* @__PURE__ */ jsxs92("span", { className: "generated-preview-footer__hint", children: [
+                /* @__PURE__ */ jsx95(MIcon, { name: "info", size: "sm" }),
+                "\u0421\u0445\u0435\u043C\u0430\u0442\u0438\u0447\u043D\u044B\u0439 wireframe \xB7 \u043D\u0435 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 UI. \u041A\u043B\u0438\u043A\u043D\u0438\u0442\u0435 \u043F\u043E \u043A\u043D\u043E\u043F\u043A\u0435 \u0438\u043B\u0438 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438.",
+                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs92(Fragment41, { children: [
                   " ",
-                  "\xB7 \u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ",
-                  preview.skippedBlocks,
-                  " (\u043D\u0435 view)"
+                  "\xB7 \u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E: ",
+                  preview.skippedBlocks
                 ] })
               ] }),
-              /* @__PURE__ */ jsx94("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
+              /* @__PURE__ */ jsx95("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
             ] })
           ]
         }
@@ -113211,397 +114690,894 @@ function GeneratedPreviewModal() {
     }
   );
 }
+function ViewTree({
+  preview,
+  activeViewId,
+  problemsByViewId,
+  onNavigate
+}) {
+  const tree = useMemo66(() => {
+    const byParent = /* @__PURE__ */ new Map();
+    for (const v of preview.views) {
+      const key = v.parentViewId || null;
+      if (!byParent.has(key))
+        byParent.set(key, []);
+      byParent.get(key).push(v);
+    }
+    return byParent;
+  }, [preview.views]);
+  const renderNode = (v, depth) => {
+    const children = tree.get(v.id) || [];
+    const problems = problemsByViewId.get(v.id) || [];
+    const isActive = v.id === activeViewId;
+    const icon = v.kind === "entity" ? "view_quilt" : v.kind === "list" ? "table_rows" : v.kind === "panel" ? "view_sidebar" : v.kind === "modal" ? "open_in_new" : "fullscreen";
+    return /* @__PURE__ */ jsxs92(React72.Fragment, { children: [
+      /* @__PURE__ */ jsxs92(
+        "button",
+        {
+          className: "generated-preview-nav" + (isActive ? " active" : ""),
+          style: { paddingLeft: 12 + depth * 16 },
+          onClick: () => onNavigate(v.id),
+          title: v.label || v.id,
+          children: [
+            /* @__PURE__ */ jsx95(MIcon, { name: icon, size: "sm" }),
+            /* @__PURE__ */ jsx95("span", { className: "generated-preview-nav__id", children: v.id }),
+            /* @__PURE__ */ jsx95("span", { className: "generated-preview-nav__type", children: v.kind }),
+            problems.length > 0 && /* @__PURE__ */ jsx95(
+              "span",
+              {
+                className: "generated-preview-nav__warn",
+                title: problems.map((p) => p.message).join("\n"),
+                children: "\u26A0"
+              }
+            )
+          ]
+        }
+      ),
+      children.map((c) => renderNode(c, depth + 1))
+    ] }, v.id);
+  };
+  const roots = tree.get(null) || [];
+  return /* @__PURE__ */ jsxs92("div", { className: "generated-preview-sidebar", children: [
+    /* @__PURE__ */ jsxs92("div", { className: "generated-preview-sidebar__title", children: [
+      "Views (",
+      preview.views.length,
+      ")"
+    ] }),
+    roots.length === 0 && /* @__PURE__ */ jsx95("div", { className: "generated-preview-sidebar__empty", children: "\u0412 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u0430\u0445 \u043D\u0435\u0442 views" }),
+    roots.map((v) => renderNode(v, 0))
+  ] });
+}
+function Breadcrumbs({
+  view,
+  breadcrumbs,
+  onBack,
+  onJump,
+  trailRef
+}) {
+  return /* @__PURE__ */ jsxs92("div", { className: "generated-preview-breadcrumbs", children: [
+    /* @__PURE__ */ jsx95(
+      "button",
+      {
+        className: "generated-preview-breadcrumbs__back",
+        onClick: onBack,
+        disabled: breadcrumbs.length === 0,
+        title: "\u041D\u0430\u0437\u0430\u0434",
+        children: /* @__PURE__ */ jsx95(MIcon, { name: "arrow_back", size: "sm" })
+      }
+    ),
+    /* @__PURE__ */ jsxs92(
+      "div",
+      {
+        className: "generated-preview-breadcrumbs__trail",
+        ref: trailRef,
+        children: [
+          breadcrumbs.map((id, i) => /* @__PURE__ */ jsxs92(React72.Fragment, { children: [
+            i > 0 && /* @__PURE__ */ jsx95("span", { className: "generated-preview-breadcrumbs__sep", children: "\u203A" }),
+            /* @__PURE__ */ jsx95(
+              "button",
+              {
+                className: "generated-preview-breadcrumbs__item",
+                onClick: () => onJump(i),
+                title: id,
+                children: id
+              }
+            )
+          ] }, `${id}-${i}`)),
+          view && /* @__PURE__ */ jsxs92(Fragment41, { children: [
+            breadcrumbs.length > 0 && /* @__PURE__ */ jsx95("span", { className: "generated-preview-breadcrumbs__sep", children: "\u203A" }),
+            /* @__PURE__ */ jsx95("span", { className: "generated-preview-breadcrumbs__item generated-preview-breadcrumbs__item--current", title: view.id, children: view.id }),
+            /* @__PURE__ */ jsx95(
+              "span",
+              {
+                className: "generated-preview-breadcrumbs__kind generated-preview-breadcrumbs__kind--" + view.kind,
+                children: view.kind
+              }
+            )
+          ] })
+        ]
+      }
+    )
+  ] });
+}
 function ViewPreview({
   view,
-  actions: actions2
+  actions: actions2,
+  entityChain,
+  onNavigate,
+  onInspect,
+  inspector
 }) {
-  if (view.kind === "list")
-    return /* @__PURE__ */ jsx94(ListViewPreview, { view, actions: actions2 });
-  return /* @__PURE__ */ jsx94(CardViewPreview, { view, actions: actions2 });
+  const actionMap = useMemo66(
+    () => new Map(actions2.map((a) => [a.id, a])),
+    [actions2]
+  );
+  if (view.kind === "list") {
+    return /* @__PURE__ */ jsx95(
+      ListViewPreview,
+      {
+        view,
+        actionMap,
+        onNavigate,
+        onInspect,
+        inspector
+      }
+    );
+  }
+  return /* @__PURE__ */ jsx95(
+    CardViewPreview,
+    {
+      view,
+      actionMap,
+      onNavigate,
+      onInspect,
+      inspector
+    }
+  );
 }
 function ListViewPreview({
   view,
-  actions: actions2
+  actionMap,
+  onNavigate,
+  onInspect,
+  inspector
 }) {
-  return /* @__PURE__ */ jsxs91("div", { className: "preview-list", children: [
-    /* @__PURE__ */ jsxs91("div", { className: "preview-list__header", children: [
-      /* @__PURE__ */ jsx94("span", { children: view.label || view.id }),
-      view.actionPanel && view.actionPanel.length > 0 && /* @__PURE__ */ jsx94("div", { className: "preview-list__actions", children: view.actionPanel.map((w) => {
-        const actionId = w.replace(/^buttons_/, "actions_");
-        const a = actions2.get(actionId);
-        return /* @__PURE__ */ jsx94("span", { className: "preview-btn preview-btn--primary", children: a?.name || actionId }, w);
+  return /* @__PURE__ */ jsxs92("div", { className: "preview-list", children: [
+    /* @__PURE__ */ jsxs92("div", { className: "preview-list__header", children: [
+      /* @__PURE__ */ jsxs92("div", { children: [
+        /* @__PURE__ */ jsx95("span", { className: "preview-list__title", children: view.label || view.id }),
+        view.sourceEntity && /* @__PURE__ */ jsxs92("span", { className: "preview-list__source", children: [
+          "\u2190 ",
+          view.sourceEntity
+        ] })
+      ] }),
+      view.actionPanel && view.actionPanel.length > 0 && /* @__PURE__ */ jsx95("div", { className: "preview-list__actions", children: view.actionPanel.map((wId) => {
+        const aId = wId.replace(/^buttons_/, "actions_");
+        const a = actionMap.get(aId) || actionMap.get(wId);
+        return /* @__PURE__ */ jsx95(
+          ActionButton,
+          {
+            action: a,
+            actionId: wId,
+            onNavigate,
+            onInspect,
+            inspector,
+            variant: "primary"
+          },
+          wId
+        );
       }) })
     ] }),
-    /* @__PURE__ */ jsxs91("table", { className: "preview-table", children: [
-      /* @__PURE__ */ jsx94("thead", { children: /* @__PURE__ */ jsxs91("tr", { children: [
-        (view.tableColumns || []).map((c) => /* @__PURE__ */ jsx94("th", { children: c.label }, c.id)),
-        (!view.tableColumns || view.tableColumns.length === 0) && /* @__PURE__ */ jsx94("th", { children: "\u2014" })
+    /* @__PURE__ */ jsxs92("div", { className: "preview-list__filters", children: [
+      /* @__PURE__ */ jsxs92("div", { className: "preview-fake-search", children: [
+        /* @__PURE__ */ jsx95(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx95("span", { children: "\u041F\u043E\u0438\u0441\u043A\u2026" })
+      ] }),
+      /* @__PURE__ */ jsxs92("div", { className: "preview-fake-pager", children: [
+        view.paging?.sizes?.join(" / "),
+        view.paging?.defaultSize && ` \xB7 ${view.paging.defaultSize} \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E`
+      ] }),
+      view.selection && /* @__PURE__ */ jsx95("div", { className: "preview-list__selection", children: "\u2611 \u0412\u044B\u0431\u043E\u0440 \u0441\u0442\u0440\u043E\u043A" })
+    ] }),
+    /* @__PURE__ */ jsxs92("table", { className: "preview-table", children: [
+      /* @__PURE__ */ jsx95("thead", { children: /* @__PURE__ */ jsxs92("tr", { children: [
+        view.selection && /* @__PURE__ */ jsx95("th", { style: { width: 28 }, children: "\u2610" }),
+        (view.tableColumns || []).map((c) => /* @__PURE__ */ jsxs92(
+          "th",
+          {
+            onClick: () => onInspect({ kind: "column", columnId: c.id, view }),
+            style: { cursor: "pointer" },
+            children: [
+              /* @__PURE__ */ jsx95("span", { children: c.label }),
+              c.dataType && /* @__PURE__ */ jsx95("span", { className: "preview-table__type", children: c.dataType }),
+              c.readonly && /* @__PURE__ */ jsx95("span", { className: "preview-table__badge", children: "\u{1F512}" }),
+              c.required && /* @__PURE__ */ jsx95("span", { className: "preview-table__badge", children: "*" })
+            ]
+          },
+          c.id
+        )),
+        (!view.tableColumns || view.tableColumns.length === 0) && /* @__PURE__ */ jsx95("th", { children: "\u2014" })
       ] }) }),
-      /* @__PURE__ */ jsx94("tbody", { children: /* @__PURE__ */ jsx94("tr", { className: "preview-table__empty", children: /* @__PURE__ */ jsx94("td", { colSpan: Math.max(1, view.tableColumns?.length || 0), children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0442" }) }) })
+      /* @__PURE__ */ jsx95("tbody", { children: /* @__PURE__ */ jsx95("tr", { className: "preview-table__empty", children: /* @__PURE__ */ jsx95("td", { colSpan: Math.max(1, view.tableColumns?.length || 0) + (view.selection ? 1 : 0), children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0442" }) }) })
+    ] }),
+    view.rowClickAction && /* @__PURE__ */ jsxs92("div", { className: "preview-list__rowhint", children: [
+      /* @__PURE__ */ jsx95(MIcon, { name: "ads_click", size: "sm" }),
+      "\u041A\u043B\u0438\u043A \u043F\u043E \u0441\u0442\u0440\u043E\u043A\u0435 \u2192",
+      " ",
+      /* @__PURE__ */ jsx95(
+        "button",
+        {
+          className: "preview-link",
+          onClick: () => {
+            const a = actionMap.get(view.rowClickAction);
+            if (a?.targetViewId)
+              onNavigate(a.targetViewId);
+          },
+          children: view.rowClickAction
+        }
+      )
+    ] }),
+    view.rowContextMenu && view.rowContextMenu.length > 0 && /* @__PURE__ */ jsxs92("div", { className: "preview-list__rowhint", children: [
+      /* @__PURE__ */ jsx95(MIcon, { name: "menu_open", size: "sm" }),
+      "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043C\u0435\u043D\u044E:",
+      " ",
+      view.rowContextMenu.map((it, i) => /* @__PURE__ */ jsxs92(React72.Fragment, { children: [
+        i > 0 && ", ",
+        /* @__PURE__ */ jsx95(
+          "button",
+          {
+            className: "preview-link",
+            onClick: () => {
+              const a = actionMap.get(it.action);
+              if (a?.targetViewId)
+                onNavigate(a.targetViewId);
+            },
+            children: it.label || it.action
+          }
+        )
+      ] }, it.action))
     ] })
   ] });
 }
 function CardViewPreview({
   view,
-  actions: actions2
+  actionMap,
+  onNavigate,
+  onInspect,
+  inspector
 }) {
-  return /* @__PURE__ */ jsxs91("div", { className: "preview-card", children: [
-    /* @__PURE__ */ jsxs91("div", { className: "preview-card__header", children: [
-      /* @__PURE__ */ jsx94("span", { children: view.label || view.id }),
-      view.menu.length > 0 && /* @__PURE__ */ jsx94("div", { className: "preview-card__menu", children: view.menu.map((m) => {
-        const a = actions2.get(m);
-        return /* @__PURE__ */ jsx94("span", { className: "preview-btn", children: a?.name || m }, m);
-      }) })
+  return /* @__PURE__ */ jsxs92("div", { className: "preview-card", children: [
+    /* @__PURE__ */ jsxs92("div", { className: "preview-card__header", children: [
+      /* @__PURE__ */ jsxs92("div", { children: [
+        /* @__PURE__ */ jsx95("span", { className: "preview-card__title", children: view.label || view.id }),
+        view.description && /* @__PURE__ */ jsx95("span", { className: "preview-card__desc", children: view.description })
+      ] }),
+      view.menu.length > 0 && /* @__PURE__ */ jsxs92("div", { className: "preview-card__menu", children: [
+        view.menu.map((m) => {
+          const a = actionMap.get(m);
+          return /* @__PURE__ */ jsx95(
+            ActionButton,
+            {
+              action: a,
+              actionId: m,
+              onNavigate,
+              onInspect,
+              inspector
+            },
+            m
+          );
+        }),
+        /* @__PURE__ */ jsx95("span", { className: "preview-btn preview-btn--menu", children: "\u22EE" })
+      ] })
     ] }),
-    view.tabs.length > 0 && /* @__PURE__ */ jsx94("div", { className: "preview-tabs", children: view.tabs.map((t, i) => /* @__PURE__ */ jsx94(
+    view.tabs.length > 0 && /* @__PURE__ */ jsx95("div", { className: "preview-tabs", children: view.tabs.map((t, i) => /* @__PURE__ */ jsxs92(
       "div",
       {
-        className: "preview-tab" + (i === 0 ? " active" : ""),
-        children: t.label
+        className: "preview-tab" + (i === 0 ? " active" : "") + (t.missingGroup ? " preview-tab--broken" : ""),
+        title: t.missingGroup ? "\u0413\u0440\u0443\u043F\u043F\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430" : t.label,
+        children: [
+          t.label,
+          t.missingGroup && /* @__PURE__ */ jsx95("span", { className: "preview-tab__warn", children: "\u26A0" })
+        ]
       },
       t.id
     )) }),
-    /* @__PURE__ */ jsxs91("div", { className: "preview-card__body", children: [
-      view.groups.map((g) => /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsxs92("div", { className: "preview-card__body", children: [
+      view.groups.map((g) => /* @__PURE__ */ jsx95(
         PreviewGroupBlock,
         {
           group: g,
-          actions: actions2,
+          actionMap,
+          onNavigate,
+          onInspect,
+          inspector,
           depth: 0
         },
         g.id
       )),
-      view.widgets.length > 0 && /* @__PURE__ */ jsx94(PreviewFieldGrid, { children: view.widgets.map((w) => /* @__PURE__ */ jsx94(PreviewWidgetRow, { widget: w, actions: actions2 }, w.id)) }),
-      view.groups.length === 0 && view.widgets.length === 0 && /* @__PURE__ */ jsx94(
-        "div",
+      view.widgets.length > 0 && /* @__PURE__ */ jsx95(PreviewFieldGrid, { children: view.widgets.map((w) => /* @__PURE__ */ jsx95(
+        PreviewWidgetRow,
         {
-          style: {
-            padding: 20,
-            textAlign: "center",
-            color: "var(--text-500)",
-            fontStyle: "italic",
-            fontSize: 12
-          },
-          children: "\u041F\u0443\u0441\u0442\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u2014 \u043D\u0435\u0442 \u043D\u0438 \u0433\u0440\u0443\u043F\u043F, \u043D\u0438 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432"
-        }
-      )
+          widget: w,
+          actionMap,
+          onNavigate,
+          onInspect,
+          inspector
+        },
+        w.id
+      )) }),
+      view.actionPanel && view.actionPanel.length > 0 && /* @__PURE__ */ jsxs92("div", { className: "preview-action-panel", children: [
+        /* @__PURE__ */ jsx95("div", { className: "preview-action-panel__label", children: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
+        view.actionPanel.map((wId) => {
+          const aId = wId.replace(/^buttons_/, "actions_");
+          const a = actionMap.get(aId) || actionMap.get(wId);
+          return /* @__PURE__ */ jsx95(
+            ActionButton,
+            {
+              action: a,
+              actionId: wId,
+              onNavigate,
+              onInspect,
+              inspector,
+              variant: "primary"
+            },
+            wId
+          );
+        })
+      ] }),
+      view.groups.length === 0 && view.widgets.length === 0 && (!view.actionPanel || view.actionPanel.length === 0) && /* @__PURE__ */ jsx95("div", { className: "preview-card__empty", children: "\u041F\u0443\u0441\u0442\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u2014 \u043D\u0435\u0442 \u043D\u0438 \u0433\u0440\u0443\u043F\u043F, \u043D\u0438 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432" })
     ] })
   ] });
 }
 function PreviewFieldGrid({ children }) {
-  return /* @__PURE__ */ jsx94(
-    "div",
-    {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-        gap: 10
-      },
-      children
-    }
-  );
+  return /* @__PURE__ */ jsx95("div", { className: "preview-field-grid", children });
 }
 function PreviewGroupBlock({
   group,
-  actions: actions2,
+  actionMap,
+  onNavigate,
+  onInspect,
+  inspector,
   depth
 }) {
   if (depth > 3)
     return null;
-  return /* @__PURE__ */ jsxs91("div", { className: "preview-group preview-group--" + group.type, children: [
-    group.label && /* @__PURE__ */ jsx94("div", { className: "preview-group__label", children: group.label }),
-    /* @__PURE__ */ jsxs91("div", { className: "preview-group__body", children: [
-      group.widgets.length > 0 && /* @__PURE__ */ jsx94(PreviewFieldGrid, { children: group.widgets.map((w) => /* @__PURE__ */ jsx94(PreviewWidgetRow, { widget: w, actions: actions2 }, w.id)) }),
-      group.nestedGroups.map((g) => /* @__PURE__ */ jsx94(
-        PreviewGroupBlock,
-        {
-          group: g,
-          actions: actions2,
-          depth: depth + 1
-        },
-        g.id
-      )),
-      group.widgets.length === 0 && group.nestedGroups.length === 0 && /* @__PURE__ */ jsx94("div", { className: "preview-group__empty", children: "\u041F\u0443\u0441\u0442\u043E" })
-    ] })
-  ] });
+  return /* @__PURE__ */ jsxs92(
+    "div",
+    {
+      className: "preview-group preview-group--" + group.type + (group.isEmpty ? " preview-group--empty" : ""),
+      children: [
+        group.label && /* @__PURE__ */ jsxs92(
+          "button",
+          {
+            className: "preview-group__label",
+            onClick: () => onInspect({ kind: "group", group, view: void 0 }),
+            children: [
+              group.label,
+              group.isEmpty && /* @__PURE__ */ jsx95("span", { className: "preview-group__warn", children: "\u26A0 \u043F\u0443\u0441\u0442\u043E" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs92("div", { className: "preview-group__body", children: [
+          group.widgets.length > 0 && /* @__PURE__ */ jsx95(PreviewFieldGrid, { children: group.widgets.map((w) => /* @__PURE__ */ jsx95(
+            PreviewWidgetRow,
+            {
+              widget: w,
+              actionMap,
+              onNavigate,
+              onInspect,
+              inspector
+            },
+            w.id
+          )) }),
+          group.nestedGroups.map((g) => /* @__PURE__ */ jsx95(
+            PreviewGroupBlock,
+            {
+              group: g,
+              actionMap,
+              onNavigate,
+              onInspect,
+              inspector,
+              depth: depth + 1
+            },
+            g.id
+          ))
+        ] })
+      ]
+    }
+  );
 }
 function PreviewWidgetRow({
   widget,
-  actions: actions2
+  actionMap,
+  onNavigate,
+  onInspect,
+  inspector
 }) {
+  const isInspected = inspector?.kind === "widget" && inspector.widget.id === widget.id;
   if (widget.type === "action") {
-    const actionId = widget.actions?.[0];
-    const a = actionId ? actions2.get(actionId) : null;
-    return /* @__PURE__ */ jsx94("span", { className: "preview-btn", children: a?.name || actionId || widget.id });
+    const aId = widget.actionIds?.[0];
+    const a = aId ? actionMap.get(aId) : void 0;
+    return /* @__PURE__ */ jsx95(
+      ActionButton,
+      {
+        action: a,
+        actionId: aId || widget.id,
+        onNavigate,
+        onInspect,
+        inspector
+      }
+    );
   }
   if (widget.type === "attribute") {
-    return /* @__PURE__ */ jsxs91("div", { className: "preview-field", children: [
-      /* @__PURE__ */ jsx94("label", { className: "preview-field__label", children: widget.label || widget.id }),
-      /* @__PURE__ */ jsx94(
+    return /* @__PURE__ */ jsxs92(
+      "div",
+      {
+        className: "preview-field" + (isInspected ? " preview-field--inspected" : ""),
+        onClick: () => onInspect({ kind: "widget", widget, view: void 0 }),
+        children: [
+          /* @__PURE__ */ jsxs92("label", { className: "preview-field__label", children: [
+            widget.label || widget.id,
+            widget.required && /* @__PURE__ */ jsx95("span", { className: "preview-field__required", children: "*" }),
+            widget.readonly && /* @__PURE__ */ jsx95("span", { className: "preview-field__readonly", title: "readonly", children: "\u{1F512}" })
+          ] }),
+          /* @__PURE__ */ jsx95(FieldControl, { widget }),
+          /* @__PURE__ */ jsxs92("div", { className: "preview-field__meta", children: [
+            widget.dataType && /* @__PURE__ */ jsx95("code", { children: widget.dataType }),
+            widget.constraints && widget.constraints.length > 0 && /* @__PURE__ */ jsx95("span", { children: widget.constraints.join(", ") })
+          ] })
+        ]
+      }
+    );
+  }
+  if (widget.type === "linkage") {
+    return /* @__PURE__ */ jsxs92(
+      "div",
+      {
+        className: "preview-linkage" + (isInspected ? " preview-linkage--inspected" : ""),
+        onClick: () => onInspect({ kind: "widget", widget, view: void 0 }),
+        children: [
+          /* @__PURE__ */ jsxs92("div", { className: "preview-linkage__label", children: [
+            widget.label || widget.linkageName || widget.linkageId || widget.id,
+            widget.linkageSide && /* @__PURE__ */ jsxs92("span", { className: "preview-linkage__side", children: [
+              "side ",
+              widget.linkageSide
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx95("div", { className: "preview-linkage__target", children: widget.targetEntityId ? /* @__PURE__ */ jsxs92(Fragment41, { children: [
+            "\u2192 ",
+            /* @__PURE__ */ jsx95("code", { children: widget.targetEntityId }),
+            widget.targetEntityName && /* @__PURE__ */ jsx95("span", { className: "preview-linkage__name", children: widget.targetEntityName })
+          ] }) : /* @__PURE__ */ jsx95("span", { className: "preview-linkage__unknown", children: "\u0446\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0430" }) }),
+          /* @__PURE__ */ jsx95("div", { className: "preview-linkage__count", children: "0 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445" })
+        ]
+      }
+    );
+  }
+  return /* @__PURE__ */ jsxs92(
+    "div",
+    {
+      className: "preview-widget-fallback",
+      onClick: () => onInspect({ kind: "widget", widget, view: void 0 }),
+      children: [
+        "[",
+        widget.type,
+        "] ",
+        widget.id
+      ]
+    }
+  );
+}
+function FieldControl({ widget }) {
+  const dt = widget.dataType || "";
+  const kind = widget.dataTypeKind || "base";
+  const ctrl = widget.controlType || "";
+  if (kind === "custom" && widget.enumValues && widget.enumValues.length > 0) {
+    return /* @__PURE__ */ jsxs92("select", { className: "preview-field__input preview-field__select", disabled: true, children: [
+      /* @__PURE__ */ jsx95("option", { children: widget.enumValues[0] }),
+      widget.enumValues.slice(1).map((v) => /* @__PURE__ */ jsx95("option", { children: v }, v))
+    ] });
+  }
+  if (kind === "custom" && widget.workflowStatuses && widget.workflowStatuses.length > 0) {
+    return /* @__PURE__ */ jsx95("div", { className: "preview-field__workflow", children: /* @__PURE__ */ jsx95("select", { className: "preview-field__input preview-field__select", disabled: true, children: widget.workflowStatuses.map((s) => /* @__PURE__ */ jsxs92("option", { selected: s === widget.initialStatus, children: [
+      s,
+      s === widget.initialStatus ? " (\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439)" : ""
+    ] }, s)) }) });
+  }
+  if (dt === "Bool" || ctrl === "switch" || ctrl === "checkbox") {
+    const label = ctrl === "bool_text" && widget.trueText ? widget.trueText : "false";
+    return /* @__PURE__ */ jsxs92("div", { className: "preview-field__bool", children: [
+      /* @__PURE__ */ jsx95("span", { className: "preview-field__switch" }),
+      /* @__PURE__ */ jsx95("span", { className: "preview-field__switch-label", children: label })
+    ] });
+  }
+  if (dt === "Text" || ctrl === "text_area") {
+    return /* @__PURE__ */ jsx95(
+      "textarea",
+      {
+        className: "preview-field__input preview-field__textarea",
+        disabled: true,
+        rows: 2,
+        placeholder: "Text"
+      }
+    );
+  }
+  if (["Timestamp", "Date", "Time", "TimestampRange"].includes(dt)) {
+    return /* @__PURE__ */ jsx95(
+      "input",
+      {
+        className: "preview-field__input",
+        disabled: true,
+        placeholder: dt === "Date" ? "YYYY-MM-DD" : "date-time"
+      }
+    );
+  }
+  if (dt === "Reference" || widget.referenceTarget) {
+    return /* @__PURE__ */ jsxs92("div", { className: "preview-field__reference", children: [
+      /* @__PURE__ */ jsx95(
         "input",
         {
           className: "preview-field__input",
           disabled: true,
-          value: "",
-          placeholder: widget.controlType || "text"
+          placeholder: widget.referenceTarget || "Reference"
+        }
+      ),
+      /* @__PURE__ */ jsx95("button", { className: "preview-field__ref-btn", disabled: true, children: "\u{1F50D}" })
+    ] });
+  }
+  if (dt === "Attachment" || ctrl === "file" || ctrl === "drag_drop_area") {
+    return /* @__PURE__ */ jsxs92("div", { className: "preview-field__drop", children: [
+      /* @__PURE__ */ jsx95(MIcon, { name: "attach_file", size: "sm" }),
+      /* @__PURE__ */ jsx95("span", { children: "\u041F\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u0435 \u0444\u0430\u0439\u043B" })
+    ] });
+  }
+  if (ctrl === "slider" || ctrl === "integer_slider" || ctrl === "decimal_slider") {
+    return /* @__PURE__ */ jsx95(
+      "input",
+      {
+        type: "range",
+        className: "preview-field__slider",
+        disabled: true,
+        min: 0,
+        max: 100,
+        value: 50
+      }
+    );
+  }
+  if (["Integer", "Decimal", "Float", "Counter", "Calculation"].includes(dt)) {
+    return /* @__PURE__ */ jsx95(
+      "input",
+      {
+        type: "number",
+        className: "preview-field__input",
+        disabled: true,
+        placeholder: "0"
+      }
+    );
+  }
+  return /* @__PURE__ */ jsx95(
+    "input",
+    {
+      type: "text",
+      className: "preview-field__input",
+      disabled: true,
+      placeholder: "String"
+    }
+  );
+}
+function ActionButton({
+  action,
+  actionId,
+  onNavigate,
+  onInspect,
+  inspector,
+  variant
+}) {
+  const label = action?.name || actionId;
+  const isBroken = action && action.targetViewId && !action.targetViewId;
+  const isInspected = inspector?.kind === "action" && inspector.action?.id === action?.id;
+  return /* @__PURE__ */ jsxs92(
+    "span",
+    {
+      className: "preview-btn" + (variant === "primary" ? " preview-btn--primary" : "") + (action?.targetViewId ? " preview-btn--link" : "") + (isBroken ? " preview-btn--broken" : "") + (isInspected ? " preview-btn--inspected" : ""),
+      onClick: (e) => {
+        e.stopPropagation();
+        if (action?.targetViewId)
+          onNavigate(action.targetViewId);
+        onInspect({ kind: "action", actionId, action });
+      },
+      title: action ? `${action.type}${action.operation ? ` \xB7 ${action.operation}` : ""}${action.targetViewId ? ` \u2192 ${action.targetViewId}` : ""}` : actionId,
+      children: [
+        label,
+        action?.targetViewId && /* @__PURE__ */ jsx95("span", { className: "preview-btn__arrow", children: "\u2192" })
+      ]
+    }
+  );
+}
+function Inspector({
+  subject,
+  actions: actions2,
+  onClose,
+  onNavigate
+}) {
+  return /* @__PURE__ */ jsxs92("div", { className: "generated-preview-inspector", children: [
+    /* @__PURE__ */ jsxs92("div", { className: "generated-preview-inspector__head", children: [
+      /* @__PURE__ */ jsx95(
+        MIcon,
+        {
+          name: subject.kind === "widget" ? "widgets" : subject.kind === "group" ? "view_module" : subject.kind === "column" ? "view_column" : "bolt",
+          size: "sm"
+        }
+      ),
+      /* @__PURE__ */ jsx95("span", { className: "generated-preview-inspector__kind", children: subject.kind }),
+      /* @__PURE__ */ jsx95(
+        "button",
+        {
+          className: "generated-preview-inspector__close",
+          onClick: onClose,
+          children: "\u2715"
         }
       )
-    ] });
-  }
-  if (widget.type === "linkage") {
-    return /* @__PURE__ */ jsxs91("div", { className: "preview-linkage", children: [
-      /* @__PURE__ */ jsx94("span", { className: "preview-linkage__label", children: widget.label || widget.linkageId || widget.id }),
-      /* @__PURE__ */ jsx94("span", { className: "preview-linkage__count", children: "0" })
-    ] });
-  }
-  return /* @__PURE__ */ jsxs91("div", { className: "preview-widget-fallback", children: [
-    "[",
-    widget.type,
-    "] ",
-    widget.id
+    ] }),
+    /* @__PURE__ */ jsxs92("div", { className: "generated-preview-inspector__body", children: [
+      subject.kind === "widget" && /* @__PURE__ */ jsx95(WidgetInspector, { widget: subject.widget }),
+      subject.kind === "group" && /* @__PURE__ */ jsx95(GroupInspector, { group: subject.group }),
+      subject.kind === "column" && /* @__PURE__ */ jsx95(ColumnInspector, { columnId: subject.columnId, view: subject.view }),
+      subject.kind === "action" && /* @__PURE__ */ jsx95(
+        ActionInspector,
+        {
+          actionId: subject.actionId,
+          action: subject.action,
+          onNavigate
+        }
+      )
+    ] })
   ] });
+}
+function WidgetInspector({ widget }) {
+  return /* @__PURE__ */ jsxs92(Fragment41, { children: [
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "id", value: /* @__PURE__ */ jsx95("code", { children: widget.id }) }),
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "type", value: widget.type }),
+    widget.attributeId && /* @__PURE__ */ jsx95(InspectorRow, { label: "attribute", value: /* @__PURE__ */ jsx95("code", { children: widget.attributeId }) }),
+    widget.dataType && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "dataType",
+        value: /* @__PURE__ */ jsxs92(Fragment41, { children: [
+          /* @__PURE__ */ jsx95("code", { children: widget.dataType }),
+          widget.dataTypeKind === "custom" && /* @__PURE__ */ jsx95("span", { className: "inspector-badge", children: "custom" })
+        ] })
+      }
+    ),
+    widget.controlType && /* @__PURE__ */ jsx95(InspectorRow, { label: "control", value: /* @__PURE__ */ jsx95("code", { children: widget.controlType }) }),
+    widget.constraints && widget.constraints.length > 0 && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "constraints",
+        value: widget.constraints.map((c) => /* @__PURE__ */ jsx95("code", { className: "inspector-chip", children: c }, c))
+      }
+    ),
+    widget.required && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "required",
+        value: /* @__PURE__ */ jsx95("span", { className: "inspector-badge inspector-badge--err", children: "\u0434\u0430" })
+      }
+    ),
+    widget.readonly && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "readonly",
+        value: /* @__PURE__ */ jsx95("span", { className: "inspector-badge inspector-badge--warn", children: "\u0434\u0430" })
+      }
+    ),
+    widget.enumValues && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F",
+        value: widget.enumValues.map((v) => /* @__PURE__ */ jsx95("code", { className: "inspector-chip", children: v }, v))
+      }
+    ),
+    widget.workflowStatuses && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "\u0441\u0442\u0430\u0442\u0443\u0441\u044B",
+        value: widget.workflowStatuses.map((v) => /* @__PURE__ */ jsx95(
+          "code",
+          {
+            className: "inspector-chip" + (v === widget.initialStatus ? " inspector-chip--active" : ""),
+            children: v
+          },
+          v
+        ))
+      }
+    ),
+    widget.linkageId && /* @__PURE__ */ jsx95(InspectorRow, { label: "linkage", value: /* @__PURE__ */ jsx95("code", { children: widget.linkageId }) }),
+    widget.targetEntityId && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "\u2192 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+        value: /* @__PURE__ */ jsx95("code", { children: widget.targetEntityId })
+      }
+    )
+  ] });
+}
+function GroupInspector({ group }) {
+  return /* @__PURE__ */ jsxs92(Fragment41, { children: [
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "id", value: /* @__PURE__ */ jsx95("code", { children: group.id }) }),
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "type", value: group.type }),
+    group.label && /* @__PURE__ */ jsx95(InspectorRow, { label: "label", value: group.label }),
+    /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "widgets",
+        value: String(group.widgets.length)
+      }
+    ),
+    /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "\u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435",
+        value: String(group.nestedGroups.length)
+      }
+    ),
+    group.isEmpty && /* @__PURE__ */ jsx95("div", { className: "inspector-warn", children: "\u26A0 \u0413\u0440\u0443\u043F\u043F\u0430 \u043F\u0443\u0441\u0442\u0430 \u2014 \u043D\u0438 \u043E\u0434\u0438\u043D widget \u0432 \u043D\u0435\u0451 \u043D\u0435 \u043F\u0440\u0438\u0448\u0451\u043B" })
+  ] });
+}
+function ColumnInspector({ columnId, view }) {
+  const col = view.tableColumns?.find((c) => c.id === columnId);
+  if (!col)
+    return /* @__PURE__ */ jsx95("div", { className: "inspector-warn", children: "\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430" });
+  return /* @__PURE__ */ jsxs92(Fragment41, { children: [
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "id", value: /* @__PURE__ */ jsx95("code", { children: col.id }) }),
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "label", value: col.label }),
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "attribute", value: /* @__PURE__ */ jsx95("code", { children: col.attribute }) }),
+    col.dataType && /* @__PURE__ */ jsx95(InspectorRow, { label: "dataType", value: /* @__PURE__ */ jsx95("code", { children: col.dataType }) }),
+    col.required && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "required",
+        value: /* @__PURE__ */ jsx95("span", { className: "inspector-badge inspector-badge--err", children: "\u0434\u0430" })
+      }
+    ),
+    col.readonly && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "readonly",
+        value: /* @__PURE__ */ jsx95("span", { className: "inspector-badge inspector-badge--warn", children: "\u0434\u0430" })
+      }
+    )
+  ] });
+}
+function ActionInspector({
+  actionId,
+  action,
+  onNavigate
+}) {
+  if (!action) {
+    return /* @__PURE__ */ jsxs92("div", { className: "inspector-warn", children: [
+      "Action \xAB",
+      actionId,
+      "\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D"
+    ] });
+  }
+  return /* @__PURE__ */ jsxs92(Fragment41, { children: [
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "id", value: /* @__PURE__ */ jsx95("code", { children: action.id }) }),
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "name", value: action.name }),
+    /* @__PURE__ */ jsx95(InspectorRow, { label: "type", value: /* @__PURE__ */ jsx95("code", { children: action.type }) }),
+    action.operation && /* @__PURE__ */ jsx95(InspectorRow, { label: "operation", value: /* @__PURE__ */ jsx95("code", { children: action.operation }) }),
+    action.entity && /* @__PURE__ */ jsx95(InspectorRow, { label: "entity", value: /* @__PURE__ */ jsx95("code", { children: action.entity }) }),
+    action.targetViewId && /* @__PURE__ */ jsx95(
+      InspectorRow,
+      {
+        label: "\u2192 target",
+        value: /* @__PURE__ */ jsx95(
+          "button",
+          {
+            className: "inspector-link",
+            onClick: () => onNavigate(action.targetViewId),
+            children: action.targetViewId
+          }
+        )
+      }
+    )
+  ] });
+}
+function InspectorRow({
+  label,
+  value
+}) {
+  return /* @__PURE__ */ jsxs92("div", { className: "inspector-row", children: [
+    /* @__PURE__ */ jsx95("span", { className: "inspector-row__label", children: label }),
+    /* @__PURE__ */ jsx95("span", { className: "inspector-row__value", children: value })
+  ] });
+}
+function ActionsSummary({
+  actions: actions2,
+  onNavigate,
+  viewIds
+}) {
+  const [open2, setOpen] = useState67(false);
+  const byType = useMemo66(() => countPreviewActionsByType(actions2), [actions2]);
+  const viewIdSet = useMemo66(() => new Set(viewIds), [viewIds]);
+  return /* @__PURE__ */ jsxs92(
+    "div",
+    {
+      className: "generated-preview-actions-summary" + (open2 ? " open" : ""),
+      children: [
+        /* @__PURE__ */ jsxs92(
+          "button",
+          {
+            className: "generated-preview-actions-summary__head",
+            onClick: () => setOpen(!open2),
+            children: [
+              /* @__PURE__ */ jsx95(MIcon, { name: open2 ? "expand_more" : "chevron_right", size: "sm" }),
+              /* @__PURE__ */ jsx95(MIcon, { name: "bolt", size: "sm" }),
+              /* @__PURE__ */ jsxs92("span", { children: [
+                "Actions (",
+                actions2.length,
+                ")"
+              ] }),
+              /* @__PURE__ */ jsx95("span", { className: "generated-preview-actions-summary__types", children: Object.entries(byType).map(([t, n]) => /* @__PURE__ */ jsxs92("code", { children: [
+                t,
+                ": ",
+                n
+              ] }, t)) })
+            ]
+          }
+        ),
+        open2 && /* @__PURE__ */ jsx95("div", { className: "generated-preview-actions-summary__body", children: /* @__PURE__ */ jsxs92("table", { children: [
+          /* @__PURE__ */ jsx95("thead", { children: /* @__PURE__ */ jsxs92("tr", { children: [
+            /* @__PURE__ */ jsx95("th", { children: "Action" }),
+            /* @__PURE__ */ jsx95("th", { children: "Type" }),
+            /* @__PURE__ */ jsx95("th", { children: "Operation" }),
+            /* @__PURE__ */ jsx95("th", { children: "Target" })
+          ] }) }),
+          /* @__PURE__ */ jsx95("tbody", { children: actions2.map((a) => {
+            const broken = a.targetViewId && !viewIdSet.has(a.targetViewId);
+            return /* @__PURE__ */ jsxs92(
+              "tr",
+              {
+                className: broken ? "generated-preview-actions-summary__broken" : "",
+                children: [
+                  /* @__PURE__ */ jsx95("td", { children: /* @__PURE__ */ jsx95("code", { children: a.id }) }),
+                  /* @__PURE__ */ jsx95("td", { children: a.type }),
+                  /* @__PURE__ */ jsx95("td", { children: a.operation || "\u2014" }),
+                  /* @__PURE__ */ jsxs92("td", { children: [
+                    a.targetViewId ? /* @__PURE__ */ jsx95(
+                      "button",
+                      {
+                        className: "preview-link",
+                        onClick: () => onNavigate(a.targetViewId),
+                        disabled: !!broken,
+                        children: a.targetViewId
+                      }
+                    ) : "\u2014",
+                    broken && /* @__PURE__ */ jsx95("span", { className: "preview-broken", children: "\u26A0 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D" })
+                  ] })
+                ]
+              },
+              a.id
+            );
+          }) })
+        ] }) })
+      ]
+    }
+  );
 }
 var init_GeneratedPreviewModal = __esm({
   "src/web/components/modals/GeneratedPreviewModal.tsx"() {
     "use strict";
     init_useGraphStore();
+    init_useModelIndex();
     init_schema_preview();
     init_MIcon();
   }
 });
 
-// src/web/lib/model/changelog.ts
-function parseSemVer(v) {
-  const m = v.match(/^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-.]+)?/);
-  if (!m)
-    return null;
-  return {
-    major: parseInt(m[1], 10),
-    minor: parseInt(m[2], 10),
-    patch: parseInt(m[3], 10),
-    prerelease: m[4] ? m[4].slice(1) : null
-  };
-}
-function suggestBump(diff) {
-  if (diff.stats.entitiesRemoved > 0 || diff.stats.domainsRemoved > 0 || diff.stats.dataTypesRemoved > 0) {
-    return "major";
-  }
-  for (const c of diff.entities.changed) {
-    if (c.attributesRemoved.length > 0)
-      return "major";
-    for (const a of c.attributesChanged) {
-      if ("dataType" in a.changes)
-        return "major";
-      if ("referenceEntity" in a.changes)
-        return "major";
-    }
-  }
-  if (diff.stats.entitiesAdded > 0 || diff.stats.attributesAdded > 0 || diff.stats.dataTypesAdded > 0 || diff.stats.domainsAdded > 0) {
-    return "minor";
-  }
-  return "patch";
-}
-function applyBump(version, bump) {
-  const p = parseSemVer(version);
-  if (!p)
-    return null;
-  if (bump === "major")
-    return `${p.major + 1}.0.0`;
-  if (bump === "minor")
-    return `${p.major}.${p.minor + 1}.0`;
-  return `${p.major}.${p.minor}.${p.patch + 1}`;
-}
-function buildChangelogBlocks(diff) {
-  const breaking = [];
-  const features = [];
-  const fixes = [];
-  for (const d of diff.domains.added) {
-    features.push({
-      kind: "feature",
-      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0434\u043E\u043C\u0435\u043D ${d.domainId}`,
-      domainId: d.domainId
-    });
-  }
-  for (const d of diff.domains.removed) {
-    breaking.push({
-      kind: "breaking",
-      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u0434\u043E\u043C\u0435\u043D ${d.domainId}`,
-      domainId: d.domainId
-    });
-  }
-  for (const d of diff.domains.changed) {
-    for (const ch of d.changes) {
-      if (ch.field === "version")
-        continue;
-      fixes.push({
-        kind: "fix",
-        text: `${d.domainId}: ${ch.field} \u2192 ${String(ch.to)}`,
-        domainId: d.domainId
-      });
-    }
-  }
-  for (const e of diff.entities.added) {
-    features.push({
-      kind: "feature",
-      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${e.entityId}`,
-      domainId: e.domainId,
-      entityId: e.entityId
-    });
-  }
-  for (const e of diff.entities.removed) {
-    breaking.push({
-      kind: "breaking",
-      text: `\u0423\u0434\u0430\u043B\u0435\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${e.entityId}`,
-      domainId: e.domainId,
-      entityId: e.entityId
-    });
-  }
-  for (const c of diff.entities.changed) {
-    if (c.inheritsChange) {
-      breaking.push({
-        kind: "breaking",
-        text: `${c.entityId}: inherits ${c.inheritsChange.from ?? "\u2014"} \u2192 ${c.inheritsChange.to ?? "\u2014"}`,
-        domainId: c.domainId,
-        entityId: c.entityId
-      });
-    }
-    if (c.nameChange) {
-      fixes.push({
-        kind: "fix",
-        text: `${c.entityId}: \u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043E \xAB${c.nameChange.from}\xBB \u2192 \xAB${c.nameChange.to}\xBB`,
-        domainId: c.domainId,
-        entityId: c.entityId
-      });
-    }
-    for (const a of c.attributesAdded) {
-      features.push({
-        kind: "feature",
-        text: `${c.entityId}.${a.id}: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (${a.dataType})`,
-        domainId: c.domainId,
-        entityId: c.entityId
-      });
-    }
-    for (const a of c.attributesRemoved) {
-      breaking.push({
-        kind: "breaking",
-        text: `${c.entityId}.${a.id}: \u0443\u0434\u0430\u043B\u0451\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (${a.dataType})`,
-        domainId: c.domainId,
-        entityId: c.entityId
-      });
-    }
-    for (const ac of c.attributesChanged) {
-      const fields = Object.keys(ac.changes);
-      const isBreaking = fields.some(
-        (f) => f === "dataType" || f === "referenceEntity" || f === "itemReferenceEntity"
-      );
-      const text = `${c.entityId}.${ac.id}: ${fields.join(", ")}`;
-      if (isBreaking)
-        breaking.push({
-          kind: "breaking",
-          text,
-          domainId: c.domainId,
-          entityId: c.entityId
-        });
-      else
-        fixes.push({
-          kind: "fix",
-          text,
-          domainId: c.domainId,
-          entityId: c.entityId
-        });
-    }
-  }
-  for (const d of diff.dataTypes.added) {
-    features.push({
-      kind: "feature",
-      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0442\u0438\u043F ${d.id} (${d.kind})`,
-      domainId: d.domainId
-    });
-  }
-  for (const d of diff.dataTypes.removed) {
-    breaking.push({
-      kind: "breaking",
-      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u0442\u0438\u043F ${d.id} (${d.kind})`,
-      domainId: d.domainId
-    });
-  }
-  for (const m of diff.mixins.added) {
-    features.push({
-      kind: "feature",
-      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u043C\u0438\u043A\u0441\u0438\u043D ${m.id} \u2192 ${m.targetEntityFqid}`,
-      domainId: m.domainId
-    });
-  }
-  for (const m of diff.mixins.removed) {
-    fixes.push({
-      kind: "fix",
-      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u043C\u0438\u043A\u0441\u0438\u043D ${m.id}`,
-      domainId: m.domainId
-    });
-  }
-  if (diff.genericSections) {
-    for (const [section, d] of Object.entries(diff.genericSections)) {
-      for (const e of d.added) {
-        features.push({
-          kind: "feature",
-          text: `${section}: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E ${e.id}`,
-          domainId: e.domainId
-        });
-      }
-      for (const e of d.removed) {
-        fixes.push({
-          kind: "fix",
-          text: `${section}: \u0443\u0434\u0430\u043B\u0435\u043D\u043E ${e.id}`,
-          domainId: e.domainId
-        });
-      }
-    }
-  }
-  const blocks = [];
-  if (breaking.length > 0)
-    blocks.push({ title: "\u26A0\uFE0F Breaking changes", entries: breaking });
-  if (features.length > 0)
-    blocks.push({ title: "\u2728 \u041D\u043E\u0432\u044B\u0435 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438", entries: features });
-  if (fixes.length > 0)
-    blocks.push({ title: "\u{1F527} \u041F\u0440\u043E\u0447\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F", entries: fixes });
-  return blocks;
-}
-function buildChangelogMarkdown(blocks, opts) {
-  const lines = [];
-  lines.push(`# CHANGELOG`);
-  lines.push("");
-  lines.push(
-    `## [${opts.version}] \u2014 ${opts.takenAt}${opts.server ? ` @ ${opts.server}` : ""}`
-  );
-  lines.push("");
-  if (opts.previousVersion && opts.previousVersion !== opts.version) {
-    lines.push(`_\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F: ${opts.previousVersion}_`);
-    lines.push("");
-  }
-  if (blocks.length === 0) {
-    lines.push("_\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442._");
-    return lines.join("\n");
-  }
-  for (const b of blocks) {
-    lines.push(`### ${b.title}`);
-    lines.push("");
-    for (const e of b.entries) {
-      const prefix = e.domainId ? `**\`${e.domainId}\`** \u2014 ` : "";
-      lines.push(`- ${prefix}${e.text}`);
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-var init_changelog = __esm({
-  "src/web/lib/model/changelog.ts"() {
-    "use strict";
-  }
-});
-
 // src/web/components/modals/ChangelogModal.tsx
 import { useMemo as useMemo67 } from "react";
-import { jsx as jsx95, jsxs as jsxs92 } from "react/jsx-runtime";
+import { jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
 function ChangelogModal() {
   const open2 = useGraphStore((s) => s.changelogOpen);
   const setOpen = useGraphStore((s) => s.setChangelogOpen);
@@ -113644,45 +115620,45 @@ function ChangelogModal() {
   };
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx95("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs92("div", { className: "help-modal changelog-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs92("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs92("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx95(MIcon, { name: "history_edu", size: "sm" }),
-        /* @__PURE__ */ jsx95("span", { className: "icon-label", children: "CHANGELOG \u0438 \u0432\u0435\u0440\u0441\u0438\u043E\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435" }),
-        diff && /* @__PURE__ */ jsxs92("span", { className: "help-modal__badge", children: [
+  return /* @__PURE__ */ jsx96("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs93("div", { className: "help-modal changelog-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs93("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs93("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx96(MIcon, { name: "history_edu", size: "sm" }),
+        /* @__PURE__ */ jsx96("span", { className: "icon-label", children: "CHANGELOG \u0438 \u0432\u0435\u0440\u0441\u0438\u043E\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435" }),
+        diff && /* @__PURE__ */ jsxs93("span", { className: "help-modal__badge", children: [
           "\u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u043E\u0432\u0430\u043D\u043E: ",
           bump.toUpperCase()
         ] })
       ] }),
-      /* @__PURE__ */ jsx95("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+      /* @__PURE__ */ jsx96("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
     ] }),
-    loading && /* @__PURE__ */ jsx95("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx95("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 diff\u2026" }) }),
-    error && /* @__PURE__ */ jsx95("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx95("div", { style: { color: "var(--danger)" }, children: error }) }),
-    !loading && !error && !diff && /* @__PURE__ */ jsx95("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx95("div", { className: "changelog-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 diff. \u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u043C\u043E\u0434\u0435\u043B\u0438 \u0435\u0449\u0451 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u043D \u0438\u043B\u0438 \u043D\u0435 \u0431\u044B\u043B\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439." }) }),
-    diff && /* @__PURE__ */ jsxs92("div", { className: "help-modal__body help-modal__body--flush", children: [
-      /* @__PURE__ */ jsxs92("div", { className: "changelog-version-badge", children: [
-        /* @__PURE__ */ jsx95(MIcon, { name: "upgrade", size: "sm" }),
-        /* @__PURE__ */ jsx95("span", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u043E\u0432\u0430\u043D\u043D\u044B\u0439 bump: " }),
-        /* @__PURE__ */ jsx95("strong", { className: "changelog-bump changelog-bump--" + bump, children: bump.toUpperCase() }),
-        /* @__PURE__ */ jsx95("span", { className: "changelog-version-badge__hint", children: bump === "major" ? "\u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0442\u0438\u043F\u044B \u2014 \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E" : bump === "minor" ? "\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u2014 \u043E\u0431\u0440\u0430\u0442\u043D\u0430\u044F \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E\u0441\u0442\u044C" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" })
+    loading && /* @__PURE__ */ jsx96("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx96("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 diff\u2026" }) }),
+    error && /* @__PURE__ */ jsx96("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx96("div", { style: { color: "var(--danger)" }, children: error }) }),
+    !loading && !error && !diff && /* @__PURE__ */ jsx96("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx96("div", { className: "changelog-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 diff. \u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u043C\u043E\u0434\u0435\u043B\u0438 \u0435\u0449\u0451 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u043D \u0438\u043B\u0438 \u043D\u0435 \u0431\u044B\u043B\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439." }) }),
+    diff && /* @__PURE__ */ jsxs93("div", { className: "help-modal__body help-modal__body--flush", children: [
+      /* @__PURE__ */ jsxs93("div", { className: "changelog-version-badge", children: [
+        /* @__PURE__ */ jsx96(MIcon, { name: "upgrade", size: "sm" }),
+        /* @__PURE__ */ jsx96("span", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u043E\u0432\u0430\u043D\u043D\u044B\u0439 bump: " }),
+        /* @__PURE__ */ jsx96("strong", { className: "changelog-bump changelog-bump--" + bump, children: bump.toUpperCase() }),
+        /* @__PURE__ */ jsx96("span", { className: "changelog-version-badge__hint", children: bump === "major" ? "\u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0442\u0438\u043F\u044B \u2014 \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E" : bump === "minor" ? "\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u2014 \u043E\u0431\u0440\u0430\u0442\u043D\u0430\u044F \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E\u0441\u0442\u044C" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" })
       ] }),
-      blocks.length === 0 ? /* @__PURE__ */ jsx95("div", { className: "changelog-empty", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }) : /* @__PURE__ */ jsx95("div", { className: "changelog-blocks", children: blocks.map((b) => /* @__PURE__ */ jsxs92("div", { className: "changelog-block", children: [
-        /* @__PURE__ */ jsx95("div", { className: "changelog-block__title", children: b.title }),
-        /* @__PURE__ */ jsx95("ul", { className: "changelog-block__list", children: b.entries.map((e, i) => /* @__PURE__ */ jsxs92("li", { className: "changelog-entry changelog-entry--" + e.kind, children: [
-          e.domainId && /* @__PURE__ */ jsx95("code", { className: "changelog-entry__domain", children: e.domainId }),
-          /* @__PURE__ */ jsx95("span", { children: e.text })
+      blocks.length === 0 ? /* @__PURE__ */ jsx96("div", { className: "changelog-empty", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }) : /* @__PURE__ */ jsx96("div", { className: "changelog-blocks", children: blocks.map((b) => /* @__PURE__ */ jsxs93("div", { className: "changelog-block", children: [
+        /* @__PURE__ */ jsx96("div", { className: "changelog-block__title", children: b.title }),
+        /* @__PURE__ */ jsx96("ul", { className: "changelog-block__list", children: b.entries.map((e, i) => /* @__PURE__ */ jsxs93("li", { className: "changelog-entry changelog-entry--" + e.kind, children: [
+          e.domainId && /* @__PURE__ */ jsx96("code", { className: "changelog-entry__domain", children: e.domainId }),
+          /* @__PURE__ */ jsx96("span", { children: e.text })
         ] }, i)) })
       ] }, b.title)) })
     ] }),
-    /* @__PURE__ */ jsxs92("div", { className: "validation-footer", children: [
-      /* @__PURE__ */ jsx95("div", { className: "validation-stats", children: diff && /* @__PURE__ */ jsxs92("span", { className: "validation-stat", children: [
+    /* @__PURE__ */ jsxs93("div", { className: "validation-footer", children: [
+      /* @__PURE__ */ jsx96("div", { className: "validation-stats", children: diff && /* @__PURE__ */ jsxs93("span", { className: "validation-stat", children: [
         diff.stats.entitiesAdded + diff.stats.entitiesRemoved + diff.stats.entitiesChanged,
         " \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
       ] }) }),
-      /* @__PURE__ */ jsxs92("div", { className: "validation-footer__actions", children: [
-        /* @__PURE__ */ jsx95("button", { className: "btn", onClick: copyMarkdown, disabled: !diff, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-        /* @__PURE__ */ jsx95("button", { className: "btn btn--primary", onClick: downloadMarkdown2, disabled: !diff, children: "\u{1F4BE} \u0421\u043A\u0430\u0447\u0430\u0442\u044C .md" }),
-        /* @__PURE__ */ jsx95("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
+      /* @__PURE__ */ jsxs93("div", { className: "validation-footer__actions", children: [
+        /* @__PURE__ */ jsx96("button", { className: "btn", onClick: copyMarkdown, disabled: !diff, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+        /* @__PURE__ */ jsx96("button", { className: "btn btn--primary", onClick: downloadMarkdown2, disabled: !diff, children: "\u{1F4BE} \u0421\u043A\u0430\u0447\u0430\u0442\u044C .md" }),
+        /* @__PURE__ */ jsx96("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
       ] })
     ] })
   ] }) });
@@ -113700,7 +115676,7 @@ var init_ChangelogModal = __esm({
 
 // src/web/components/modals/DomainOnboardingWizard.tsx
 import { useMemo as useMemo68 } from "react";
-import { Fragment as Fragment41, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
+import { Fragment as Fragment42, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
 var init_DomainOnboardingWizard = __esm({
   "src/web/components/modals/DomainOnboardingWizard.tsx"() {
     "use strict";
@@ -113755,7 +115731,7 @@ var init_modals = __esm({
 });
 
 // src/web/hooks/useGenerateSchemaBatch.ts
-import { useCallback as useCallback45, useEffect as useEffect65, useRef as useRef42, useState as useState67 } from "react";
+import { useCallback as useCallback46, useEffect as useEffect66, useRef as useRef43, useState as useState68 } from "react";
 function useGenerateSchemaBatch({
   domainId,
   profile,
@@ -113764,17 +115740,17 @@ function useGenerateSchemaBatch({
   enabled
 }) {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState67({
+  const [state, setState] = useState68({
     result: null,
     loading: false,
     error: null,
     progress: null
   });
-  const [tick, setTick] = useState67(0);
-  const abortRef = useRef42(null);
+  const [tick, setTick] = useState68(0);
+  const abortRef = useRef43(null);
   const optionsKey = JSON.stringify(options);
   const entityIdsKey = JSON.stringify(entityIds ?? []);
-  const cancel = useCallback45(() => {
+  const cancel = useCallback46(() => {
     if (abortRef.current) {
       try {
         abortRef.current.abort();
@@ -113784,7 +115760,7 @@ function useGenerateSchemaBatch({
     }
     setState((s) => ({ ...s, loading: false, progress: null }));
   }, []);
-  useEffect65(() => {
+  useEffect66(() => {
     if (!enabled || !domainId)
       return;
     let cancelled = false;
@@ -113902,15 +115878,15 @@ var init_useGenerateSchemaBatch = __esm({
 });
 
 // src/web/components/modals/GenerateBatchModal.tsx
-import { useCallback as useCallback46, useEffect as useEffect66, useMemo as useMemo69, useState as useState68 } from "react";
-import { Fragment as Fragment42, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
+import { useCallback as useCallback47, useEffect as useEffect67, useMemo as useMemo69, useState as useState69 } from "react";
+import { Fragment as Fragment43, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const { index } = useModelIndex();
   const open2 = useGraphStore((store) => store.generateBatchOpen);
   const domainId = useGraphStore((store) => store.generateBatchDomainId);
-  const [profile, setProfile] = useState68("crud");
-  const [selectedEntities, setSelectedEntities] = useState68(/* @__PURE__ */ new Set());
-  const [options, setOptions] = useState68({
+  const [profile, setProfile] = useState69("crud");
+  const [selectedEntities, setSelectedEntities] = useState69(/* @__PURE__ */ new Set());
+  const [options, setOptions] = useState69({
     includeBulk: true,
     includePage: false,
     includeLinkageWidgets: true,
@@ -113924,13 +115900,13 @@ function GenerateBatchModal() {
     scaffoldCreateMenuRoot: false,
     scaffoldCreateMedias: false
   });
-  const [initialised, setInitialised] = useState68(false);
+  const [initialised, setInitialised] = useState69(false);
   const allEntities = useMemo69(() => {
     if (!index || !domainId)
       return [];
     return index.entities.filter((e) => e.domainId === domainId).map((e) => ({ id: e.entityId, name: e.name || e.entityId }));
   }, [index, domainId]);
-  useEffect66(() => {
+  useEffect67(() => {
     if (!open2 || !domainId)
       return;
     if (!index || allEntities.length === 0)
@@ -113941,7 +115917,7 @@ function GenerateBatchModal() {
     setSelectedEntities(new Set(allEntities.map((e) => e.id)));
     setInitialised(true);
   }, [open2, domainId, index, allEntities.length, initialised]);
-  useEffect66(() => {
+  useEffect67(() => {
     if (open2)
       return;
     setInitialised(false);
@@ -113955,7 +115931,7 @@ function GenerateBatchModal() {
     // enabled только после initialised — fetch не идёт до init
     enabled: open2 && initialised && selectedEntities.size > 0
   });
-  const toggleEntity = useCallback46((id) => {
+  const toggleEntity = useCallback47((id) => {
     setSelectedEntities((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -113965,12 +115941,12 @@ function GenerateBatchModal() {
       return next;
     });
   }, []);
-  const toggleAll = useCallback46(() => {
+  const toggleAll = useCallback47(() => {
     setSelectedEntities(
       (prev) => prev.size === allEntities.length ? /* @__PURE__ */ new Set() : new Set(allEntities.map((e) => e.id))
     );
   }, [allEntities]);
-  const apply = useCallback46(async () => {
+  const apply = useCallback47(async () => {
     if (!gen.result || !domainId)
       return;
     const combined = gen.result.combined;
@@ -114052,25 +116028,25 @@ function GenerateBatchModal() {
   if (!open2 || !domainId)
     return null;
   const stats = gen.result?.stats;
-  return /* @__PURE__ */ jsx97(
+  return /* @__PURE__ */ jsx98(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 450 },
       onMouseDown: () => useGraphStore.getState().setGenerateBatchOpen(false),
-      children: /* @__PURE__ */ jsxs94(
+      children: /* @__PURE__ */ jsxs95(
         "div",
         {
           className: "help-modal generate-batch-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs94("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs94("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx97(MIcon, { name: "auto_awesome", size: "sm" }),
-                /* @__PURE__ */ jsx97("span", { className: "icon-label", children: "\u041F\u0430\u043A\u0435\u0442\u043D\u0430\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F" }),
-                /* @__PURE__ */ jsx97("span", { className: "help-modal__badge", children: domainId })
+            /* @__PURE__ */ jsxs95("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs95("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx98(MIcon, { name: "auto_awesome", size: "sm" }),
+                /* @__PURE__ */ jsx98("span", { className: "icon-label", children: "\u041F\u0430\u043A\u0435\u0442\u043D\u0430\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F" }),
+                /* @__PURE__ */ jsx98("span", { className: "help-modal__badge", children: domainId })
               ] }),
-              /* @__PURE__ */ jsx97(
+              /* @__PURE__ */ jsx98(
                 "button",
                 {
                   className: "help-modal__close",
@@ -114079,32 +116055,32 @@ function GenerateBatchModal() {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs94("div", { className: "generate-batch-body", children: [
-              /* @__PURE__ */ jsxs94("div", { className: "generate-batch-toolbar", children: [
-                /* @__PURE__ */ jsxs94("label", { className: "generate-schema-field", children: [
-                  /* @__PURE__ */ jsx97("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
-                  /* @__PURE__ */ jsx97("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: ENTITY_PROFILES2.map((p) => /* @__PURE__ */ jsx97("option", { value: p.id, children: p.label }, p.id)) })
+            /* @__PURE__ */ jsxs95("div", { className: "generate-batch-body", children: [
+              /* @__PURE__ */ jsxs95("div", { className: "generate-batch-toolbar", children: [
+                /* @__PURE__ */ jsxs95("label", { className: "generate-schema-field", children: [
+                  /* @__PURE__ */ jsx98("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
+                  /* @__PURE__ */ jsx98("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: ENTITY_PROFILES2.map((p) => /* @__PURE__ */ jsx98("option", { value: p.id, children: p.label }, p.id)) })
                 ] }),
-                /* @__PURE__ */ jsx97("button", { className: "btn", onClick: toggleAll, children: selectedEntities.size === allEntities.length ? "\u0421\u043D\u044F\u0442\u044C \u0432\u0441\u0435" : "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0432\u0441\u0435" }),
-                /* @__PURE__ */ jsxs94("span", { className: "generate-batch-counter", children: [
+                /* @__PURE__ */ jsx98("button", { className: "btn", onClick: toggleAll, children: selectedEntities.size === allEntities.length ? "\u0421\u043D\u044F\u0442\u044C \u0432\u0441\u0435" : "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0432\u0441\u0435" }),
+                /* @__PURE__ */ jsxs95("span", { className: "generate-batch-counter", children: [
                   selectedEntities.size,
                   " / ",
                   allEntities.length,
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] })
               ] }),
-              profile === "auto" && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-extras", children: [
-                /* @__PURE__ */ jsxs94("div", { className: "generate-batch-extras__title", children: [
-                  /* @__PURE__ */ jsx97(MIcon, { name: "construction", size: "sm" }),
+              profile === "auto" && /* @__PURE__ */ jsxs95("div", { className: "generate-batch-extras", children: [
+                /* @__PURE__ */ jsxs95("div", { className: "generate-batch-extras__title", children: [
+                  /* @__PURE__ */ jsx98(MIcon, { name: "construction", size: "sm" }),
                   "\u041E\u0431\u0432\u044F\u0437\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
                 ] }),
-                /* @__PURE__ */ jsxs94(
+                /* @__PURE__ */ jsxs95(
                   "label",
                   {
                     className: "generate-schema-option",
                     title: "\u0421\u043E\u0437\u0434\u0430\u0441\u0442 root_group \u0432 menus[], \u0435\u0441\u043B\u0438 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u0435\u0433\u043E \u043D\u0435\u0442. \u041D\u0443\u0436\u0435\u043D \u0434\u043B\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 \u043C\u0435\u043D\u044E \u0434\u043B\u044F CRUD-\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
                     children: [
-                      /* @__PURE__ */ jsx97(
+                      /* @__PURE__ */ jsx98(
                         "input",
                         {
                           type: "checkbox",
@@ -114115,17 +116091,17 @@ function GenerateBatchModal() {
                           })
                         }
                       ),
-                      /* @__PURE__ */ jsx97("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
+                      /* @__PURE__ */ jsx98("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs94(
+                /* @__PURE__ */ jsxs95(
                   "label",
                   {
                     className: "generate-schema-option",
                     title: "\u0421\u043E\u0437\u0434\u0430\u0441\u0442 \u043D\u0430\u0431\u043E\u0440 \u0431\u0430\u0437\u043E\u0432\u044B\u0445 \u0438\u043A\u043E\u043D\u043E\u043A (add/edit/delete/view/save/...), \u0435\u0441\u043B\u0438 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u043C\u0435\u043D\u044C\u0448\u0435 3 \u043C\u0435\u0434\u0438\u0430",
                     children: [
-                      /* @__PURE__ */ jsx97(
+                      /* @__PURE__ */ jsx98(
                         "input",
                         {
                           type: "checkbox",
@@ -114136,22 +116112,22 @@ function GenerateBatchModal() {
                           })
                         }
                       ),
-                      /* @__PURE__ */ jsx97("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438\u043A\u043E\u043D\u043A\u0438 (10 \u0448\u0442.)" })
+                      /* @__PURE__ */ jsx98("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438\u043A\u043E\u043D\u043A\u0438 (10 \u0448\u0442.)" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs94("div", { className: "generate-batch-hint", children: [
-                  /* @__PURE__ */ jsx97(MIcon, { name: "info", size: "sm" }),
-                  /* @__PURE__ */ jsx97("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0410\u0432\u0442\u043E\xBB: \u0441\u043B\u043E\u0432\u0430\u0440\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A, readonly \u0441 list \u2192 \u0431\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A, \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 \u2192 \u043F\u043E\u043B\u043D\u044B\u0439 CRUD. \u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u0435\u0441\u043B\u0438 \u0438\u0445 \u0435\u0449\u0451 \u043D\u0435\u0442." })
+                /* @__PURE__ */ jsxs95("div", { className: "generate-batch-hint", children: [
+                  /* @__PURE__ */ jsx98(MIcon, { name: "info", size: "sm" }),
+                  /* @__PURE__ */ jsx98("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0410\u0432\u0442\u043E\xBB: \u0441\u043B\u043E\u0432\u0430\u0440\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A, readonly \u0441 list \u2192 \u0431\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A, \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 \u2192 \u043F\u043E\u043B\u043D\u044B\u0439 CRUD. \u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u0435\u0441\u043B\u0438 \u0438\u0445 \u0435\u0449\u0451 \u043D\u0435\u0442." })
                 ] })
               ] }),
-              profile === "tree-view" && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-hint", children: [
-                /* @__PURE__ */ jsx97(MIcon, { name: "info", size: "sm" }),
-                /* @__PURE__ */ jsx97("span", { children: "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u0432\u0441\u0435 side-1 \u0441\u0432\u044F\u0437\u0438 \u0442\u0438\u043F\u0430 1_n / n_n. \u0422\u043E\u0447\u0435\u0447\u043D\u044B\u0439 \u0432\u044B\u0431\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u0432 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 (\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2192 \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C)." })
+              profile === "tree-view" && /* @__PURE__ */ jsxs95("div", { className: "generate-batch-hint", children: [
+                /* @__PURE__ */ jsx98(MIcon, { name: "info", size: "sm" }),
+                /* @__PURE__ */ jsx98("span", { children: "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u0432\u0441\u0435 side-1 \u0441\u0432\u044F\u0437\u0438 \u0442\u0438\u043F\u0430 1_n / n_n. \u0422\u043E\u0447\u0435\u0447\u043D\u044B\u0439 \u0432\u044B\u0431\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u0432 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 (\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2192 \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C)." })
               ] }),
-              /* @__PURE__ */ jsxs94("div", { className: "generate-batch-layout", children: [
-                /* @__PURE__ */ jsx97("div", { className: "generate-batch-entities", children: allEntities.map((e) => /* @__PURE__ */ jsxs94("label", { className: "generate-batch-entity", children: [
-                  /* @__PURE__ */ jsx97(
+              /* @__PURE__ */ jsxs95("div", { className: "generate-batch-layout", children: [
+                /* @__PURE__ */ jsx98("div", { className: "generate-batch-entities", children: allEntities.map((e) => /* @__PURE__ */ jsxs95("label", { className: "generate-batch-entity", children: [
+                  /* @__PURE__ */ jsx98(
                     "input",
                     {
                       type: "checkbox",
@@ -114159,19 +116135,19 @@ function GenerateBatchModal() {
                       onChange: () => toggleEntity(e.id)
                     }
                   ),
-                  /* @__PURE__ */ jsx97("span", { className: "generate-batch-entity__id", children: e.id }),
-                  e.name !== e.id && /* @__PURE__ */ jsx97("span", { className: "generate-batch-entity__name", children: e.name })
+                  /* @__PURE__ */ jsx98("span", { className: "generate-batch-entity__id", children: e.id }),
+                  e.name !== e.id && /* @__PURE__ */ jsx98("span", { className: "generate-batch-entity__name", children: e.name })
                 ] }, e.id)) }),
-                /* @__PURE__ */ jsxs94("div", { className: "generate-batch-result", children: [
-                  gen.loading && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-progress", children: [
-                    /* @__PURE__ */ jsxs94("div", { className: "generate-batch-progress__head", children: [
-                      /* @__PURE__ */ jsx97("span", { className: "generate-batch-progress__label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
-                      /* @__PURE__ */ jsxs94("span", { className: "generate-batch-progress__counter", children: [
+                /* @__PURE__ */ jsxs95("div", { className: "generate-batch-result", children: [
+                  gen.loading && /* @__PURE__ */ jsxs95("div", { className: "generate-batch-progress", children: [
+                    /* @__PURE__ */ jsxs95("div", { className: "generate-batch-progress__head", children: [
+                      /* @__PURE__ */ jsx98("span", { className: "generate-batch-progress__label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
+                      /* @__PURE__ */ jsxs95("span", { className: "generate-batch-progress__counter", children: [
                         gen.progress?.current ?? 0,
                         " / ",
                         gen.progress?.total ?? 0
                       ] }),
-                      /* @__PURE__ */ jsx97(
+                      /* @__PURE__ */ jsx98(
                         "button",
                         {
                           className: "btn generate-batch-progress__cancel",
@@ -114180,7 +116156,7 @@ function GenerateBatchModal() {
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsx97("div", { className: "generate-batch-progress__bar", children: /* @__PURE__ */ jsx97(
+                    /* @__PURE__ */ jsx98("div", { className: "generate-batch-progress__bar", children: /* @__PURE__ */ jsx98(
                       "div",
                       {
                         className: "generate-batch-progress__fill",
@@ -114191,80 +116167,80 @@ function GenerateBatchModal() {
                         }
                       }
                     ) }),
-                    gen.progress?.entityId && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-progress__entity", children: [
-                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
-                        /* @__PURE__ */ jsx97(MIcon, { name: "hourglass_top", size: "sm" }),
-                        /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId })
+                    gen.progress?.entityId && /* @__PURE__ */ jsxs95("div", { className: "generate-batch-progress__entity", children: [
+                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs95(Fragment43, { children: [
+                        /* @__PURE__ */ jsx98(MIcon, { name: "hourglass_top", size: "sm" }),
+                        /* @__PURE__ */ jsx98("span", { children: gen.progress.entityId })
                       ] }),
-                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
-                        /* @__PURE__ */ jsx97(MIcon, { name: "check_circle", size: "sm" }),
-                        /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
-                        /* @__PURE__ */ jsxs94("span", { className: "generate-batch-progress__meta", children: [
+                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs95(Fragment43, { children: [
+                        /* @__PURE__ */ jsx98(MIcon, { name: "check_circle", size: "sm" }),
+                        /* @__PURE__ */ jsx98("span", { children: gen.progress.entityId }),
+                        /* @__PURE__ */ jsxs95("span", { className: "generate-batch-progress__meta", children: [
                           "+",
                           gen.progress.blocksCount ?? 0,
                           " \u0431\u043B\u043E\u043A\u043E\u0432"
                         ] })
                       ] }),
-                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
-                        /* @__PURE__ */ jsx97(MIcon, { name: "error", size: "sm" }),
-                        /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
-                        /* @__PURE__ */ jsx97("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
+                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs95(Fragment43, { children: [
+                        /* @__PURE__ */ jsx98(MIcon, { name: "error", size: "sm" }),
+                        /* @__PURE__ */ jsx98("span", { children: gen.progress.entityId }),
+                        /* @__PURE__ */ jsx98("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
                       ] }),
-                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
-                        /* @__PURE__ */ jsx97(MIcon, { name: "science", size: "sm" }),
-                        /* @__PURE__ */ jsx97("span", { children: "Preflight\u2026" })
+                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs95(Fragment43, { children: [
+                        /* @__PURE__ */ jsx98(MIcon, { name: "science", size: "sm" }),
+                        /* @__PURE__ */ jsx98("span", { children: "Preflight\u2026" })
                       ] })
                     ] })
                   ] }),
-                  gen.error && /* @__PURE__ */ jsxs94("div", { className: "generate-schema-error", children: [
+                  gen.error && /* @__PURE__ */ jsxs95("div", { className: "generate-schema-error", children: [
                     "\u041E\u0448\u0438\u0431\u043A\u0430: ",
                     gen.error
                   ] }),
-                  gen.result && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-summary", children: [
-                    /* @__PURE__ */ jsxs94("div", { className: "generate-batch-summary__stats", children: [
-                      /* @__PURE__ */ jsxs94("span", { className: "generate-batch-stat", children: [
+                  gen.result && /* @__PURE__ */ jsxs95("div", { className: "generate-batch-summary", children: [
+                    /* @__PURE__ */ jsxs95("div", { className: "generate-batch-summary__stats", children: [
+                      /* @__PURE__ */ jsxs95("span", { className: "generate-batch-stat", children: [
                         "\u0412\u0441\u0435\u0433\u043E: ",
-                        /* @__PURE__ */ jsx97("strong", { children: stats.total })
+                        /* @__PURE__ */ jsx98("strong", { children: stats.total })
                       ] }),
-                      /* @__PURE__ */ jsxs94("span", { className: "generate-batch-stat generate-batch-stat--ok", children: [
+                      /* @__PURE__ */ jsxs95("span", { className: "generate-batch-stat generate-batch-stat--ok", children: [
                         "\u0421 \u0431\u043B\u043E\u043A\u043E\u0432: ",
-                        /* @__PURE__ */ jsx97("strong", { children: stats.generated })
+                        /* @__PURE__ */ jsx98("strong", { children: stats.generated })
                       ] }),
-                      /* @__PURE__ */ jsxs94("span", { className: "generate-batch-stat generate-batch-stat--warn", children: [
+                      /* @__PURE__ */ jsxs95("span", { className: "generate-batch-stat generate-batch-stat--warn", children: [
                         "\u041F\u0443\u0441\u0442\u043E: ",
-                        /* @__PURE__ */ jsx97("strong", { children: stats.skipped })
+                        /* @__PURE__ */ jsx98("strong", { children: stats.skipped })
                       ] }),
-                      stats.failed > 0 && /* @__PURE__ */ jsxs94("span", { className: "generate-batch-stat generate-batch-stat--err", children: [
+                      stats.failed > 0 && /* @__PURE__ */ jsxs95("span", { className: "generate-batch-stat generate-batch-stat--err", children: [
                         "\u041E\u0448\u0438\u0431\u043E\u043A: ",
-                        /* @__PURE__ */ jsx97("strong", { children: stats.failed })
+                        /* @__PURE__ */ jsx98("strong", { children: stats.failed })
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsxs94("div", { className: "generate-batch-summary__preflight", children: [
-                      gen.result.combined.preflight.newIssues.length > 0 && /* @__PURE__ */ jsxs94("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
+                    /* @__PURE__ */ jsxs95("div", { className: "generate-batch-summary__preflight", children: [
+                      gen.result.combined.preflight.newIssues.length > 0 && /* @__PURE__ */ jsxs95("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
                         "\u26A0 ",
                         gen.result.combined.preflight.newIssues.length,
                         " \u043D\u043E\u0432\u044B\u0445 error"
                       ] }),
-                      gen.result.combined.preflight.newIssues.length === 0 && /* @__PURE__ */ jsx97("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
+                      gen.result.combined.preflight.newIssues.length === 0 && /* @__PURE__ */ jsx98("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
                     ] })
                   ] }),
-                  gen.result && /* @__PURE__ */ jsx97("div", { className: "generate-batch-rows", children: gen.result.results.map((r) => {
+                  gen.result && /* @__PURE__ */ jsx98("div", { className: "generate-batch-rows", children: gen.result.results.map((r) => {
                     if (r.error) {
-                      return /* @__PURE__ */ jsxs94("div", { className: "generate-batch-row generate-batch-row--err", children: [
-                        /* @__PURE__ */ jsx97("span", { className: "generate-batch-row__id", children: r.entityId }),
-                        /* @__PURE__ */ jsx97("span", { className: "generate-batch-row__msg", children: r.error })
+                      return /* @__PURE__ */ jsxs95("div", { className: "generate-batch-row generate-batch-row--err", children: [
+                        /* @__PURE__ */ jsx98("span", { className: "generate-batch-row__id", children: r.entityId }),
+                        /* @__PURE__ */ jsx98("span", { className: "generate-batch-row__msg", children: r.error })
                       ] }, r.entityId);
                     }
                     if (!r.result)
                       return null;
                     const n = r.result.blocks.length;
-                    return /* @__PURE__ */ jsxs94(
+                    return /* @__PURE__ */ jsxs95(
                       "div",
                       {
                         className: "generate-batch-row" + (n === 0 ? " generate-batch-row--skip" : ""),
                         children: [
-                          /* @__PURE__ */ jsx97("span", { className: "generate-batch-row__id", children: r.entityId }),
-                          /* @__PURE__ */ jsx97("span", { className: "generate-batch-row__msg", children: n === 0 ? r.result.skipped.length > 0 ? r.result.skipped[0].reason : "\u043D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" : `+${n} \u0431\u043B\u043E\u043A\u043E\u0432` })
+                          /* @__PURE__ */ jsx98("span", { className: "generate-batch-row__id", children: r.entityId }),
+                          /* @__PURE__ */ jsx98("span", { className: "generate-batch-row__msg", children: n === 0 ? r.result.skipped.length > 0 ? r.result.skipped[0].reason : "\u043D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" : `+${n} \u0431\u043B\u043E\u043A\u043E\u0432` })
                         ]
                       },
                       r.entityId
@@ -114273,10 +116249,10 @@ function GenerateBatchModal() {
                 ] })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs94("div", { className: "generate-schema-footer", children: [
-              /* @__PURE__ */ jsx97("div", { className: "generate-schema-preflight", children: options.replaceModified && /* @__PURE__ */ jsx97("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u27F3 preflight \u0441 replace-modified" }) }),
-              /* @__PURE__ */ jsxs94("div", { className: "generate-schema-actions", children: [
-                /* @__PURE__ */ jsx97(
+            /* @__PURE__ */ jsxs95("div", { className: "generate-schema-footer", children: [
+              /* @__PURE__ */ jsx98("div", { className: "generate-schema-preflight", children: options.replaceModified && /* @__PURE__ */ jsx98("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u27F3 preflight \u0441 replace-modified" }) }),
+              /* @__PURE__ */ jsxs95("div", { className: "generate-schema-actions", children: [
+                /* @__PURE__ */ jsx98(
                   "button",
                   {
                     className: "btn",
@@ -114284,7 +116260,7 @@ function GenerateBatchModal() {
                     children: "\u041E\u0442\u043C\u0435\u043D\u0430"
                   }
                 ),
-                /* @__PURE__ */ jsxs94(
+                /* @__PURE__ */ jsxs95(
                   "button",
                   {
                     className: "btn btn--primary",
@@ -114323,7 +116299,7 @@ var init_GenerateBatchModal = __esm({
 });
 
 // src/web/components/modals/WorkflowGraphModal.tsx
-import { useCallback as useCallback47, useEffect as useEffect67, useMemo as useMemo70, useState as useState69 } from "react";
+import { useCallback as useCallback48, useEffect as useEffect68, useMemo as useMemo70, useState as useState70 } from "react";
 import ReactFlow5, {
   Background as Background5,
   BackgroundVariant as BackgroundVariant5,
@@ -114335,7 +116311,7 @@ import ReactFlow5, {
   useReactFlow as useReactFlow5
 } from "reactflow";
 import dagre5 from "dagre";
-import { Fragment as Fragment43, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
+import { Fragment as Fragment44, jsx as jsx99, jsxs as jsxs96 } from "react/jsx-runtime";
 function WorkflowStatusNode({ data }) {
   const cls = ["workflow-node"];
   if (data.isInitial)
@@ -114349,17 +116325,17 @@ function WorkflowStatusNode({ data }) {
   const style = {};
   if (data.color)
     style.borderLeftColor = data.color;
-  return /* @__PURE__ */ jsxs95(Fragment43, { children: [
-    /* @__PURE__ */ jsx98(Handle5, { type: "target", position: Position5.Left, className: "workflow-handle" }),
-    /* @__PURE__ */ jsxs95("div", { className: cls.join(" "), style, children: [
-      /* @__PURE__ */ jsxs95("div", { className: "workflow-node__id", children: [
-        data.isInitial && /* @__PURE__ */ jsx98(MIcon, { name: "play_circle", size: "sm", title: "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
-        data.isFinal && /* @__PURE__ */ jsx98(MIcon, { name: "check_circle", size: "sm", title: "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
-        data.isWildcard ? /* @__PURE__ */ jsx98("span", { className: "workflow-node__wildcard", children: "*" }) : /* @__PURE__ */ jsx98("span", { children: data.statusId })
+  return /* @__PURE__ */ jsxs96(Fragment44, { children: [
+    /* @__PURE__ */ jsx99(Handle5, { type: "target", position: Position5.Left, className: "workflow-handle" }),
+    /* @__PURE__ */ jsxs96("div", { className: cls.join(" "), style, children: [
+      /* @__PURE__ */ jsxs96("div", { className: "workflow-node__id", children: [
+        data.isInitial && /* @__PURE__ */ jsx99(MIcon, { name: "play_circle", size: "sm", title: "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
+        data.isFinal && /* @__PURE__ */ jsx99(MIcon, { name: "check_circle", size: "sm", title: "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
+        data.isWildcard ? /* @__PURE__ */ jsx99("span", { className: "workflow-node__wildcard", children: "*" }) : /* @__PURE__ */ jsx99("span", { children: data.statusId })
       ] }),
-      data.name && data.name !== data.statusId && /* @__PURE__ */ jsx98("div", { className: "workflow-node__name", children: data.name })
+      data.name && data.name !== data.statusId && /* @__PURE__ */ jsx99("div", { className: "workflow-node__name", children: data.name })
     ] }),
-    /* @__PURE__ */ jsx98(Handle5, { type: "source", position: Position5.Right, className: "workflow-handle" })
+    /* @__PURE__ */ jsx99(Handle5, { type: "source", position: Position5.Right, className: "workflow-handle" })
   ] });
 }
 function layoutGraph3(nodes, edges, rankdir) {
@@ -114482,7 +116458,7 @@ function buildWorkflowGraph(dt, rankdir) {
 }
 function WorkflowGraphInner({ nodes, edges }) {
   const rf = useReactFlow5();
-  useEffect67(() => {
+  useEffect68(() => {
     if (nodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -114493,7 +116469,7 @@ function WorkflowGraphInner({ nodes, edges }) {
     }, 120);
     return () => clearTimeout(t);
   }, [nodes.length, edges.length, rf]);
-  return /* @__PURE__ */ jsxs95(
+  return /* @__PURE__ */ jsxs96(
     ReactFlow5,
     {
       nodes,
@@ -114507,9 +116483,9 @@ function WorkflowGraphInner({ nodes, edges }) {
       nodesConnectable: false,
       elementsSelectable: true,
       children: [
-        /* @__PURE__ */ jsx98(Background5, { variant: BackgroundVariant5.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx98(Controls5, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx98(
+        /* @__PURE__ */ jsx99(Background5, { variant: BackgroundVariant5.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx99(Controls5, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx99(
           MiniMap5,
           {
             position: "bottom-right",
@@ -114524,7 +116500,7 @@ function WorkflowGraphInner({ nodes, edges }) {
 }
 function WorkflowGraphModal() {
   const { index, loading, error } = useModelIndex();
-  const [rankdir, setRankdir] = useState69("LR");
+  const [rankdir, setRankdir] = useState70("LR");
   const target = useGraphStore((s) => s.workflowGraphTarget);
   const open2 = !!target;
   const dt = useMemo70(() => {
@@ -114539,15 +116515,15 @@ function WorkflowGraphModal() {
       return null;
     return buildWorkflowGraph(dt, rankdir);
   }, [dt, rankdir]);
-  useEffect67(() => {
+  useEffect68(() => {
     if (open2)
       setRankdir("LR");
   }, [target?.domainId, target?.dataTypeId]);
-  const close = useCallback47(
+  const close = useCallback48(
     () => useGraphStore.getState().setWorkflowGraphTarget(null),
     []
   );
-  useEffect67(() => {
+  useEffect68(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -114561,24 +116537,24 @@ function WorkflowGraphModal() {
   }, [open2, close]);
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx98(
+  return /* @__PURE__ */ jsx99(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 520 },
       onMouseDown: close,
-      children: /* @__PURE__ */ jsxs95(
+      children: /* @__PURE__ */ jsxs96(
         "div",
         {
           className: "help-modal workflow-graph-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs95("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs95("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx98(MIcon, { name: "conversion_path", size: "sm" }),
-                /* @__PURE__ */ jsx98("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432" }),
-                dt && /* @__PURE__ */ jsx98("span", { className: "help-modal__badge", children: dt.id }),
-                dt && dt.name !== dt.id && /* @__PURE__ */ jsx98(
+            /* @__PURE__ */ jsxs96("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs96("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx99(MIcon, { name: "conversion_path", size: "sm" }),
+                /* @__PURE__ */ jsx99("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432" }),
+                dt && /* @__PURE__ */ jsx99("span", { className: "help-modal__badge", children: dt.id }),
+                dt && dt.name !== dt.id && /* @__PURE__ */ jsx99(
                   "span",
                   {
                     style: {
@@ -114591,91 +116567,91 @@ function WorkflowGraphModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx98("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+              /* @__PURE__ */ jsx99("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
             ] }),
-            loading && /* @__PURE__ */ jsx98("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx98("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
-            error && /* @__PURE__ */ jsx98("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs95("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx99("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx99("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx99("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs96("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            !loading && !error && !dt && /* @__PURE__ */ jsx98("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-empty", children: [
+            !loading && !error && !dt && /* @__PURE__ */ jsx99("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs96("div", { className: "workflow-graph-empty", children: [
               "Workflow \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435 (\u0434\u043E\u043C\u0435\u043D ",
               target?.domainId,
               " / \u0442\u0438\u043F ",
               target?.dataTypeId,
               ")"
             ] }) }),
-            dt && dt.kind !== "Workflow" && /* @__PURE__ */ jsx98("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-empty", children: [
+            dt && dt.kind !== "Workflow" && /* @__PURE__ */ jsx99("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs96("div", { className: "workflow-graph-empty", children: [
               "\u0422\u0438\u043F \xAB",
               dt.id,
               "\xBB \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F Workflow (kind: ",
               dt.kind,
               ")"
             ] }) }),
-            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment43, { children: [
-              /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar", children: [
-                /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar__left", children: [
-                  /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat", children: [
-                    /* @__PURE__ */ jsx98("strong", { children: graph.statusCount }),
+            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs96(Fragment44, { children: [
+              /* @__PURE__ */ jsxs96("div", { className: "workflow-graph-toolbar", children: [
+                /* @__PURE__ */ jsxs96("div", { className: "workflow-graph-toolbar__left", children: [
+                  /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-stat", children: [
+                    /* @__PURE__ */ jsx99("strong", { children: graph.statusCount }),
                     " \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432"
                   ] }),
-                  /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat", children: [
-                    /* @__PURE__ */ jsx98("strong", { children: graph.transitionCount }),
+                  /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-stat", children: [
+                    /* @__PURE__ */ jsx99("strong", { children: graph.transitionCount }),
                     " \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432"
                   ] }),
-                  dt.initial && /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat workflow-graph-stat--initial", children: [
-                    /* @__PURE__ */ jsx98(MIcon, { name: "play_circle", size: "sm" }),
+                  dt.initial && /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-stat workflow-graph-stat--initial", children: [
+                    /* @__PURE__ */ jsx99(MIcon, { name: "play_circle", size: "sm" }),
                     "\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439: ",
-                    /* @__PURE__ */ jsx98("code", { children: dt.initial })
+                    /* @__PURE__ */ jsx99("code", { children: dt.initial })
                   ] }),
-                  dt.finals && dt.finals.length > 0 && /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat workflow-graph-stat--final", children: [
-                    /* @__PURE__ */ jsx98(MIcon, { name: "check_circle", size: "sm" }),
+                  dt.finals && dt.finals.length > 0 && /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-stat workflow-graph-stat--final", children: [
+                    /* @__PURE__ */ jsx99(MIcon, { name: "check_circle", size: "sm" }),
                     "\u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0445: ",
-                    /* @__PURE__ */ jsx98("strong", { children: dt.finals.length })
+                    /* @__PURE__ */ jsx99("strong", { children: dt.finals.length })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx98("div", { className: "workflow-graph-toolbar__right", children: /* @__PURE__ */ jsxs95("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx98("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs95(
+                /* @__PURE__ */ jsx99("div", { className: "workflow-graph-toolbar__right", children: /* @__PURE__ */ jsxs96("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx99("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs96(
                     "select",
                     {
                       value: rankdir,
                       onChange: (e) => setRankdir(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx98("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
-                        /* @__PURE__ */ jsx98("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
+                        /* @__PURE__ */ jsx99("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
+                        /* @__PURE__ */ jsx99("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
                       ]
                     }
                   )
                 ] }) })
               ] }),
-              /* @__PURE__ */ jsx98("div", { className: "workflow-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx98("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u044B" }) : graph.edges.length === 0 ? /* @__PURE__ */ jsx98("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B" }) : /* @__PURE__ */ jsx98(ReactFlowProvider5, { children: /* @__PURE__ */ jsx98(
+              /* @__PURE__ */ jsx99("div", { className: "workflow-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx99("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u044B" }) : graph.edges.length === 0 ? /* @__PURE__ */ jsx99("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B" }) : /* @__PURE__ */ jsx99(ReactFlowProvider5, { children: /* @__PURE__ */ jsx99(
                 WorkflowGraphInner,
                 {
                   nodes: graph.nodes,
                   edges: graph.edges
                 }
               ) }) }),
-              dt.description && /* @__PURE__ */ jsx98("div", { className: "workflow-graph-description", children: dt.description }),
-              /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-legend", children: [
-                /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx98("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--initial" }),
+              dt.description && /* @__PURE__ */ jsx99("div", { className: "workflow-graph-description", children: dt.description }),
+              /* @__PURE__ */ jsxs96("div", { className: "workflow-graph-legend", children: [
+                /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx99("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--initial" }),
                   "\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx98("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--final" }),
+                /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx99("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--final" }),
                   "\u043A\u043E\u043D\u0435\u0447\u043D\u044B\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx98("span", { className: "workflow-graph-legend__dot" }),
+                /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx99("span", { className: "workflow-graph-legend__dot" }),
                   "\u043E\u0431\u044B\u0447\u043D\u044B\u0439"
                 ] }),
-                graph.wildcardUsed && /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx98("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--wildcard", children: "*" }),
+                graph.wildcardUsed && /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx99("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--wildcard", children: "*" }),
                   "\u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u0438\u0437/\u0432 \u043B\u044E\u0431\u043E\u0439 \u0441\u0442\u0430\u0442\u0443\u0441"
                 ] }),
-                dt.workflowView && dt.workflowView.some((v) => v.color) && /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx98(MIcon, { name: "palette", size: "sm" }),
+                dt.workflowView && dt.workflowView.some((v) => v.color) && /* @__PURE__ */ jsxs96("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx99(MIcon, { name: "palette", size: "sm" }),
                   "\u0446\u0432\u0435\u0442 \u0441\u0442\u0430\u0442\u0443\u0441\u0430 \u2014 \u0438\u0437 workflowView"
                 ] })
               ] })
@@ -114700,7 +116676,7 @@ var init_WorkflowGraphModal = __esm({
 });
 
 // src/web/components/modals/PublishPreviewModal.tsx
-import { jsx as jsx99, jsxs as jsxs96 } from "react/jsx-runtime";
+import { jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
 function PublishPreviewModal() {
   const open2 = useGraphStore((s) => s.publishPreviewOpen);
   const data = useGraphStore((s) => s.publishPreviewData);
@@ -114710,95 +116686,130 @@ function PublishPreviewModal() {
     return null;
   const { serverVersion, localVersion, diff } = data;
   const hasBreaking = diff?.hasBreakingChanges;
-  return /* @__PURE__ */ jsx99("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs96("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs96("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs96("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx99(MIcon, { name: "cloud_upload", size: "sm" }),
-        /* @__PURE__ */ jsx99("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+  return /* @__PURE__ */ jsx100("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs97("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs97("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs97("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx100(MIcon, { name: "cloud_upload", size: "sm" }),
+        /* @__PURE__ */ jsx100("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
       ] }),
-      /* @__PURE__ */ jsx99("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+      /* @__PURE__ */ jsx100("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsxs96("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
-      /* @__PURE__ */ jsxs96("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
-        /* @__PURE__ */ jsxs96("div", { style: { flex: 1 }, children: [
-          /* @__PURE__ */ jsx99("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
-          /* @__PURE__ */ jsx99("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
+    /* @__PURE__ */ jsxs97("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
+      /* @__PURE__ */ jsxs97("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
+        /* @__PURE__ */ jsxs97("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx100("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
+          /* @__PURE__ */ jsx100("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
         ] }),
-        /* @__PURE__ */ jsx99(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
-        /* @__PURE__ */ jsxs96("div", { style: { flex: 1 }, children: [
-          /* @__PURE__ */ jsx99("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
-          /* @__PURE__ */ jsx99("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
+        /* @__PURE__ */ jsx100(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
+        /* @__PURE__ */ jsxs97("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx100("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
+          /* @__PURE__ */ jsx100("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
         ] })
       ] }),
-      hasBreaking && /* @__PURE__ */ jsxs96("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
-        /* @__PURE__ */ jsxs96("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
-          /* @__PURE__ */ jsx99(MIcon, { name: "warning", size: "sm" }),
+      hasBreaking && /* @__PURE__ */ jsxs97("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
+        /* @__PURE__ */ jsxs97("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
+          /* @__PURE__ */ jsx100(MIcon, { name: "warning", size: "sm" }),
           " \u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435! \u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F"
         ] }),
-        /* @__PURE__ */ jsxs96("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
+        /* @__PURE__ */ jsxs97("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
           "\u0421\u0435\u0440\u0432\u0435\u0440 \u043C\u043E\u0436\u0435\u0442 \u043E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044E \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439 ",
-          /* @__PURE__ */ jsx99("code", { children: "NotCompatible" }),
+          /* @__PURE__ */ jsx100("code", { children: "NotCompatible" }),
           ", \u0430 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0438 \u044D\u0442\u043E\u0439 \u0441\u0445\u0435\u043C\u044B (\u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B) \u043C\u043E\u0433\u0443\u0442 \u0441\u043B\u043E\u043C\u0430\u0442\u044C\u0441\u044F."
         ] })
       ] }),
-      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs96("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs96("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
+      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs97("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs97("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
           "\u{1F534} \u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.removedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx99("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx99("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
+        /* @__PURE__ */ jsx100("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx100("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
       ] }),
-      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs96("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs96("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
+      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs97("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs97("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
           "\u{1F7E2} \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.addedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx99("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx99("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
+        /* @__PURE__ */ jsx100("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx100("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
       ] }),
-      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs96("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs96("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
+      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs97("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs97("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
           "\u{1F7E1} \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.changedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx99("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs96("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
-          /* @__PURE__ */ jsx99("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
-          e.attributes.map((a) => /* @__PURE__ */ jsxs96("div", { style: { display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }, children: [
-            a.kind === "removed" && /* @__PURE__ */ jsxs96("span", { style: { color: "var(--danger)" }, children: [
-              "- ",
-              a.id,
-              " (",
-              a.typeA,
-              ")"
-            ] }),
-            a.kind === "added" && /* @__PURE__ */ jsxs96("span", { style: { color: "var(--success)" }, children: [
-              "+ ",
-              a.id,
-              " (",
-              a.typeB,
-              ")"
-            ] }),
-            a.kind === "changed" && /* @__PURE__ */ jsxs96("span", { style: { color: "var(--warning)" }, children: [
-              "~ ",
-              a.id,
-              ": ",
-              a.typeA,
-              " \u2192 ",
-              a.typeB
-            ] })
-          ] }, a.id))
+        /* @__PURE__ */ jsx100("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs97("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
+          /* @__PURE__ */ jsx100("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
+          e.attributes.map((a, i) => /* @__PURE__ */ jsxs97(
+            "div",
+            {
+              style: {
+                display: "flex",
+                gap: 8,
+                fontSize: 11,
+                fontFamily: "monospace",
+                color: "var(--text-400)",
+                marginTop: 2
+              },
+              children: [
+                a.kind === "removed" && /* @__PURE__ */ jsxs97("span", { style: { color: "var(--danger)" }, children: [
+                  "- ",
+                  a.id,
+                  " (",
+                  a.typeA,
+                  ")"
+                ] }),
+                a.kind === "added" && /* @__PURE__ */ jsxs97("span", { style: { color: "var(--success)" }, children: [
+                  "+ ",
+                  a.id,
+                  " (",
+                  a.typeB,
+                  ")"
+                ] }),
+                a.kind === "changed" && /* @__PURE__ */ jsxs97("span", { style: { color: "var(--warning)" }, children: [
+                  "~ ",
+                  a.id,
+                  ".",
+                  a.field,
+                  ": ",
+                  a.typeA || "\u2014",
+                  " \u2192 ",
+                  a.typeB || "\u2014"
+                ] })
+              ]
+            },
+            `${a.id}:${a.field}:${i}`
+          )),
+          e.inheritsChange && /* @__PURE__ */ jsxs97(
+            "div",
+            {
+              style: {
+                display: "flex",
+                gap: 8,
+                fontSize: 11,
+                fontFamily: "monospace",
+                color: "var(--danger)",
+                marginTop: 2
+              },
+              children: [
+                "~ inherits: ",
+                e.inheritsChange.from || "\u2014",
+                " \u2192 ",
+                e.inheritsChange.to || "\u2014"
+              ]
+            }
+          )
         ] }, e.id)) })
       ] }),
-      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs96("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
-        /* @__PURE__ */ jsx99(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
-        /* @__PURE__ */ jsx99("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs97("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
+        /* @__PURE__ */ jsx100(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
+        /* @__PURE__ */ jsx100("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs96("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
-      /* @__PURE__ */ jsx99("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
-      /* @__PURE__ */ jsx99(
+    /* @__PURE__ */ jsxs97("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
+      /* @__PURE__ */ jsx100("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+      /* @__PURE__ */ jsx100(
         "button",
         {
           className: "btn " + (hasBreaking ? "btn--danger" : "btn--primary"),
@@ -114822,36 +116833,36 @@ var init_PublishPreviewModal = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment44, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
+import { Fragment as Fragment45, jsx as jsx101, jsxs as jsxs98 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs97(Fragment44, { children: [
-    /* @__PURE__ */ jsx100(HoverTooltip, {}),
-    /* @__PURE__ */ jsx100(
+  return /* @__PURE__ */ jsxs98(Fragment45, { children: [
+    /* @__PURE__ */ jsx101(HoverTooltip, {}),
+    /* @__PURE__ */ jsx101(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx100(
+    /* @__PURE__ */ jsx101(
       HelpModal,
       {
         open: helpOpen,
         onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx100(
+    /* @__PURE__ */ jsx101(
       HotkeysModal,
       {
         open: hotkeysOpen,
         onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx100(
+    /* @__PURE__ */ jsx101(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -114859,7 +116870,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx100(
+    /* @__PURE__ */ jsx101(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -114867,7 +116878,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx100(
+    /* @__PURE__ */ jsx101(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -114875,10 +116886,10 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx100(TourOverlay, {}),
-    /* @__PURE__ */ jsx100(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx100(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx100(
+    /* @__PURE__ */ jsx101(TourOverlay, {}),
+    /* @__PURE__ */ jsx101(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx101(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx101(
       ContextMenu,
       {
         menu: contextMenu,
@@ -114886,7 +116897,7 @@ function AppModals(props) {
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx100(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx101(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -114901,36 +116912,36 @@ function AppModals(props) {
         } : void 0
       }
     ),
-    /* @__PURE__ */ jsx100(Snackbar, { snackbar }),
-    /* @__PURE__ */ jsx100(EntityGraphModal, {}),
-    /* @__PURE__ */ jsx100(ModelValidationModal, {}),
-    /* @__PURE__ */ jsx100(GlossaryModal, {}),
-    /* @__PURE__ */ jsx100(ModelDiffModal, {}),
-    /* @__PURE__ */ jsx100(EntitiesCatalogModal, {}),
-    /* @__PURE__ */ jsx100(AttributeFinderModal, {}),
-    /* @__PURE__ */ jsx100(EntityMatrixModal, {}),
-    /* @__PURE__ */ jsx100(AttributeMatrixModal, {}),
-    /* @__PURE__ */ jsx100(DomainSchemaModal, {}),
-    /* @__PURE__ */ jsx100(LintModal, {}),
-    /* @__PURE__ */ jsx100(MartinMetricsModal, {}),
-    /* @__PURE__ */ jsx100(DomainCompareModal, {}),
-    /* @__PURE__ */ jsx100(PiiModal, {}),
-    /* @__PURE__ */ jsx100(YamlViewerModal, {}),
-    /* @__PURE__ */ jsx100(GenerateSchemaModal, {}),
-    /* @__PURE__ */ jsx100(GenerateBatchModal, {}),
-    /* @__PURE__ */ jsx100(GeneratedManifestModal, {}),
-    /* @__PURE__ */ jsx100(WorkflowGraphModal, {}),
-    /* @__PURE__ */ jsx100(CheatsheetModal, {}),
-    /* @__PURE__ */ jsx100(PublishPreviewModal, {}),
-    /* @__PURE__ */ jsx100(HealthDashboardModal, {}),
-    /* @__PURE__ */ jsx100(DeletionSimulationModal, {}),
-    /* @__PURE__ */ jsx100(CreateDomainModal, {}),
-    /* @__PURE__ */ jsx100(DeleteDomainModal, {}),
-    /* @__PURE__ */ jsx100(ViewGraphModal, {}),
-    /* @__PURE__ */ jsx100(YamlFulltextSearchModal, {}),
-    /* @__PURE__ */ jsx100(GeneratedPreviewModal, {}),
-    /* @__PURE__ */ jsx100(ChangelogModal, {}),
-    /* @__PURE__ */ jsx100(Dialog, {})
+    /* @__PURE__ */ jsx101(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx101(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx101(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx101(GlossaryModal, {}),
+    /* @__PURE__ */ jsx101(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx101(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx101(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx101(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx101(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx101(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx101(LintModal, {}),
+    /* @__PURE__ */ jsx101(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx101(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx101(PiiModal, {}),
+    /* @__PURE__ */ jsx101(YamlViewerModal, {}),
+    /* @__PURE__ */ jsx101(GenerateSchemaModal, {}),
+    /* @__PURE__ */ jsx101(GenerateBatchModal, {}),
+    /* @__PURE__ */ jsx101(GeneratedManifestModal, {}),
+    /* @__PURE__ */ jsx101(WorkflowGraphModal, {}),
+    /* @__PURE__ */ jsx101(CheatsheetModal, {}),
+    /* @__PURE__ */ jsx101(PublishPreviewModal, {}),
+    /* @__PURE__ */ jsx101(HealthDashboardModal, {}),
+    /* @__PURE__ */ jsx101(DeletionSimulationModal, {}),
+    /* @__PURE__ */ jsx101(CreateDomainModal, {}),
+    /* @__PURE__ */ jsx101(DeleteDomainModal, {}),
+    /* @__PURE__ */ jsx101(ViewGraphModal, {}),
+    /* @__PURE__ */ jsx101(YamlFulltextSearchModal, {}),
+    /* @__PURE__ */ jsx101(GeneratedPreviewModal, {}),
+    /* @__PURE__ */ jsx101(ChangelogModal, {}),
+    /* @__PURE__ */ jsx101(Dialog, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -114967,15 +116978,15 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React77, { useCallback as useCallback48, useEffect as useEffect68, useMemo as useMemo71, useRef as useRef43 } from "react";
-import { jsx as jsx101, jsxs as jsxs98 } from "react/jsx-runtime";
+import React77, { useCallback as useCallback49, useEffect as useEffect69, useMemo as useMemo71, useRef as useRef44 } from "react";
+import { jsx as jsx102, jsxs as jsxs99 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const didInit = useRef43(false);
-  useEffect68(() => {
+  const didInit = useRef44(false);
+  useEffect69(() => {
     if (didInit.current)
       return;
     didInit.current = true;
@@ -115101,7 +117112,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback48(() => {
+  const handleResetAll = useCallback49(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -115114,7 +117125,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback48((path) => {
+  const startTour = useCallback49((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -115149,6 +117160,7 @@ function App() {
   const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
+  const cycleHighlight = useGraphStore((s) => s.cycleHighlight);
   const activeFiltersCount = useMemo71(() => {
     let c = 0;
     if (!filters.domain)
@@ -115183,8 +117195,8 @@ function App() {
     onlyInvalid,
     hiddenNodeIds
   ]);
-  return /* @__PURE__ */ jsxs98("div", { className: "app", children: [
-    /* @__PURE__ */ jsx101(
+  return /* @__PURE__ */ jsxs99("div", { className: "app", children: [
+    /* @__PURE__ */ jsx102(
       Sidebar,
       {
         healthMap,
@@ -115202,8 +117214,8 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs98("main", { className: "main", children: [
-      /* @__PURE__ */ jsx101(
+    /* @__PURE__ */ jsxs99("main", { className: "main", children: [
+      /* @__PURE__ */ jsx102(
         Toolbar,
         {
           counts,
@@ -115213,7 +117225,7 @@ function App() {
           totalEdgesCount: edges.length,
           activeFiltersCount,
           remoteInfo: REMOTE_INFO,
-          cycleHighlight: useGraphStore.getState().cycleHighlight,
+          cycleHighlight,
           ruleViolationsCount: ruleViolations.length,
           onFindCycles: () => document.dispatchEvent(new CustomEvent(EVT_FIND_CYCLES)),
           onStartPathFinder: () => {
@@ -115245,7 +117257,7 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx101(
+      /* @__PURE__ */ jsx102(
         GraphArea,
         {
           visibleNodes,
@@ -115267,7 +117279,7 @@ function App() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsx101(
+    /* @__PURE__ */ jsx102(
       AppModals,
       {
         commands,
@@ -115281,7 +117293,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback48(() => setToastVisible(false), []),
+        onToastClose: useCallback49(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast
@@ -115314,10 +117326,11 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx102 } from "react/jsx-runtime";
+import { jsx as jsx103 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
+    init_yaml_backup();
     function markFontsReady() {
       document.documentElement.classList.add("fonts-ready");
     }
@@ -115343,7 +117356,11 @@ var require_entry = __commonJS({
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx102(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx103(App, {}));
+    yamlBackups.cleanup(30).then((n) => {
+      if (n > 0)
+        console.log(`[idb] \u0443\u0434\u0430\u043B\u0435\u043D\u043E \u0441\u0442\u0430\u0440\u044B\u0445 \u0431\u044D\u043A\u0430\u043F\u043E\u0432: ${n}`);
+    }).catch((e) => console.warn("[idb] cleanup failed", e));
   }
 });
 export default require_entry();

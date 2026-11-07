@@ -48,34 +48,103 @@ export function compareSemVer(a: string, b: string): -1 | 0 | 1 {
   return 0;
 }
 
-export function suggestBump(diff: SemanticDiff): SemVerBump {
-  // Breaking: удалены сущности, домены, изменились атрибуты несовместимо
-  if (
-    diff.stats.entitiesRemoved > 0 ||
-    diff.stats.domainsRemoved > 0 ||
-    diff.stats.dataTypesRemoved > 0
-  ) {
-    return "major";
-  }
+export interface DiffBumpClassification {
+  level: SemVerBump;
+  reason: string;
+}
+
+/**
+ * Единое правило классификации SemVer-bump по SemanticDiff.
+ * Используется:
+ *   - suggestBump(diff)                         — только уровень
+ *   - computeVersionImpact(...)                — уровень + reason для диалога
+ *
+ * MAJOR: удаление сущностей/атрибутов/типов/доменов, смена dataType /
+ *        itemDataType / referenceEntity / itemReferenceEntity / inherits;
+ * MINOR: добавление сущностей/атрибутов/типов/миксинов/доменов;
+ * PATCH: прочие изменения (constraints, description, name, generic и т.д.).
+ *
+ * Возвращает null, если изменений нет.
+ */
+export function classifyDiffForBump(
+  diff: SemanticDiff,
+): DiffBumpClassification | null {
+  const s = diff.stats;
+
+  // ── MAJOR: удаление ──
+  const removals: string[] = [];
+  if (s.entitiesRemoved > 0) removals.push(`сущностей: ${s.entitiesRemoved}`);
+  if (s.attributesRemoved > 0)
+    removals.push(`атрибутов: ${s.attributesRemoved}`);
+  if (s.dataTypesRemoved > 0) removals.push(`типов: ${s.dataTypesRemoved}`);
+  if (s.domainsRemoved > 0) removals.push(`доменов: ${s.domainsRemoved}`);
+
+  // ── MAJOR: несовместимые изменения атрибутов / наследования ──
+  const breaking: string[] = [];
   for (const c of diff.entities.changed) {
-    // Удалённые атрибуты → major
-    if (c.attributesRemoved.length > 0) return "major";
-    // Изменение типа → major
     for (const a of c.attributesChanged) {
-      if ("dataType" in a.changes) return "major";
-      if ("referenceEntity" in a.changes) return "major";
+      if (a.changes.dataType) breaking.push(`${c.entityId}.${a.id}.dataType`);
+      if (a.changes.itemDataType)
+        breaking.push(`${c.entityId}.${a.id}.itemDataType`);
+      if (a.changes.referenceEntity)
+        breaking.push(`${c.entityId}.${a.id}.referenceEntity`);
+      if (a.changes.itemReferenceEntity)
+        breaking.push(`${c.entityId}.${a.id}.itemReferenceEntity`);
     }
+    if (c.inheritsChange) breaking.push(`${c.entityId}.inherits`);
   }
-  // Добавления → minor
-  if (
-    diff.stats.entitiesAdded > 0 ||
-    diff.stats.attributesAdded > 0 ||
-    diff.stats.dataTypesAdded > 0 ||
-    diff.stats.domainsAdded > 0
-  ) {
-    return "minor";
+
+  if (removals.length > 0 || breaking.length > 0) {
+    const parts: string[] = [];
+    if (removals.length > 0) parts.push(`удалено (${removals.join(", ")})`);
+    if (breaking.length > 0) {
+      const head = breaking.slice(0, 3).join(", ");
+      const suffix =
+        breaking.length > 3 ? `, …и ещё ${breaking.length - 3}` : "";
+      parts.push(`несовместимо изменено (${head}${suffix})`);
+    }
+    return { level: "major", reason: parts.join("; ") };
   }
-  return "patch";
+
+  // ── MINOR: добавление ──
+  const additions: string[] = [];
+  if (s.entitiesAdded > 0) additions.push(`сущностей: ${s.entitiesAdded}`);
+  if (s.attributesAdded > 0) additions.push(`атрибутов: ${s.attributesAdded}`);
+  if (s.dataTypesAdded > 0) additions.push(`типов: ${s.dataTypesAdded}`);
+  if (s.mixinsAdded > 0) additions.push(`миксинов: ${s.mixinsAdded}`);
+  if (s.domainsAdded > 0) additions.push(`доменов: ${s.domainsAdded}`);
+
+  if (additions.length > 0) {
+    return { level: "minor", reason: `добавлено (${additions.join(", ")})` };
+  }
+
+  // ── PATCH: остальное ──
+  const changes: string[] = [];
+  if (s.attributesChanged > 0)
+    changes.push(`атрибутов: ${s.attributesChanged}`);
+  if (s.entitiesChanged > 0) changes.push(`сущностей: ${s.entitiesChanged}`);
+  if (s.inheritanceChanged > 0)
+    changes.push(`наследования: ${s.inheritanceChanged}`);
+  if (s.mixinsRemoved > 0) changes.push(`миксинов: ${s.mixinsRemoved}`);
+  if ((s.genericChanged ?? 0) > 0) changes.push(`прочих: ${s.genericChanged}`);
+  if ((s.genericAdded ?? 0) > 0) changes.push(`generic+: ${s.genericAdded}`);
+  if ((s.genericRemoved ?? 0) > 0)
+    changes.push(`generic−: ${s.genericRemoved}`);
+  if (s.domainsChanged > 0) changes.push(`метаданных: ${s.domainsChanged}`);
+
+  if (changes.length > 0) {
+    return { level: "patch", reason: `изменено (${changes.join(", ")})` };
+  }
+
+  return null;
+}
+
+/**
+ * Рекомендованный уровень bump'а. Всегда что-то возвращает —
+ * если изменений нет, "patch" (совместимо с прежним контрактом).
+ */
+export function suggestBump(diff: SemanticDiff): SemVerBump {
+  return classifyDiffForBump(diff)?.level ?? "patch";
 }
 
 export function applyBump(version: string, bump: SemVerBump): string | null {

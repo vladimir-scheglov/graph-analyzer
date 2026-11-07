@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { yamlBackups } from './lib/storage/yaml-backup';
 
 // ============ Material Symbols: скрыть до готовности шрифта ============
 
@@ -42,3 +43,10 @@ const container = document.getElementById('root');
 if (!container) throw new Error('#root not found');
 
 createRoot(container).render(<App />);
+
+yamlBackups
+    .cleanup(30)
+    .then((n) => {
+        if (n > 0) console.log(`[idb] удалено старых бэкапов: ${n}`);
+    })
+    .catch((e) => console.warn("[idb] cleanup failed", e));

@@ -1,9 +1,20 @@
 import yaml from "js-yaml";
 
+export type AttrChangeField =
+  | "attribute"
+  | "dataType"
+  | "itemDataType"
+  | "referenceEntity"
+  | "itemReferenceEntity";
+
 export interface AttrChange {
   id: string;
-  typeA: string; // было
-  typeB: string; // стало
+  /** Что именно изменилось. Для added/removed — "attribute". */
+  field: AttrChangeField;
+  /** До (для added — ""). */
+  typeA: string;
+  /** После (для removed — ""). */
+  typeB: string;
   kind: "added" | "removed" | "changed";
 }
 
@@ -11,6 +22,8 @@ export interface EntityChange {
   id: string;
   name: string;
   attributes: AttrChange[];
+  /** Смена родительской сущности (breaking). null — родителя не было/нет. */
+  inheritsChange?: { from: string | null; to: string | null };
   isBreaking: boolean;
 }
 
@@ -77,7 +90,7 @@ export function computePublishDiff(
   // 3. Изменённые
   newMap.forEach((newE: any, id: string) => {
     const oldE = oldMap.get(id);
-    if (!oldE) return; // Уже обработали в добавленных
+    if (!oldE) return;
 
     const oldAttrs: any[] = Array.isArray(oldE.attributes)
       ? oldE.attributes
@@ -94,47 +107,104 @@ export function computePublishDiff(
     );
 
     const attrChanges: AttrChange[] = [];
-    let isBreaking = false;
+    let attrBreaking = false;
 
-    // Атрибуты: удалённые
+    // ── Удалённые ──
     oldAttrMap.forEach((a: any, aid: string) => {
-      if (!newAttrMap.has(aid)) {
-        attrChanges.push({
-          id: aid,
-          typeA: a.dataType || "String",
-          typeB: "",
-          kind: "removed",
-        });
-        isBreaking = true;
-      }
+      if (newAttrMap.has(aid)) return;
+      attrChanges.push({
+        id: aid,
+        field: "attribute",
+        typeA: a.dataType || "String",
+        typeB: "",
+        kind: "removed",
+      });
+      attrBreaking = true;
     });
 
-    // Атрибуты: добавленные и изменённые
+    // ── Добавленные + изменённые ──
     newAttrMap.forEach((a: any, aid: string) => {
       const oldA = oldAttrMap.get(aid);
       if (!oldA) {
         attrChanges.push({
           id: aid,
+          field: "attribute",
           typeA: "",
           typeB: a.dataType || "String",
           kind: "added",
         });
-      } else if (oldA.dataType !== a.dataType) {
+        return;
+      }
+
+      // Нормализуем undefined/null/"" → null, чтобы не ловить ложные
+      // изменения вида `undefined → null`.
+      const dtA = oldA.dataType || null;
+      const dtB = a.dataType || null;
+      if (dtA !== dtB) {
         attrChanges.push({
           id: aid,
-          typeA: oldA.dataType,
-          typeB: a.dataType,
+          field: "dataType",
+          typeA: dtA || "",
+          typeB: dtB || "",
           kind: "changed",
         });
-        isBreaking = true; // Смена типа атрибута — breaking change
+        attrBreaking = true;
+      }
+
+      const itemDtA = oldA.itemDataType || null;
+      const itemDtB = a.itemDataType || null;
+      if (itemDtA !== itemDtB) {
+        attrChanges.push({
+          id: aid,
+          field: "itemDataType",
+          typeA: itemDtA || "",
+          typeB: itemDtB || "",
+          kind: "changed",
+        });
+        attrBreaking = true;
+      }
+
+      const refA = oldA.referenceEntity || null;
+      const refB = a.referenceEntity || null;
+      if (refA !== refB) {
+        attrChanges.push({
+          id: aid,
+          field: "referenceEntity",
+          typeA: refA || "",
+          typeB: refB || "",
+          kind: "changed",
+        });
+        attrBreaking = true;
+      }
+
+      const itemRefA = oldA.itemReferenceEntity || null;
+      const itemRefB = a.itemReferenceEntity || null;
+      if (itemRefA !== itemRefB) {
+        attrChanges.push({
+          id: aid,
+          field: "itemReferenceEntity",
+          typeA: itemRefA || "",
+          typeB: itemRefB || "",
+          kind: "changed",
+        });
+        attrBreaking = true;
       }
     });
 
-    if (attrChanges.length > 0) {
+    // ── inherits ──
+    const inheritsA = typeof oldE.inherits === "string" ? oldE.inherits : null;
+    const inheritsB = typeof newE.inherits === "string" ? newE.inherits : null;
+    const inheritsChanged = inheritsA !== inheritsB;
+
+    if (attrChanges.length > 0 || inheritsChanged) {
+      const isBreaking = attrBreaking || inheritsChanged;
       result.changedEntities.push({
         id,
         name: newE.name || id,
         attributes: attrChanges,
+        inheritsChange: inheritsChanged
+          ? { from: inheritsA, to: inheritsB }
+          : undefined,
         isBreaking,
       });
       if (isBreaking) result.hasBreakingChanges = true;

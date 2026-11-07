@@ -9603,7 +9603,7 @@ export function registerMonacoProviders(monaco: any): void {
   );
 
   monaco.languages.registerCompletionItemProvider("yaml", {
-    triggerCharacters: [":","/", " ", ".", "-"],
+    triggerCharacters: [":", "/", " ", ".", "-"],
     provideCompletionItems: (model: any, position: any) => {
       if (!ctx.modelIndex) return { suggestions: [] };
       const Kind = monaco.languages.CompletionItemKind;
@@ -13393,70 +13393,70 @@ function scanEntities(
         });
       }
     }
+  }
 
-    // ============ 2.2. Системные имена ============
-    const seenForSystemId = new Set<string>();
-    for (const eb of entityBlocks) {
-      for (const a of eb.attrIdList) {
-        if (!SYSTEM_ATTRIBUTE_IDS.has(a.id)) continue;
-        const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
-        if (seenForSystemId.has(key)) continue;
-        seenForSystemId.add(key);
-        const line = lines[a.idLine - 1];
-        const startCol = line.indexOf(a.id) + 1;
-        markers.push({
-          severity: monaco.MarkerSeverity.Error,
-          message: `Идентификатор «${eb.id}.${a.id}» зарезервирован системным атрибутом. Выберите другое имя.`,
-          startLineNumber: a.idLine,
-          startColumn: startCol > 0 ? startCol : 1,
-          endLineNumber: a.idLine,
-          endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
-          source: "attribute-validator",
-        });
-      }
+  // ============ 2.2. Системные имена ============
+  const seenForSystemId = new Set<string>();
+  for (const eb of entityBlocks) {
+    for (const a of eb.attrIdList) {
+      if (!SYSTEM_ATTRIBUTE_IDS.has(a.id)) continue;
+      const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+      if (seenForSystemId.has(key)) continue;
+      seenForSystemId.add(key);
+      const line = lines[a.idLine - 1];
+      const startCol = line.indexOf(a.id) + 1;
+      markers.push({
+        severity: monaco.MarkerSeverity.Error,
+        message: `Идентификатор «${eb.id}.${a.id}» зарезервирован системным атрибутом. Выберите другое имя.`,
+        startLineNumber: a.idLine,
+        startColumn: startCol > 0 ? startCol : 1,
+        endLineNumber: a.idLine,
+        endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
+        source: "attribute-validator",
+      });
     }
+  }
 
-    // ============ 2.3. camelCase ============
-    const RE_ATTRIBUTE_CAMEL = /^[a-z][a-zA-Z0-9]*$/;
-    const seenForCamel = new Set<string>();
-    for (const eb of entityBlocks) {
-      for (const a of eb.attrIdList) {
-        if (RE_ATTRIBUTE_CAMEL.test(a.id)) continue;
-        const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
-        if (seenForCamel.has(key)) continue;
-        seenForCamel.add(key);
-        const lineText = lines[a.idLine - 1] || "";
-        const startCol = lineText.indexOf(a.id) + 1;
-        markers.push({
-          severity: monaco.MarkerSeverity.Warning,
-          message: `attribute.id «${eb.id}.${a.id}» не в camelCase (первая буква строчная, разделителей нет)`,
-          startLineNumber: a.idLine,
-          startColumn: startCol > 0 ? startCol : 1,
-          endLineNumber: a.idLine,
-          endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
-          source: "attribute-validator",
-        });
-      }
+  // ============ 2.3. camelCase ============
+  const RE_ATTRIBUTE_CAMEL = /^[a-z][a-zA-Z0-9]*$/;
+  const seenForCamel = new Set<string>();
+  for (const eb of entityBlocks) {
+    for (const a of eb.attrIdList) {
+      if (RE_ATTRIBUTE_CAMEL.test(a.id)) continue;
+      const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+      if (seenForCamel.has(key)) continue;
+      seenForCamel.add(key);
+      const lineText = lines[a.idLine - 1] || "";
+      const startCol = lineText.indexOf(a.id) + 1;
+      markers.push({
+        severity: monaco.MarkerSeverity.Warning,
+        message: `attribute.id «${eb.id}.${a.id}» не в camelCase (первая буква строчная, разделителей нет)`,
+        startLineNumber: a.idLine,
+        startColumn: startCol > 0 ? startCol : 1,
+        endLineNumber: a.idLine,
+        endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
+        source: "attribute-validator",
+      });
     }
+  }
 
-    // ============ 2.4. description ============
-    const seenForDescription = new Set<string>();
-    for (const eb of entityBlocks) {
-      for (const a of eb.attrIdList) {
-        if (a.description && a.description.trim()) continue;
-        const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
-        if (seenForDescription.has(key)) continue;
-        seenForDescription.add(key);
-        markers.push({
-          severity: monaco.MarkerSeverity.Info,
-          message: `у атрибута «${eb.id}.${a.id}» нет description`,
-          startLineNumber: a.idLine,
-          startColumn: 1,
-          endLineNumber: a.idLine,
-          endColumn: 1_000_000,
-          source: "attribute-validator",
-        });
-      }
+  // ============ 2.4. description ============
+  const seenForDescription = new Set<string>();
+  for (const eb of entityBlocks) {
+    for (const a of eb.attrIdList) {
+      if (a.description && a.description.trim()) continue;
+      const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+      if (seenForDescription.has(key)) continue;
+      seenForDescription.add(key);
+      markers.push({
+        severity: monaco.MarkerSeverity.Info,
+        message: `у атрибута «${eb.id}.${a.id}» нет description`,
+        startLineNumber: a.idLine,
+        startColumn: 1,
+        endLineNumber: a.idLine,
+        endColumn: 1_000_000,
+        source: "attribute-validator",
+      });
     }
   }
 }

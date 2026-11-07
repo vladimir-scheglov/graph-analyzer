@@ -2361,3 +2361,130 @@
     background: var(--accent-soft);
     border-radius: 4px;
 }
+/* ═══════════════════════════════════════════════════════════ */
+/*  Layout модалки: sidebar | canvas | inspector                */
+/* ═══════════════════════════════════════════════════════════ */
+
+.generated-preview-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;   /* ← ничего не вылезает за пределы body */
+}
+
+/* ── Canvas = breadcrumbs (сверху) + view (снизу) ── */
+.generated-preview-canvas {
+  flex: 1;
+  min-width: 0;       /* ← обязательно: иначе длинный breadcrumbs распирает */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;   /* ← фикс «сбоку от крошек» */
+  overflow: hidden;
+}
+
+/* ── Сам view: занимает остаток и скроллится внутри ── */
+.generated-preview-canvas > .preview-list,
+.generated-preview-canvas > .preview-card,
+.generated-preview-canvas > .generated-preview-empty {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  Breadcrumbs                                                 */
+/* ═══════════════════════════════════════════════════════════ */
+
+.generated-preview-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-800);
+  min-height: 34px;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;   /* ← обязательно */
+}
+
+.generated-preview-breadcrumbs__back {
+  flex-shrink: 0;     /* ← обязательно: не сжимается */
+  background: transparent;
+  border: none;
+  color: var(--text-400);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.generated-preview-breadcrumbs__back:hover:not(:disabled) {
+  background: var(--bg-750);
+  color: var(--text-100);
+}
+.generated-preview-breadcrumbs__back:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.generated-preview-breadcrumbs__trail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;                  /* ← обязательно */
+  overflow-x: auto;              /* ← скролл вместо распирания */
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.generated-preview-breadcrumbs__trail::-webkit-scrollbar {
+  height: 3px;
+}
+.generated-preview-breadcrumbs__trail::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.generated-preview-breadcrumbs__sep {
+  flex-shrink: 0;                /* ← обязательно */
+  color: var(--text-500);
+}
+
+.generated-preview-breadcrumbs__item {
+  flex-shrink: 0;                /* ← обязательно */
+  max-width: 200px;              /* ← обрезка длинных id */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  color: var(--accent-hover);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.generated-preview-breadcrumbs__item:hover {
+  background: var(--bg-750);
+}
+.generated-preview-breadcrumbs__item--current {
+  color: var(--text-200);
+  cursor: default;
+  background: var(--bg-750);
+}
+
+.generated-preview-breadcrumbs__kind {
+  flex-shrink: 0;                /* ← обязательно */
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-500);
+  background: var(--bg-750);
+}

@@ -87,13 +87,45 @@ export function PublishPreviewModal() {
                                 {diff.changedEntities.map((e: any) => (
                                     <div key={e.id} style={{ background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? 'var(--danger)' : 'var(--warning)'}` }}>
                                         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{e.id}</div>
-                                        {e.attributes.map((a: any) => (
-                                            <div key={a.id} style={{ display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }}>
-                                                {a.kind === "removed" && <span style={{ color: "var(--danger)" }}>- {a.id} ({a.typeA})</span>}
-                                                {a.kind === "added" && <span style={{ color: "var(--success)" }}>+ {a.id} ({a.typeB})</span>}
-                                                {a.kind === "changed" && <span style={{ color: "var(--warning)" }}>~ {a.id}: {a.typeA} → {a.typeB}</span>}
+                                        {e.attributes.map((a: any, i: number) => (
+                                            <div
+                                                key={`${a.id}:${a.field}:${i}`}
+                                                style={{
+                                                    display: "flex",
+                                                    gap: 8,
+                                                    fontSize: 11,
+                                                    fontFamily: "monospace",
+                                                    color: "var(--text-400)",
+                                                    marginTop: 2,
+                                                }}
+                                            >
+                                                {a.kind === "removed" && (
+                                                    <span style={{ color: "var(--danger)" }}>- {a.id} ({a.typeA})</span>
+                                                )}
+                                                {a.kind === "added" && (
+                                                    <span style={{ color: "var(--success)" }}>+ {a.id} ({a.typeB})</span>
+                                                )}
+                                                {a.kind === "changed" && (
+                                                    <span style={{ color: "var(--warning)" }}>
+                                                        ~ {a.id}.{a.field}: {a.typeA || "—"} → {a.typeB || "—"}
+                                                    </span>
+                                                )}
                                             </div>
                                         ))}
+                                        {e.inheritsChange && (
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    gap: 8,
+                                                    fontSize: 11,
+                                                    fontFamily: "monospace",
+                                                    color: "var(--danger)",
+                                                    marginTop: 2,
+                                                }}
+                                            >
+                                                ~ inherits: {e.inheritsChange.from || "—"} → {e.inheritsChange.to || "—"}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

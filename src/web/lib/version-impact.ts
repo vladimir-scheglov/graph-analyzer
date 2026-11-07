@@ -1,9 +1,9 @@
-// src/web/lib/version-impact.ts
 import yaml from "js-yaml";
 import { buildModelIndex } from "../../core/analyzer/model-builder";
 import { computeSemanticDiff } from "../../core/analyzer/semantic-diff";
 import type { ModelSnapshot, SemanticDiff } from "../../shared/model-types";
 import { createSnapshotFromModelIndex } from "../../core/analyzer/model-snapshot-pure";
+import { classifyDiffForBump } from "./model/changelog";
 
 export type VersionLevel = "major" | "minor" | "patch";
 
@@ -14,17 +14,15 @@ export interface VersionImpact {
 }
 
 export interface BumpSuggestion {
-  current: string; // "0.0.54"
-  suggested: string; // "0.1.0" / "1.0.0" / "0.0.55"
+  current: string;
+  suggested: string;
   level: VersionLevel;
   reason: string;
 }
 
-function parseSemver(v: string): {
-  major: number;
-  minor: number;
-  patch: number;
-} | null {
+function parseSemver(
+  v: string,
+): { major: number; minor: number; patch: number } | null {
   const m = v.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!m) return null;
   return {
@@ -34,11 +32,6 @@ function parseSemver(v: string): {
   };
 }
 
-/**
- * Поднимает SemVer-версию на уровень level.
- * Возвращает null, если v не чистый SemVer (pre-release/build) —
- * в этом случае bump надо делать вручную.
- */
 export function bumpVersion(v: string, level: VersionLevel): string | null {
   const p = parseSemver(v);
   if (!p) return null;
@@ -47,14 +40,6 @@ export function bumpVersion(v: string, level: VersionLevel): string | null {
   return `${p.major}.${p.minor}.${p.patch + 1}`;
 }
 
-/**
- * Собирает ModelSnapshot из одного YAML-домена. Используется только
- * для вычисления diff между двумя версиями одного файла.
- *
- * Кросс-доменные ссылки (FQID) локально не резолвятся — но они и не
- * участвуют в решении о bump: сущности/атрибуты/типы данных сравниваются
- * в пределах этого домена.
- */
 function buildSnapshotFromYaml(domainId: string, rawData: any): ModelSnapshot {
   const rawDomains = [
     {
@@ -71,33 +56,10 @@ function buildSnapshotFromYaml(domainId: string, rawData: any): ModelSnapshot {
 }
 
 /**
- * Есть ли среди changed-атрибутов изменение типа / target-сущности —
- * такие изменения ломают совместимость (данные не мигрируют, ссылки рвутся).
- */
-function hasBreakingAttributeChange(diff: SemanticDiff): boolean {
-  for (const changed of diff.entities.changed) {
-    for (const attr of changed.attributesChanged) {
-      if (
-        attr.changes.dataType ||
-        attr.changes.referenceEntity ||
-        attr.changes.itemDataType ||
-        attr.changes.itemReferenceEntity
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * Классифицирует изменения между двумя YAML-версиями по SemVer-уровню.
- *
- *   MAJOR — удаление сущностей / атрибутов / типов, смена типа атрибута;
- *   MINOR — добавление сущностей / атрибутов / типов / миксинов;
- *   PATCH — всё остальное (constraints, description, name, generic и т.д.).
- *
- * Возвращает null, если YAML не парсится или изменений нет.
+ * Классифицирует изменения между двумя YAML-версиями. Использует единое
+ * правило `classifyDiffForBump` (то же, что и `suggestBump` в changelog.ts) —
+ * поэтому CHANGELOG-модалка и диалог bump на публикации дают одинаковую
+ * рекомендацию. Возвращает null, если YAML не парсится или изменений нет.
  */
 export function computeVersionImpact(
   oldYaml: string,
@@ -127,68 +89,16 @@ export function computeVersionImpact(
     return null;
   }
 
-  const s = diff.stats;
+  const classification = classifyDiffForBump(diff);
+  if (!classification) return null;
 
-  // ============ MAJOR: удаление / несовместимые изменения ============
-  const removals: string[] = [];
-  if (s.entitiesRemoved > 0) removals.push(`сущностей: ${s.entitiesRemoved}`);
-  if (s.attributesRemoved > 0)
-    removals.push(`атрибутов: ${s.attributesRemoved}`);
-  if (s.dataTypesRemoved > 0) removals.push(`типов: ${s.dataTypesRemoved}`);
-
-  const breakingAttr = hasBreakingAttributeChange(diff);
-
-  if (removals.length > 0 || breakingAttr) {
-    const parts: string[] = [];
-    if (removals.length > 0) parts.push(`удалено (${removals.join(", ")})`);
-    if (breakingAttr) parts.push("изменён тип атрибута");
-    return { level: "major", reason: parts.join("; "), diff };
-  }
-
-  // ============ MINOR: добавление ============
-  const additions: string[] = [];
-  if (s.entitiesAdded > 0) additions.push(`сущностей: ${s.entitiesAdded}`);
-  if (s.attributesAdded > 0) additions.push(`атрибутов: ${s.attributesAdded}`);
-  if (s.dataTypesAdded > 0) additions.push(`типов: ${s.dataTypesAdded}`);
-  if (s.mixinsAdded > 0) additions.push(`миксинов: ${s.mixinsAdded}`);
-
-  if (additions.length > 0) {
-    return {
-      level: "minor",
-      reason: `добавлено (${additions.join(", ")})`,
-      diff,
-    };
-  }
-
-  // ============ PATCH: остальные изменения ============
-  const changes: string[] = [];
-  if (s.attributesChanged > 0)
-    changes.push(`атрибутов: ${s.attributesChanged}`);
-  if (s.entitiesChanged > 0) changes.push(`сущностей: ${s.entitiesChanged}`);
-  if (s.inheritanceChanged > 0)
-    changes.push(`наследования: ${s.inheritanceChanged}`);
-  if (s.mixinsRemoved > 0) changes.push(`миксинов: ${s.mixinsRemoved}`);
-  if ((s.genericChanged ?? 0) > 0) changes.push(`прочих: ${s.genericChanged}`);
-  if ((s.genericAdded ?? 0) > 0) changes.push(`generic+: ${s.genericAdded}`);
-  if ((s.genericRemoved ?? 0) > 0)
-    changes.push(`generic−: ${s.genericRemoved}`);
-  if (s.domainsChanged > 0) changes.push(`метаданных: ${s.domainsChanged}`);
-
-  if (changes.length > 0) {
-    return {
-      level: "patch",
-      reason: `изменено (${changes.join(", ")})`,
-      diff,
-    };
-  }
-
-  return null;
+  return {
+    level: classification.level,
+    reason: classification.reason,
+    diff,
+  };
 }
 
-/**
- * Возвращает предложение по bump версии, если он уместен.
- * currentVersion должно совпадать с версией в обоих YAML.
- */
 export function suggestVersionBump(
   currentVersion: string,
   oldYaml: string,

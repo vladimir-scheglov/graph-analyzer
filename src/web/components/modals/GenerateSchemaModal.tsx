@@ -31,6 +31,9 @@ import {
 import yaml from "js-yaml";  // уже используется в YamlViewerModal, безопасно
 import { findPayloadByBlockId } from "../../../core/analyzer/schema-generator/block-resolver";
 import { useYamlContent } from "../../hooks/useYamlContent";
+import { DomainContextCard } from "./DomainContextCard";
+import { availablePresetsForProfile, QuickPreset } from "./GenerateSchemaPresets";
+import { ProfileRecommendation, recommendProfile } from "./GenerateSchemaRecommendations";
 
 type Tab = "options" | "blocks" | "yaml" | "diff" | "skipped" | "issues";
 
@@ -264,6 +267,38 @@ export function GenerateSchemaModal() {
         scaffoldCreateMenuRoot: false,
         scaffoldCreateMedias: false,
     });
+
+    const [recommendationDismissed, setRecommendationDismissed] = useState(false);
+
+    const entityRecord = useMemo(() => {
+        if (!index || !entityId || !domainId) return null;
+        return index.entitiesByFqid[`${domainId}/${entityId}`.toLowerCase()] || null;
+    }, [index, entityId, domainId]);
+
+    const recommendation = useMemo(() => {
+        if (recommendationDismissed) return null;
+        return recommendProfile(entityRecord, index, domainId || "");
+    }, [recommendationDismissed, entityRecord, index, domainId]);
+
+    const availablePresets = useMemo(() => {
+        return availablePresetsForProfile(profile, {
+            index,
+            domainId: domainId || "",
+            entity: entityRecord,
+        });
+    }, [profile, index, domainId, entityRecord]);
+
+    const applyPreset = useCallback(
+        (preset: QuickPreset) => {
+            setProfile(preset.apply.profile);
+            setOptions((prev) => ({
+                ...prev,
+                ...preset.apply.options,
+            }));
+            setTab("blocks"); // сразу показать, что получилось
+        },
+        [],
+    );
 
     const yamlViewerOpen = useGraphStore((s) => s.yamlViewerOpen);
     const yamlViewerLocked = useGraphStore((s) => s.yamlViewerLocked);
@@ -712,6 +747,40 @@ export function GenerateSchemaModal() {
         sequences: { label: "Последовательности", icon: "linear_scale" },
     };
 
+    const [blockFilter, setBlockFilter] = useState<
+        "all" | "new" | "outdated" | "modified" | "orphaned"
+    >("all");
+    const [blockQuery, setBlockQuery] = useState("");
+
+    const filteredGroupedBlocks = useMemo(() => {
+        if (!gen.result) return [] as Array<[string, GeneratedBlock[]]>;
+        const status = gen.result.manifestStatus ?? {};
+        const q = blockQuery.trim().toLowerCase();
+
+        const matchFilter = (blockId: string) => {
+            if (blockFilter === "all") return true;
+            const st = status[blockId] ?? "new";
+            return st === blockFilter;
+        };
+
+        const matchQuery = (b: GeneratedBlock) => {
+            if (!q) return true;
+            const id = String(b.blockId ?? "").toLowerCase();
+            const title = String(b.title ?? "").toLowerCase();
+            const section = String(b.section ?? "").toLowerCase();
+            return id.includes(q) || title.includes(q) || section.includes(q);
+        };
+
+        const result: Array<[string, GeneratedBlock[]]> = [];
+        for (const [section, blocks] of groupedBlocks) {
+            const filtered = blocks.filter(
+                (b) => matchFilter(b.blockId) && matchQuery(b),
+            );
+            if (filtered.length > 0) result.push([section, filtered]);
+        }
+        return result;
+    }, [groupedBlocks, gen.result, blockFilter, blockQuery]);
+
     // --- yaml grouped ---
     const yamlSections = useMemo(() => {
         if (!gen.result) return [];
@@ -783,6 +852,36 @@ export function GenerateSchemaModal() {
         );
 
     const finalCanApply = canApply && !hasAmbiguousView;
+
+    const applySummary = useMemo(() => {
+        if (!gen.result) return null;
+        const status = gen.result.manifestStatus ?? {};
+        const counts: Record<string, number> = {};
+        let total = 0;
+        for (const b of gen.result.blocks as GeneratedBlock[]) {
+            if (!selected.has(b.blockId)) continue;
+            if (status[b.blockId] === "unchanged") continue;
+            if (dependentsMissing.has(b.blockId)) continue;
+            counts[b.section] = (counts[b.section] || 0) + 1;
+            total++;
+        }
+        return { total, bySection: counts };
+    }, [gen.result, selected, dependentsMissing]);
+
+    const SECTION_SHORT_LABELS: Record<string, string> = {
+        actions: "actions",
+        views: "views",
+        menus: "menus",
+        medias: "medias",
+        dataRules: "rules",
+        dataTypes: "types",
+        trees: "trees",
+        linkages: "linkages",
+        entities: "entities",
+        sequences: "seq",
+        transitiveLinkages: "transitive",
+        columns: "columns",
+    };
 
     const apply = useCallback(async () => {
         if (!gen.result || !domainId) return;
@@ -1046,6 +1145,175 @@ export function GenerateSchemaModal() {
                                 <li>В пакетной генерации включите «Создать корневое меню (root_group)», или</li>
                                 <li>Смените профиль на обычный <strong>CRUD</strong>.</li>
                             </ul>
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════════ */}
+                {/*  Domain context card                                        */}
+                {/* ═══════════════════════════════════════════════════════════ */}
+                <DomainContextCard domainId={domainId!} index={index} />
+
+                {/* ═══════════════════════════════════════════════════════════ */}
+                {/*  Smart recommendation                                       */}
+                {/* ═══════════════════════════════════════════════════════════ */}
+                {recommendation && recommendation.confidence !== "low" && (
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 12,
+                            padding: "12px 20px",
+                            borderBottom: "1px solid var(--border)",
+                            background:
+                                recommendation.confidence === "high"
+                                    ? "rgba(16,185,129,0.06)"
+                                    : "rgba(99,102,241,0.06)",
+                            borderLeft:
+                                recommendation.confidence === "high"
+                                    ? "3px solid var(--success)"
+                                    : "3px solid var(--accent)",
+                        }}
+                    >
+                        <MIcon
+                            name="lightbulb"
+                            size="sm"
+                            style={{ color: "var(--accent-hover)", marginTop: 2 }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                                style={{
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    color: "var(--text-100)",
+                                    marginBottom: 4,
+                                }}
+                            >
+                                Рекомендуем: {getProfileInfo(recommendation.profileId)?.label || recommendation.profileId}
+                            </div>
+                            <div
+                                style={{
+                                    fontSize: 12,
+                                    color: "var(--text-400)",
+                                    marginBottom: recommendation.hints.length > 0 ? 6 : 0,
+                                }}
+                            >
+                                {recommendation.reason}
+                            </div>
+                            {recommendation.hints.length > 0 && (
+                                <ul
+                                    style={{
+                                        margin: 0,
+                                        paddingLeft: 18,
+                                        fontSize: 11,
+                                        color: "var(--text-500)",
+                                    }}
+                                >
+                                    {recommendation.hints.map((h, i) => (
+                                        <li key={i}>{h}</li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "flex-end",
+                                gap: 6,
+                            }}
+                        >
+                            {profile !== recommendation.profileId ? (
+                                <button
+                                    className="btn btn--small btn--primary"
+                                    onClick={() => {
+                                        setProfile(recommendation.profileId);
+                                        setTab("options");
+                                    }}
+                                >
+                                    Применить
+                                </button>
+                            ) : (
+                                <span
+                                    style={{
+                                        fontSize: 11,
+                                        color: "var(--success)",
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    ✓ применено
+                                </span>
+                            )}
+                            <button
+                                onClick={() => setRecommendationDismissed(true)}
+                                title="Скрыть"
+                                style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    color: "var(--text-500)",
+                                    cursor: "pointer",
+                                    padding: 0,
+                                    fontSize: 12,
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════════ */}
+                {/*  Quick presets                                              */}
+                {/* ═══════════════════════════════════════════════════════════ */}
+                {availablePresets.length > 0 && (
+                    <div
+                        style={{
+                            padding: "10px 20px",
+                            borderBottom: "1px solid var(--border)",
+                            background: "var(--bg-800)",
+                        }}
+                    >
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11,
+                                color: "var(--text-500)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: 8,
+                            }}
+                        >
+                            <MIcon name="bolt" size="sm" />
+                            <span>Быстрые сценарии</span>
+                        </div>
+                        <div
+                            style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 8,
+                            }}
+                        >
+                            {availablePresets.map((p) => (
+                                <button
+                                    key={p.id}
+                                    type="button"
+                                    className="btn btn--small"
+                                    onClick={() => applyPreset(p)}
+                                    title={p.description}
+                                    style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        padding: "4px 12px",
+                                        fontSize: 12,
+                                    }}
+                                >
+                                    <MIcon name={p.icon} size="sm" />
+                                    <span>{p.label}</span>
+                                </button>
+                            ))}
                         </div>
                     </div>
                 )}
@@ -2494,6 +2762,70 @@ export function GenerateSchemaModal() {
                                     </div>
                                 </div>
                             )}
+
+                            {gen.result && selected.size > 0 && (
+                                <div className="generate-schema-block-group">
+                                    <div className="generate-schema-block-group__title">
+                                        <MIcon name="visibility" size="sm" />
+                                        Что будет создано
+                                    </div>
+                                    <div className="generate-schema-mini-preview">
+                                        {(() => {
+                                            const counts: Record<string, number> = {};
+                                            for (const b of gen.result.blocks as GeneratedBlock[]) {
+                                                if (!selected.has(b.blockId)) continue;
+                                                counts[b.section] = (counts[b.section] || 0) + 1;
+                                            }
+                                            return Object.entries(counts).map(([section, n]) => {
+                                                const meta: Record<string, { icon: string; label: string }> = {
+                                                    actions: { icon: "bolt", label: "действий" },
+                                                    views: { icon: "view_quilt", label: "представлений" },
+                                                    groups: { icon: "view_module", label: "групп" },
+                                                    widgets: { icon: "widgets", label: "виджетов" },
+                                                    menus: { icon: "menu", label: "пунктов меню" },
+                                                    medias: { icon: "image", label: "иконок" },
+                                                    dataRules: { icon: "rule", label: "правил данных" },
+                                                    dataTypes: { icon: "category", label: "типов данных" },
+                                                    trees: { icon: "account_tree", label: "деревьев" },
+                                                    columns: { icon: "view_column", label: "колонок" },
+                                                    linkages: { icon: "link", label: "связей" },
+                                                    entities: { icon: "data_object", label: "сущностей" },
+                                                    sequences: { icon: "linear_scale", label: "последовательностей" },
+                                                    transitiveLinkages: { icon: "conversion_path", label: "транзитивных связей" },
+                                                };
+                                                const m = meta[section] || { icon: "circle", label: section };
+                                                return (
+                                                    <div key={section} className="generate-schema-mini-preview__item">
+                                                        <MIcon name={m.icon} size="sm" />
+                                                        <strong>+{n}</strong>
+                                                        <span>{m.label}</span>
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
+                                        <button
+                                            className="btn btn--small"
+                                            onClick={() => {
+                                                const blocksToPreview = (gen.result?.blocks as GeneratedBlock[]).filter(
+                                                    (b) => selected.has(b.blockId),
+                                                );
+                                                if (blocksToPreview.length === 0) return;
+                                                const st = useGraphStore.getState();
+                                                st.setGeneratedPreviewData({
+                                                    blocks: blocksToPreview,
+                                                    entityId: entityId || null,
+                                                    domainId: domainId || null,
+                                                });
+                                                st.setGeneratedPreviewOpen(true);
+                                            }}
+                                            style={{ marginLeft: "auto" }}
+                                        >
+                                            <MIcon name="visibility" size="sm" />
+                                            Превью UI
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -2508,158 +2840,143 @@ export function GenerateSchemaModal() {
                     {tab === "blocks" && (entityId || isDomainScope) && (
                         <div className="generate-schema-blocks">
                             {gen.loading && (
-                                <div className="generate-schema-loading">
-                                    Генерация…
-                                </div>
+                                <div className="generate-schema-loading">Генерация…</div>
                             )}
                             {gen.error && (
-                                <div className="generate-schema-error">
-                                    Ошибка: {gen.error}
+                                <div className="generate-schema-error">Ошибка: {gen.error}</div>
+                            )}
+
+                            {!gen.loading && !gen.error && gen.result && groupedBlocks.length === 0 && (
+                                <div className="generate-schema-empty">
+                                    Нечего генерировать — всё уже есть
                                 </div>
                             )}
-                            {!gen.loading &&
-                                !gen.error &&
-                                gen.result &&
-                                groupedBlocks.length === 0 && (
-                                    <div className="generate-schema-empty">
-                                        Нечего генерировать — всё уже есть
-                                    </div>
-                                )}
 
-                            {!gen.loading &&
-                                !gen.error &&
-                                groupedBlocks.map(([sectionKey, blocks]) => {
-                                    const meta = sectionLabels[sectionKey] || {
-                                        label: sectionKey,
-                                        icon: "folder",
-                                    };
-                                    const key = `sect-${sectionKey}`;
-                                    const isCollapsed = collapsed.has(key);
-                                    const selectedCount = blocks.filter((b) =>
-                                        selected.has(b.blockId),
-                                    ).length;
+                            {!gen.loading && !gen.error && gen.result && groupedBlocks.length > 0 && (
+                                <>
+                                    <BlockToolbar
+                                        blocks={gen.result.blocks as GeneratedBlock[]}
+                                        manifestStatus={gen.result.manifestStatus ?? {}}
+                                        filter={blockFilter}
+                                        onFilterChange={setBlockFilter}
+                                        query={blockQuery}
+                                        onQueryChange={setBlockQuery}
+                                    />
 
-                                    return (
-                                        <div
-                                            key={key}
-                                            className={
-                                                "generate-schema-section" +
-                                                (isCollapsed
-                                                    ? " generate-schema-section--collapsed"
-                                                    : "")
-                                            }
-                                        >
-                                            <button
-                                                className="generate-schema-section-head"
-                                                onClick={() =>
-                                                    toggleSection(key)
+                                    {filteredGroupedBlocks.length === 0 && (
+                                        <div className="generate-schema-empty">
+                                            {blockQuery.trim()
+                                                ? `По запросу «${blockQuery.trim()}» блоков не найдено`
+                                                : blockFilter !== "all"
+                                                    ? "Нет блоков с выбранным статусом"
+                                                    : "Нет блоков"}
+                                        </div>
+                                    )}
+
+                                    {filteredGroupedBlocks.map(([sectionKey, blocks]) => {
+                                        const meta = sectionLabels[sectionKey] || {
+                                            label: sectionKey,
+                                            icon: "folder",
+                                        };
+                                        const key = `sect-${sectionKey}`;
+                                        const isCollapsed = collapsed.has(key);
+                                        const selectedCount = blocks.filter((b) =>
+                                            selected.has(b.blockId),
+                                        ).length;
+
+                                        return (
+                                            <div
+                                                key={key}
+                                                className={
+                                                    "generate-schema-section" +
+                                                    (isCollapsed
+                                                        ? " generate-schema-section--collapsed"
+                                                        : "")
                                                 }
                                             >
-                                                <MIcon
-                                                    name={
-                                                        isCollapsed
-                                                            ? "chevron_right"
-                                                            : "expand_more"
-                                                    }
-                                                    size="sm"
-                                                />
-                                                <MIcon
-                                                    name={meta.icon}
-                                                    size="sm"
-                                                />
-                                                <span>{meta.label}</span>
-                                                <span className="generate-schema-section-count">
-                                                    {selectedCount} / {blocks.length}
-                                                </span>
-                                            </button>
-                                            {!isCollapsed &&
-                                                blocks.map((b) => {
-                                                    const isSelected =
-                                                        selected.has(b.blockId);
-                                                    const hasMissingDep =
-                                                        dependentsMissing.has(
-                                                            b.blockId,
-                                                        );
-                                                    const st =
-                                                        gen.result?.manifestStatus?.[
-                                                        b.blockId
-                                                        ];
-                                                    return (
-                                                        <label
-                                                            key={b.blockId}
-                                                            className={
-                                                                "generate-schema-block" +
-                                                                (hasMissingDep
-                                                                    ? " generate-schema-block--warn"
-                                                                    : "") +
-                                                                (st
-                                                                    ? ` generate-schema-block--${st}`
-                                                                    : "")
-                                                            }
-                                                            title={b.title}
-                                                        >
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={
-                                                                    isSelected
+                                                <button
+                                                    className="generate-schema-section-head"
+                                                    onClick={() => toggleSection(key)}
+                                                >
+                                                    <MIcon
+                                                        name={isCollapsed ? "chevron_right" : "expand_more"}
+                                                        size="sm"
+                                                    />
+                                                    <MIcon name={meta.icon} size="sm" />
+                                                    <span>{meta.label}</span>
+                                                    <span className="generate-schema-section-count">
+                                                        {selectedCount} / {blocks.length}
+                                                    </span>
+                                                </button>
+                                                {!isCollapsed &&
+                                                    blocks.map((b) => {
+                                                        const isSelected = selected.has(b.blockId);
+                                                        const hasMissingDep = dependentsMissing.has(b.blockId);
+                                                        const st = gen.result?.manifestStatus?.[b.blockId];
+                                                        return (
+                                                            <label
+                                                                key={b.blockId}
+                                                                className={
+                                                                    "generate-schema-block" +
+                                                                    (hasMissingDep
+                                                                        ? " generate-schema-block--warn"
+                                                                        : "") +
+                                                                    (st ? ` generate-schema-block--${st}` : "")
                                                                 }
-                                                                onChange={() =>
-                                                                    toggleBlock(
-                                                                        b.blockId,
-                                                                    )
-                                                                }
-                                                            />
-                                                            <MIcon
-                                                                name={iconForBlock(
-                                                                    b,
-                                                                )}
-                                                                size="sm"
-                                                            />
-                                                            <span className="generate-schema-block-title">
-                                                                {b.title}
-                                                            </span>
-                                                            <code className="generate-schema-block-id">
-                                                                {b.blockId}
-                                                            </code>
-                                                            {st === "modified" && (
-                                                                <button
-                                                                    type="button"
-                                                                    className={
-                                                                        "generate-schema-force-replace-btn" +
-                                                                        (forceReplaceIds.has(b.blockId) ? " active" : "")
-                                                                    }
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        e.preventDefault();
-                                                                        toggleForceReplace(b.blockId);
-                                                                    }}
-                                                                    title={
-                                                                        forceReplaceIds.has(b.blockId)
-                                                                            ? "Блок будет перезаписан (ручные правки потеряются)"
-                                                                            : "Перезаписать этот блок сгенерированным (ручные правки потеряются)"
-                                                                    }
-                                                                >
-                                                                    <MIcon name="undo" size="sm" />
-                                                                </button>
-                                                            )}
-                                                            {statusBadge(st)}
-                                                            {hasMissingDep && (
-                                                                <span
-                                                                    className="generate-schema-block-warn"
-                                                                    title="Снята зависимость"
-                                                                >
-                                                                    <MIcon
-                                                                        name="warning"
-                                                                        size="sm"
-                                                                    />
+                                                                title={b.title}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isSelected}
+                                                                    onChange={() => toggleBlock(b.blockId)}
+                                                                />
+                                                                <MIcon name={iconForBlock(b)} size="sm" />
+                                                                <span className="generate-schema-block-title">
+                                                                    {b.title}
                                                                 </span>
-                                                            )}
-                                                        </label>
-                                                    );
-                                                })}
-                                        </div>
-                                    );
-                                })}
+                                                                <code className="generate-schema-block-id">
+                                                                    {b.blockId}
+                                                                </code>
+                                                                {st === "modified" && (
+                                                                    <button
+                                                                        type="button"
+                                                                        className={
+                                                                            "generate-schema-force-replace-btn" +
+                                                                            (forceReplaceIds.has(b.blockId)
+                                                                                ? " active"
+                                                                                : "")
+                                                                        }
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            e.preventDefault();
+                                                                            toggleForceReplace(b.blockId);
+                                                                        }}
+                                                                        title={
+                                                                            forceReplaceIds.has(b.blockId)
+                                                                                ? "Блок будет перезаписан (ручные правки потеряются)"
+                                                                                : "Перезаписать этот блок сгенерированным (ручные правки потеряются)"
+                                                                        }
+                                                                    >
+                                                                        <MIcon name="undo" size="sm" />
+                                                                    </button>
+                                                                )}
+                                                                {statusBadge(st)}
+                                                                {hasMissingDep && (
+                                                                    <span
+                                                                        className="generate-schema-block-warn"
+                                                                        title="Снята зависимость"
+                                                                    >
+                                                                        <MIcon name="warning" size="sm" />
+                                                                    </span>
+                                                                )}
+                                                            </label>
+                                                        );
+                                                    })}
+                                            </div>
+                                        );
+                                    })}
+                                </>
+                            )}
                         </div>
                     )}
 
@@ -3021,7 +3338,17 @@ export function GenerateSchemaModal() {
                                                                 : undefined
                             }
                         >
-                            Применить ({selected.size - dependentsMissing.size})
+                            Применить
+                            {applySummary && applySummary.total > 0 && (
+                                <>
+                                    {" "}
+                                    <span className="generate-schema-apply-summary">
+                                        {Object.entries(applySummary.bySection)
+                                            .map(([sec, n]) => `+${n} ${SECTION_SHORT_LABELS[sec] || sec}`)
+                                            .join(", ")}
+                                    </span>
+                                </>
+                            )}
                         </button>
                     </div>
                 </div>
@@ -3097,4 +3424,218 @@ function dumpYaml(payload: unknown): string {
     } catch {
         return "/* ошибка сериализации */";
     }
+}
+
+function RecommendationBanner({
+    rec,
+    currentProfile,
+    onApply,
+    onDismiss,
+}: {
+    rec: ProfileRecommendation;
+    currentProfile: string;
+    onApply: () => void;
+    onDismiss: () => void;
+}) {
+    const profileInfo = getProfileInfo(rec.profileId);
+    const alreadyApplied = currentProfile === rec.profileId;
+    return (
+        <div
+            className={
+                "generate-schema-recommendation generate-schema-recommendation--" +
+                rec.confidence
+            }
+        >
+            <MIcon name="lightbulb" size="sm" />
+            <div className="generate-schema-recommendation__body">
+                <div className="generate-schema-recommendation__title">
+                    Рекомендуем: {profileInfo?.label || rec.profileId}
+                </div>
+                <div className="generate-schema-recommendation__reason">
+                    {rec.reason}
+                </div>
+                {rec.hints.length > 0 && (
+                    <ul className="generate-schema-recommendation__hints">
+                        {rec.hints.map((h, i) => (
+                            <li key={i}>{h}</li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+            <div className="generate-schema-recommendation__actions">
+                {!alreadyApplied && (
+                    <button
+                        className="btn btn--small btn--primary"
+                        onClick={onApply}
+                    >
+                        Применить
+                    </button>
+                )}
+                {alreadyApplied && (
+                    <span className="generate-schema-recommendation__applied">
+                        ✓ применено
+                    </span>
+                )}
+                <button
+                    className="generate-schema-recommendation__dismiss"
+                    onClick={onDismiss}
+                    title="Скрыть"
+                >
+                    ✕
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function BlockToolbar({
+    blocks,
+    manifestStatus,
+    filter,
+    onFilterChange,
+    query,
+    onQueryChange,
+}: {
+    blocks: GeneratedBlock[];
+    manifestStatus: Record<string, string>;
+    filter: "all" | "new" | "outdated" | "modified" | "orphaned";
+    onFilterChange: (f: any) => void;
+    query: string;
+    onQueryChange: (q: string) => void;
+}) {
+    // Сначала фильтруем по query — только потом считаем статусы.
+    const filteredByQuery = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return blocks;
+        return blocks.filter((b) => {
+            const id = String(b.blockId ?? "").toLowerCase();
+            const title = String(b.title ?? "").toLowerCase();
+            const section = String(b.section ?? "").toLowerCase();
+            return id.includes(q) || title.includes(q) || section.includes(q);
+        });
+    }, [blocks, query]);
+
+    const counts = useMemo(() => {
+        const c = {
+            all: filteredByQuery.length,
+            new: 0,
+            outdated: 0,
+            modified: 0,
+            orphaned: 0,
+        };
+        for (const b of filteredByQuery) {
+            const st = (manifestStatus[b.blockId] ?? "new") as keyof typeof c;
+            if (st in c) (c as any)[st]++;
+        }
+        return c;
+    }, [filteredByQuery, manifestStatus]);
+
+    const items = [
+        { id: "all" as const, label: "Все", count: counts.all },
+        { id: "new" as const, label: "Новые", count: counts.new },
+        { id: "outdated" as const, label: "Устаревшие", count: counts.outdated },
+        { id: "modified" as const, label: "Изменённые", count: counts.modified },
+        { id: "orphaned" as const, label: "Восстановить", count: counts.orphaned },
+    ];
+
+    return (
+        <div
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                padding: "10px 16px",
+                borderBottom: "1px solid var(--border)",
+                background: "var(--bg-800)",
+                position: "sticky",
+                top: 0,
+                zIndex: 5,
+            }}
+        >
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 8px",
+                    background: "var(--bg-750)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                }}
+            >
+                <MIcon name="search" size="sm" style={{ color: "var(--text-500)" }} />
+                <input
+                    type="text"
+                    placeholder="Поиск по id или title…"
+                    value={query}
+                    onChange={(e) => onQueryChange(e.target.value)}
+                    spellCheck={false}
+                    style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: "var(--text-200)",
+                        fontSize: 12,
+                    }}
+                />
+                {query && (
+                    <button
+                        onClick={() => onQueryChange("")}
+                        title="Очистить"
+                        style={{
+                            background: "transparent",
+                            border: "none",
+                            color: "var(--text-500)",
+                            cursor: "pointer",
+                            padding: 0,
+                            fontSize: 12,
+                        }}
+                    >
+                        ✕
+                    </button>
+                )}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {items.map((it) => {
+                    if (it.id !== "all" && it.count === 0) return null;
+                    const active = filter === it.id;
+                    return (
+                        <button
+                            key={it.id}
+                            type="button"
+                            onClick={() => onFilterChange(it.id)}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                padding: "3px 10px",
+                                borderRadius: 12,
+                                background: active
+                                    ? "var(--accent-soft)"
+                                    : "var(--bg-750)",
+                                border: "1px solid " +
+                                    (active ? "var(--accent)" : "var(--border)"),
+                                color: active
+                                    ? "var(--accent-hover)"
+                                    : "var(--text-400)",
+                                fontSize: 11,
+                                cursor: "pointer",
+                            }}
+                        >
+                            {it.label}
+                            <span
+                                style={{
+                                    fontFamily: "JetBrains Mono, monospace",
+                                    opacity: 0.7,
+                                }}
+                            >
+                                {it.count}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }

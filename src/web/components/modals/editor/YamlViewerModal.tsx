@@ -71,6 +71,7 @@ import {
     type FilteredRow,
     SectionIssueStats,
 } from "./YamlViewerNavPanel";
+import { yamlBackups } from '../../../lib/storage/yaml-backup';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -436,8 +437,6 @@ export function YamlViewerModal() {
 
     // ============ Эффект A: резолв бэкапа ============
     useEffect(() => {
-        // Закрытие модалки — сбрасываем, чтобы при следующем открытии резолв
-        // прошёл заново.
         if (!open) {
             resolvedKeyRef.current = null;
             setBackupResolved(false);
@@ -452,74 +451,63 @@ export function YamlViewerModal() {
             return;
         }
 
-        // Контент ещё не загрузился, а бэкап уже есть — ждём реальный fetchedContent.
-        // Без этой защиты пустой fetchedContent убивает бэкап по несовпадению hash
-        // (баг, из-за которого диалог не появлялся).
-        const hasBackupNow = !!sessionStorage.getItem(
-            `dg-yaml-backup:${filePath}`,
-        );
-        if (!fetchedContent && hasBackupNow) return;
-
-        // Ключ «filePath + хеш контента». Позволяет:
-        //  • не резолвить повторно на том же контенте (защита от двойного confirm);
-        //  • резолвить заново при смене filePath X → Y без закрытия модалки.
         const key = `${filePath}#${hashPayload(normalizeEol(fetchedContent || ""))}`;
         if (resolvedKeyRef.current === key) return;
-        resolvedKeyRef.current = key;
-
-        setBackupResolved(false);
-        setBackupContent(null);
 
         let cancelled = false;
 
         (async () => {
-            const backupKey = `dg-yaml-backup:${filePath}`;
-            const backupStr = sessionStorage.getItem(backupKey);
+            // IDB — асинхронно. Пока идёт чтение, параллельный запуск effect'а
+            // (например, при смене filePath) не должен перезаписать ref.
+            const backup = await yamlBackups.get(filePath);
+            if (cancelled) return;
+            if (resolvedKeyRef.current === key) return;
 
-            if (!backupStr) {
+            // Ключевой гвард: если бэкап есть, а fetchedContent ещё не загрузился —
+            // ждём следующий запуск effect'а. Иначе преждевременно резолвим и убиваем
+            // валидный бэкап (та же логика, что была с `hasBackupNow`).
+            if (!fetchedContent && backup) return;
+
+            resolvedKeyRef.current = key;
+            setBackupResolved(false);
+            setBackupContent(null);
+
+            if (!backup) {
+                setBackupResolved(true);
+                return;
+            }
+
+            const currentHash = hashPayload(normalizeEol(fetchedContent || ""));
+            if (backup.savedContentHash !== currentHash) {
+                // Файл на диске изменился (git pull, другая вкладка) — бэкап устарел
+                await yamlBackups.delete(filePath);
                 if (!cancelled) setBackupResolved(true);
                 return;
             }
 
-            try {
-                const backup = JSON.parse(backupStr);
-                const currentHash = hashPayload(normalizeEol(fetchedContent || ""));
+            const ok = await confirmDialog(
+                "Найдены несохранённые правки",
+                {
+                    detail:
+                        `Файл «${filePath.split(/[\\/]/).pop()}» ` +
+                        `содержит несохранённые изменения от ` +
+                        `${new Date(backup.savedAt).toLocaleTimeString()}.` +
+                        `\n\nВосстановить их при открытии?`,
+                    confirmLabel: "Восстановить",
+                    cancelLabel: "Отменить правки",
+                    variant: "warning",
+                },
+            );
+            if (cancelled) return;
 
-                if (backup.savedContentHash !== currentHash) {
-                    // Файл на диске изменился (git pull / другая сессия) —
-                    // старые правки устарели.
-                    sessionStorage.removeItem(backupKey);
-                    if (!cancelled) setBackupResolved(true);
-                    return;
-                }
-
-                const ok = await confirmDialog(
-                    "Найдены несохранённые правки",
-                    {
-                        detail:
-                            `Файл «${filePath.split(/[\\/]/).pop()}» ` +
-                            `содержит несохранённые изменения от ` +
-                            `${new Date(backup.savedAt).toLocaleTimeString()}.` +
-                            `\n\nВосстановить их при открытии?`,
-                        confirmLabel: "Восстановить",
-                        cancelLabel: "Отменить правки",
-                        variant: "warning",
-                    },
-                );
-                if (cancelled) return;
-
-                if (ok) {
-                    setBackupContent(backup.content);
-                    setIsLocked(false);
-                    isLockedRef.current = false;
-                } else {
-                    sessionStorage.removeItem(backupKey);
-                }
-            } catch {
-                sessionStorage.removeItem(backupKey);
-            } finally {
-                if (!cancelled) setBackupResolved(true);
+            if (ok) {
+                setBackupContent(backup.content);
+                setIsLocked(false);
+                isLockedRef.current = false;
+            } else {
+                await yamlBackups.delete(filePath);
             }
+            if (!cancelled) setBackupResolved(true);
         })();
 
         return () => {
@@ -570,17 +558,19 @@ export function YamlViewerModal() {
                     setLiveVersion((v) => v + 1);
                 });
 
-                // ─── АВТОСОХРАНЕНИЕ ─── (вне transition, это дешёвая работа)
+                // ─── АВТОСОХРАНЕНИЕ ─── (IDB, fire-and-forget: debounce 1с, гонки не страшны —
+                // IDB сериализует транзакции per-store, last-write-wins)
                 if (filePath) {
                     const currentSaved = savedContentRef.current;
                     if (normalizeEol(val) !== normalizeEol(currentSaved)) {
-                        sessionStorage.setItem(`dg-yaml-backup:${filePath}`, JSON.stringify({
+                        void yamlBackups.put({
+                            filePath,
                             content: val,
                             savedContentHash: hashPayload(normalizeEol(currentSaved)),
-                            savedAt: Date.now()
-                        }));
+                            savedAt: Date.now(),
+                        });
                     } else {
-                        sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+                        void yamlBackups.delete(filePath);
                     }
                 }
             }, 1000);
@@ -3067,7 +3057,7 @@ export function YamlViewerModal() {
                 }
                 setContent(savedContent);
                 if (filePath) {
-                    sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+                    void yamlBackups.delete(filePath);
                 }
             }
             setIsLocked(true);
@@ -3103,18 +3093,12 @@ export function YamlViewerModal() {
             setLiveVersion((v) => v + 1);
 
             if (filePath) {
-                try {
-                    sessionStorage.setItem(
-                        `dg-yaml-backup:${filePath}`,
-                        JSON.stringify({
-                            content: newContent,
-                            savedContentHash: hashPayload(normalizeEol(savedContent)),
-                            savedAt: Date.now(),
-                        }),
-                    );
-                } catch {
-                    /* ignore */
-                }
+                void yamlBackups.put({
+                    filePath,
+                    content: newContent,
+                    savedContentHash: hashPayload(normalizeEol(savedContent)),
+                    savedAt: Date.now(),
+                });
             }
 
             useGraphStore
@@ -3204,7 +3188,7 @@ export function YamlViewerModal() {
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
-            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            void yamlBackups.delete(filePath!);
             refreshPreviousContent();
 
             if (pendingManifest) {
@@ -3287,7 +3271,7 @@ export function YamlViewerModal() {
             saveAbortRef.current = null;
             setIsSaving(false);
             setSaveStage("idle");
-            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            void yamlBackups.delete(filePath!);
         }
     }, [isLocked, savedContent, filePath, mode, isSaving]);
 
@@ -3393,7 +3377,7 @@ export function YamlViewerModal() {
             );
             if (!ok) return;
             if (filePath) {
-                sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+                void yamlBackups.delete(filePath);
             }
         }
 
@@ -4345,7 +4329,7 @@ export function YamlViewerModal() {
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
-            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            void yamlBackups.delete(filePath!);
             refreshPreviousContent();
 
             if (pendingManifest) {
