@@ -12,6 +12,8 @@ import ReactFlow, {
 import { useGraphStore } from '../../state/useGraphStore';
 import { DomainNode } from './DomainNode';
 import { GroupsOverlay } from './GroupsOverlay';
+import { Panel } from 'reactflow';
+import { GraphLegend } from './GraphLegend';
 
 const nodeTypes: NodeTypes = { domainNode: DomainNode };
 
@@ -110,6 +112,9 @@ const GraphViewInner = React.memo(function GraphViewInner(props: GraphViewInnerP
                 maskColor="rgba(10,14,26,0.7)"
                 style={{ width: 180, height: 130 }}
             />
+            <Panel position="top-right" style={{ margin: 8 }}>
+                <GraphLegend />
+            </Panel>
             {props.showGroups && props.clusterBoxes.length > 0 && (
                 <GroupsOverlay boxes={props.clusterBoxes} />
             )}

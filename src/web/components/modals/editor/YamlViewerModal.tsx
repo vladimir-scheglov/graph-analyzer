@@ -1,10 +1,10 @@
-import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useGraphStore } from '../../state/useGraphStore';
-import { useModelIndex } from '../../hooks/useModelIndex';
-import { useYamlContent, invalidateYamlCache } from '../../hooks/useYamlContent';
-import { useMonacoLoader } from '../../hooks/useMonacoLoader';
-import { MIcon } from '../common/MIcon';
-import { buildLineMap, LineMap, NavNode, SectionBlock, findAttributeInEntity } from '../../lib/yaml/line-map';
+import React, { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useGraphStore } from '../../../state/useGraphStore';
+import { useModelIndex } from '../../../hooks/useModelIndex';
+import { useYamlContent, invalidateYamlCache } from '../../../hooks/useYamlContent';
+import { useMonacoLoader } from '../../../hooks/useMonacoLoader';
+import { MIcon } from '../../common/MIcon';
+import { buildLineMap, LineMap, NavNode, SectionBlock, findAttributeInEntity } from '../../../lib/yaml/line-map';
 import {
     registerMonacoProviders,
     updateProviderContext,
@@ -19,46 +19,58 @@ import {
     applyAttributeRefMarkers,
     applyActionRequiredFieldsMarkers,
     INLINE_COVERED_RULE_IDS,
-} from '../../lib/monaco/monaco-providers';
-import { useNavigation } from '../../hooks/useNavigation';
-import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
+} from '../../../lib/monaco/monaco-providers';
+import { useNavigation } from '../../../hooks/useNavigation';
+import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../../lib/yaml/external-refs';
 import { YamlViewerHelp } from './YamlViewerHelp';
-import { readRemoteInfo } from '../../state/initial';
-import { scanRqlInText } from '../../lib/monaco/rql-check';
-import { SECTION_LABELS } from '../../lib/consts';
+import { readRemoteInfo } from '../../../state/initial';
+import { scanRqlInText } from '../../../lib/monaco/rql-check';
+import { SECTION_LABELS } from '../../../lib/consts';
 import { YamlSearchPanel, YamlSearchPanelHandle } from "./YamlSearchPanel";
 import {
     SearchOptions,
     SearchMatch,
     SearchResult,
     DEFAULT_SEARCH_OPTIONS,
-} from "../../lib/yaml/yaml-search";
+} from "../../../lib/yaml/yaml-search";
 import yaml from "js-yaml";
-import { computeFocus, FocusKind, FocusTarget } from '../../lib/yaml/entity-focus';
-import { SYSTEM_ATTRIBUTE_IDS } from '../../../core/analyzer/linter';
+import { computeFocus, FocusKind, FocusTarget } from '../../../lib/yaml/entity-focus';
+import { SYSTEM_ATTRIBUTE_IDS } from '../../../../core/analyzer/linter';
 import {
     buildRecheckModel,
     recheck,
     type RecheckModel,
-} from '../../../core/analyzer/local-recheck';
-import { ModelIndex } from '../../../shared/model-types';
-import { KNOWN_ACTION_TYPES } from "../../../shared/action-types";
-import { SectionQuickNav } from "./SectionQuickNav";
-import { planEdits } from "../../lib/yaml/apply-generation";
-import { findBlockRange } from "../../lib/yaml/view-insert";
-import { Popover } from "../common/Popover";
-import { relativeTime } from '../../lib/format';
-import type { YamlExpertiseMeta } from '../../hooks/useYamlContent';
-import { computeUnusedInYaml, UnusedAnalysis } from '../../lib/yaml/unused-analysis';
+} from '../../../../core/analyzer/local-recheck';
+import { ModelIndex } from '../../../../shared/model-types';
+import { KNOWN_ACTION_TYPES } from "../../../../shared/action-types";
+import { SectionQuickNav } from "../SectionQuickNav";
+import { planEdits } from "../../../lib/yaml/apply-generation";
+import { findBlockRange } from "../../../lib/yaml/view-insert";
+import { Popover } from "../../common/Popover";
+import { relativeTime } from '../../../lib/format';
+import type { YamlExpertiseMeta } from '../../../hooks/useYamlContent';
+import { computeUnusedInYaml, UnusedAnalysis } from '../../../lib/yaml/unused-analysis';
 import { YamlQuickJump } from "./YamlQuickJump";
-import { Hint, HINTS } from '../common/Hint';
-import { openFileInEditor } from '../../lib/open-file';
-import { getLineDiff } from '../../lib/diff-lines';
-import { hashPayload } from '../../../core/analyzer/schema-generator/util-hash';
-import { computePublishDiff } from '../../lib/model/publish-diff';
-import { suggestVersionBump } from '../../lib/version-impact';
-import { alertDialog, confirmDialog } from '../../lib/dialogs';
-import { SchemaHistoryModal } from './SchemaHistoryModal';
+import { Hint, HINTS } from '../../common/Hint';
+import { openFileInEditor } from '../../../lib/open-file';
+import { getLineDiff } from '../../../lib/diff-lines';
+import { hashPayload } from '../../../../core/analyzer/schema-generator/util-hash';
+import { computePublishDiff } from '../../../lib/model/publish-diff';
+import { suggestVersionBump } from '../../../lib/version-impact';
+import { alertDialog, confirmDialog } from '../../../lib/dialogs';
+import { SchemaHistoryModal } from '../SchemaHistoryModal';
+// Добавить:
+import {
+    SectionNavPanel,
+    FilteredNavList,
+    parseNavQuery,
+    isEmptyParsedQuery,
+    getCategoryForSection,
+    SECTION_CATEGORIES,
+    severityOf,
+    type FilteredRow,
+    SectionIssueStats,
+} from "./YamlViewerNavPanel";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -192,7 +204,7 @@ export function YamlViewerModal() {
     const yamlQuickNavEnabled = useGraphStore((s) => s.yamlQuickNavEnabled);
     const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
     const [lastKnownMtime, setLastKnownMtime] = useState<number>(0);
-    const [lastEditAt, setLastEditAt] = useState<number | null>(null);
+    const lastEditAtRef = useRef<number | null>(null);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const mode: "local" | "hybrid" | "remote" = !remoteInfo?.server
@@ -296,6 +308,23 @@ export function YamlViewerModal() {
         }
     }, [open]);
 
+    const [idleContent, setIdleContent] = useState(content);
+    const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        // Не обновляем idleContent, если текст не менялся (первый mount)
+        if (idleContent === content && idleTimerRef.current === null) return;
+
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = setTimeout(() => {
+            startTransition(() => setIdleContent(content));
+        }, 1500);
+
+        return () => {
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        };
+    }, [content]);
+
     // Поделиться: если в URL есть #q=..., открыть поповер с этим query.
     // Одноразово — после подстановки hash убирается.
     useEffect(() => {
@@ -361,7 +390,7 @@ export function YamlViewerModal() {
             try {
                 const textToValidate = deferredContent.replace(/!rql/g, "");
                 yaml.load(textToValidate);
-                setYamlSyntaxIssue(null);
+                startTransition(() => setYamlSyntaxIssue(null));
             } catch (e: any) {
                 const errLine =
                     e.mark?.line !== undefined ? e.mark.line + 1 : 1;
@@ -385,7 +414,7 @@ export function YamlViewerModal() {
                     __key: "yaml-syntax",
                 });
             }
-        }, 400);
+        }, 1000);
         return () => clearTimeout(t);
     }, [deferredContent, domainId, checksEnabled]);
 
@@ -501,7 +530,7 @@ export function YamlViewerModal() {
                 if (model && m) {
                     try { m.editor.setModelMarkers(model, "yaml-syntax", []); } catch { /* ignore */ }
                 }
-                setYamlSyntaxIssue(null);
+                startTransition(() => setYamlSyntaxIssue(null));
             }
 
             // Авто-разблокировка при редактировании (в т.ч. Quick Fix)
@@ -510,29 +539,35 @@ export function YamlViewerModal() {
                 useGraphStore.getState().showSnackbar("Файл автоматически разблокирован для применения изменений");
             }
 
-            setLastEditAt(Date.now());
+            lastEditAtRef.current = Date.now();
             clearTimeout(liveDebounce.current);
             liveDebounce.current = setTimeout(() => {
-                if (editorRef.current) {
-                    const val = editorRef.current.getValue();
+                if (!editorRef.current) return;
+                const val = editorRef.current.getValue();
+
+                // Тяжёлые вычисления (buildLineMap, computeUnusedInYaml, scanRqlInText)
+                // не должны блокировать ввод в Monaco. startTransition помечает
+                // re-render как low-priority — React сначала отдаёт кадр браузеру,
+                // потом выполняет setContent.
+                startTransition(() => {
                     setContent(val);
                     setLiveVersion((v) => v + 1);
+                });
 
-                    // ─── АВТОСОХРАНЕНИЕ ───
-                    if (filePath) {
-                        const currentSaved = savedContentRef.current;
-                        if (normalizeEol(val) !== normalizeEol(currentSaved)) {
-                            sessionStorage.setItem(`dg-yaml-backup:${filePath}`, JSON.stringify({
-                                content: val,
-                                savedContentHash: hashPayload(normalizeEol(currentSaved)),
-                                savedAt: Date.now()
-                            }));
-                        } else {
-                            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
-                        }
+                // ─── АВТОСОХРАНЕНИЕ ─── (вне transition, это дешёвая работа)
+                if (filePath) {
+                    const currentSaved = savedContentRef.current;
+                    if (normalizeEol(val) !== normalizeEol(currentSaved)) {
+                        sessionStorage.setItem(`dg-yaml-backup:${filePath}`, JSON.stringify({
+                            content: val,
+                            savedContentHash: hashPayload(normalizeEol(currentSaved)),
+                            savedAt: Date.now()
+                        }));
+                    } else {
+                        sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
                     }
                 }
-            }, 500);
+            }, 1000);
         };
 
         const sub = editorRef.current.onDidChangeModelContent(handler);
@@ -676,11 +711,15 @@ export function YamlViewerModal() {
             : null;
     const publishedVersion = yamlMeta?.publishedVersion || null;
 
-    // src/web/components/modals/YamlViewerModal.tsx
+    // lineMap — дорогая операция (buildLineMap ~10–100ms на больших файлах).
+    // Зависит от deferredContent, чтобы не блокировать keystroke'и.
+    // Жертвуем микро-рассинхронизацией (lineMap может отставать от content
+    // на 1–2 рендера при очень быстром наборе) — но это невидимо в UI,
+    // т.к. currentContext gracefully handles «строка не найдена».
     const lineMap = useMemo(() => {
-        if (!content) return null;
-        return buildLineMap(content, schema);  // schema может быть null
-    }, [content, schema]);
+        if (!idleContent) return null;
+        return buildLineMap(idleContent, schema);
+    }, [idleContent, schema]);
 
     const currentContext = useMemo(() => {
         if (!lineMap) return null;
@@ -692,6 +731,17 @@ export function YamlViewerModal() {
             currentContext?.breadcrumbs.find((b) => b.type === "entity")?.id ||
             null
         );
+    }, [currentContext]);
+
+    const cursorAttributeId = useMemo(() => {
+        if (!currentContext) return null;
+        const crumbs = currentContext.breadcrumbs;
+        const entityIdx = crumbs.findIndex((b) => b.type === "entity");
+        if (entityIdx === -1) return null;
+        for (let i = crumbs.length - 1; i > entityIdx; i--) {
+            if (crumbs[i].type === "attribute") return crumbs[i].id;
+        }
+        return null;
     }, [currentContext]);
 
     const focusResult = useMemo(() => {
@@ -790,10 +840,9 @@ export function YamlViewerModal() {
     /** Объединённые issues: серверный линтер + клиентский RQL-чек. */
     const allIssues = useMemo(() => {
         if (!checksEnabled) return domainIssues;
-        if (!lineMap || !deferredContent || !domainId) return domainIssues;
+        if (!lineMap || !idleContent || !domainId) return domainIssues;
 
-        const rqlIssues = scanRqlInText(deferredContent, lineMap.lineContexts, index || null);
-
+        const rqlIssues = scanRqlInText(idleContent, lineMap.lineContexts, index || null);
         const mapped = rqlIssues.map((r, idx) => ({
             ruleId: 'rql-check',
             rule: r.message.length > 60 ? r.message.slice(0, 60) + '…' : r.message,
@@ -809,29 +858,30 @@ export function YamlViewerModal() {
 
         const combined = [...domainIssues, ...mapped];
 
-        // Добавляем ошибку синтаксиса YAML самой первой
         if (yamlSyntaxIssue) {
             combined.unshift(yamlSyntaxIssue as any);
         }
 
         return combined;
-    }, [domainIssues, lineMap, deferredContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
+    }, [domainIssues, lineMap, idleContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
 
-    const recheckModel: RecheckModel = useMemo(
-        () => buildRecheckModel(deferredContent || ""),
-        [deferredContent],
+    const recheckModel = useMemo(
+        () => buildRecheckModel(idleContent || ""),
+        [idleContent],
     );
 
     const effectiveIssues = useMemo(() => {
         if (!checksEnabled) return allIssues;
+        // Пока идёт активный набор — не трогаем (idleContent отстаёт на 1.5с)
         if (!isDirty || !lineMap) return allIssues;
-        if (deferredContent === savedContent) return allIssues;
+        if (idleContent === savedContent) return allIssues;
+
         const out: any[] = [];
         for (const issue of allIssues) {
+            // classifyIssue не использует lineMap — убран из сигнатуры
             const state = classifyIssue(
                 issue,
-                deferredContent,
-                lineMap,
+                idleContent,
                 recheckModel,
                 index,
             );
@@ -840,12 +890,31 @@ export function YamlViewerModal() {
             else out.push(issue);
         }
         return out;
-    }, [allIssues, isDirty, deferredContent, lineMap, savedContent, recheckModel, index]);
+    }, [allIssues, isDirty, idleContent, lineMap, savedContent, recheckModel, index]);
 
-    const filteredIssues = useMemo(
-        () => effectiveIssues.filter((i: any) => severityFilter.has(i.severity)),
-        [effectiveIssues, severityFilter],
-    );
+    // Стабильная ссылка для IssuesPanel: возвращаем prev, если содержимое
+    // семантически не изменилось. Иначе IssuesPanel (React.memo по ref'у
+    // issues) перерисовывается на каждый idleContent-пересчёт.
+    const filteredIssuesRef = useRef<any[]>([]);
+    const filteredIssues = useMemo(() => {
+        const filtered = effectiveIssues.filter((i: any) =>
+            severityFilter.has(i.severity),
+        );
+        const prev = filteredIssuesRef.current;
+        const same =
+            prev.length === filtered.length &&
+            prev.every(
+                (p, i) =>
+                    p.ruleId === filtered[i].ruleId &&
+                    p.entityFqid === filtered[i].entityFqid &&
+                    p.attributeId === filtered[i].attributeId &&
+                    p.message === filtered[i].message &&
+                    p.__isUnknown === filtered[i].__isUnknown,
+            );
+        if (same) return prev;
+        filteredIssuesRef.current = filtered;
+        return filtered;
+    }, [effectiveIssues, severityFilter]);
 
     const backlinks = useMemo(() => {
         if (rightTab !== "backlinks" || !deferredContent) {
@@ -914,13 +983,13 @@ export function YamlViewerModal() {
     }, [deferredContent, cursorLine, rightTab]);
 
     const externalRefs = useMemo(() => {
-        if (!deferredContent || !domainId) return { refs: [], groups: [] as ExternalRefGroup[] };
-        const refs = extractExternalRefs(deferredContent, domainId);
+        if (!idleContent || !domainId) return { refs: [], groups: [] as ExternalRefGroup[] };
+        const refs = extractExternalRefs(idleContent, domainId);
         return { refs, groups: groupExternalRefs(refs) };
-    }, [deferredContent, domainId, liveVersion]);
+    }, [idleContent, domainId]);
 
     const scenarioRefs = useMemo(() => {
-        if (!deferredContent) return [] as Array<{
+        if (!idleContent) return [] as Array<{
             scenarioId: string;
             actions: Array<{
                 line: number;
@@ -930,7 +999,7 @@ export function YamlViewerModal() {
                 workerTag?: string;
             }>;
         }>;
-        const lines = deferredContent.split("\n");
+        const lines = idleContent.split("\n");
         const result: Array<{
             line: number;
             scenarioId: string;
@@ -996,7 +1065,7 @@ export function YamlViewerModal() {
         return Array.from(grouped.entries())
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([scenarioId, actions]) => ({ scenarioId, actions }));
-    }, [deferredContent]);
+    }, [idleContent]);
 
     // ============ Flat nav nodes ============
     // Анализ «что не используется» — обновляется вместе с контентом.
@@ -1004,42 +1073,79 @@ export function YamlViewerModal() {
     // сразу, без необходимости сохранять.
     const unusedAnalysis = useMemo(() => {
         if (!yamlHighlightUnused) return null;
-        if (!lineMap || !deferredContent) return null;
+        if (!lineMap || !idleContent) return null;
         try {
-            return computeUnusedInYaml(deferredContent, lineMap);
+            return computeUnusedInYaml(idleContent, lineMap);
         } catch {
             return null;
         }
-    }, [deferredContent, lineMap, yamlHighlightUnused]);
+    }, [idleContent, lineMap, yamlHighlightUnused]);
 
     const flatNavNodes = useMemo(() => {
         if (!lineMap) return [];
-        const result: Array<{
-            key: string;
-            label: string;
-            line: number;
-            depth: number;
-            sectionKey: string;
-            hasChildren: boolean;
-            expanded: boolean;
-            node: NavNode;
-            hasIssues: boolean;
-            issuesPreview: string;
-        }> = [];
-        const walk = (node: NavNode, sectionKey: string, depth: number) => {
-            const key = sectionKey + '#' + node.id;
+        const result: FilteredRow[] = [];
+        const walk = (
+            node: NavNode,
+            sectionKey: string,
+            sectionLabel: string,
+            depth: number,
+            parentKey: string,
+        ) => {
+            const key = parentKey + "#" + node.id;
             const hasChildren = !!node.children && node.children.length > 0;
             const expanded = expandedNodes.has(key);
 
-            let hasIssues = false;
-            let issuesPreview = "";
+            let stats: SectionIssueStats = { error: 0, warning: 0, info: 0, total: 0 };
             if (sectionKey === "entities") {
                 const list =
                     depth === 0
                         ? entityIssuesMap.get(node.id.toLowerCase())
                         : attrIssuesMap.get(node.id.toLowerCase());
-                hasIssues = !!list && list.length > 0;
-                issuesPreview = buildIssuesPreview(list);
+                stats = severityOf(list);
+            }
+
+            // unused check
+            let isUnused = false;
+            let unusedHint: string | null = null;
+            if (unusedAnalysis) {
+                if (sectionKey === "entities") {
+                    if (depth === 0 && unusedAnalysis.entities.has(node.id.toLowerCase())) {
+                        isUnused = true;
+                        unusedHint = "Сущность не используется";
+                    } else if (depth === 1) {
+                        const entityId = parentKey.split("#")[1];
+                        if (entityId) {
+                            const ak = `${entityId.toLowerCase()}:${node.id.toLowerCase()}`;
+                            if (unusedAnalysis.attributes.has(ak)) {
+                                isUnused = true;
+                                unusedHint = "Атрибут не используется";
+                            }
+                        }
+                    }
+                } else if (depth === 0) {
+                    if (sectionKey === "actions" && unusedAnalysis.actions.has(node.id)) {
+                        isUnused = true;
+                        unusedHint = "Действие не используется";
+                    } else if (
+                        sectionKey === "dataTypes" &&
+                        unusedAnalysis.dataTypes.has(node.id)
+                    ) {
+                        isUnused = true;
+                        unusedHint = "Тип данных не используется";
+                    } else if (
+                        sectionKey === "sequences" &&
+                        unusedAnalysis.sequences.has(node.id)
+                    ) {
+                        isUnused = true;
+                        unusedHint = "Последовательность не используется";
+                    } else if (sectionKey === "medias" && unusedAnalysis.medias.has(node.id)) {
+                        isUnused = true;
+                        unusedHint = "Иконка не используется";
+                    } else if (sectionKey === "trees" && unusedAnalysis.trees.has(node.id)) {
+                        isUnused = true;
+                        unusedHint = "Дерево не используется";
+                    }
+                }
             }
 
             result.push({
@@ -1048,20 +1154,38 @@ export function YamlViewerModal() {
                 line: node.line,
                 depth,
                 sectionKey,
+                sectionLabel,
+                node,
+                issues: stats,
+                isUnused,
+                unusedHint,
+                meta: node.meta,
                 hasChildren,
                 expanded,
-                node,
-                hasIssues,
-                issuesPreview
             });
 
             if (hasChildren && expanded) {
-                node.children!.forEach((child) => walk(child, key, depth + 1));
+                node.children!.forEach((child) =>
+                    walk(child, sectionKey, sectionLabel, depth + 1, key),
+                );
             }
         };
-        lineMap.sections.forEach((s) => s.nodes.forEach((n) => walk(n, s.key, 0)));
+        lineMap.sections.forEach((s) =>
+            s.nodes.forEach((n) => walk(n, s.key, s.label, 0, s.key)),
+        );
         return result;
-    }, [lineMap, expandedNodes, entityIssuesMap, attrIssuesMap]);
+    }, [
+        lineMap,
+        expandedNodes,
+        entityIssuesMap,
+        attrIssuesMap,
+        unusedAnalysis,
+    ]);
+
+    const sectionFilterKeys = useMemo(() => {
+        if (!lineMap) return [];
+        return lineMap.sections.map((s) => ({ key: s.key, label: s.label }));
+    }, [lineMap]);
 
     // Получаем закладки для текущего файла
     const fileBookmarks = useGraphStore(
@@ -1089,17 +1213,66 @@ export function YamlViewerModal() {
         });
     }, [fileBookmarks, content, editorCreated]);
 
+    const parsedQuery = useMemo(() => parseNavQuery(navQuery), [navQuery]);
+
     const filteredNavNodes = useMemo(() => {
         let result = flatNavNodes;
+
+        // Section filter (#entities)
+        if (parsedQuery.sectionFilter) {
+            result = result.filter((n) =>
+                n.sectionKey.toLowerCase().includes(parsedQuery.sectionFilter!),
+            );
+        }
+
+        // Type filter (type:enum / type:workflow / type:table)
+        if (parsedQuery.typeFilter) {
+            result = result.filter((n) => {
+                if (!n.meta) return false;
+                return n.meta.toLowerCase().includes(parsedQuery.typeFilter!);
+            });
+        }
+
+        // Issues filter
+        if (parsedQuery.hasIssues === true) {
+            result = result.filter((n) => n.issues.total > 0);
+        } else if (parsedQuery.hasIssues === false) {
+            result = result.filter((n) => n.issues.total === 0);
+        }
+
+        // Unused filter
+        if (parsedQuery.unused === true) {
+            result = result.filter((n) => n.isUnused);
+        } else if (parsedQuery.unused === false) {
+            result = result.filter((n) => !n.isUnused);
+        }
+
+        // Legacy: onlyProblematic (checkbox)
         if (onlyProblematic) {
-            result = result.filter((n) => n.hasIssues);
+            result = result.filter((n) => n.issues.total > 0);
         }
-        const q = navQuery.trim().toLowerCase();
-        if (q) {
-            result = result.filter((n) => n.label.toLowerCase().indexOf(q) !== -1);
+
+        // Text search
+        if (parsedQuery.text) {
+            const q = parsedQuery.text;
+            result = result.filter((n) => n.label.toLowerCase().includes(q));
         }
+
         return result;
-    }, [flatNavNodes, navQuery, onlyProblematic]);
+    }, [flatNavNodes, parsedQuery, onlyProblematic]);
+
+    const flatNavKeys = useMemo(
+        () => filteredNavNodes.map((n) => n.key),
+        [filteredNavNodes],
+    );
+
+    const activeKey = useMemo(
+        () =>
+            activeNavIdx >= 0 && activeNavIdx < flatNavKeys.length
+                ? flatNavKeys[activeNavIdx]
+                : null,
+        [activeNavIdx, flatNavKeys],
+    );
 
     // ============ Monaco: create ============
     useEffect(() => {
@@ -1179,7 +1352,6 @@ export function YamlViewerModal() {
         let ro: ResizeObserver | null = null;
         const layouts: ReturnType<typeof setTimeout>[] = [];
         let cursorTimer: ReturnType<typeof setTimeout> | null = null;
-        let suggestTimer: ReturnType<typeof setTimeout> | null = null;
 
         try {
             isProgrammaticChange.current = true;
@@ -1238,6 +1410,12 @@ export function YamlViewerModal() {
                 } as any, // Приводим к any, чтобы не реализовывать все методы интерфейса
             });
             editorRef.current = editor;
+            editor.onDidDispose(() => {
+                if (editorRef.current === editor) {
+                    editorRef.current = null;
+                }
+                setEditorCreated(false);
+            });
             isProgrammaticChange.current = false;
             setTimeout(() => {
                 const suggestController = editor.getContribution('editor.contrib.suggestController');
@@ -1340,7 +1518,11 @@ export function YamlViewerModal() {
             editor.onDidChangeCursorPosition((e: any) => {
                 if (cursorTimer) clearTimeout(cursorTimer);
                 const line = e.position.lineNumber;
-                cursorTimer = setTimeout(() => setCursorLine(line), 120);
+                cursorTimer = setTimeout(() => {
+                    // setCursorLine тоже в transition: он пересчитывает currentContext,
+                    // cursorAttributeId и тянет за собой memo-компараторы SectionNavPanel.
+                    startTransition(() => setCursorLine(line));
+                }, 120);
             });
 
             editor.onDidScrollChange(() => {
@@ -1349,8 +1531,10 @@ export function YamlViewerModal() {
                 const top = ranges[0]?.startLineNumber;
                 if (top && top !== editorTopLineRef.current) {
                     editorTopLineRef.current = top;
-                    setEditorTopLine(top);
-                    setScrollSignal((v) => v + 1);
+                    startTransition(() => {
+                        setEditorTopLine(top);
+                        setScrollSignal((v) => v + 1);
+                    });
                 }
             });
 
@@ -1365,73 +1549,50 @@ export function YamlViewerModal() {
                     ".suggest-widget",
                 ) as HTMLElement | null;
                 if (!el) return false;
+                if (el.classList.contains("visible")) return true;
+                // Fallback: строки есть и виджет не спрятан
+                if (el.querySelectorAll(".monaco-list-row").length === 0) return false;
                 return el.offsetParent !== null && el.style.display !== "none";
             };
 
-            editor.onDidType((text: string) => {
-                if (!text || text === '\n') return;
+            // Триггерим suggest ТОЛЬКО когда Monaco сам не открыл бы виджет:
+            // — quickSuggestions отключён,
+            // — виджет не открыт,
+            // — это первое нажатие буквы (нет предыдущей буквы подряд).
+            // Второй+ символ слова Monaco фильтрует сам без вызова провайдера.
+            editor.onDidChangeModelContent((e: any) => {
+                if (isLockedRef.current) return;
+                if (isProgrammaticChange.current) return;
                 if (isSuggestOpen()) return;
 
-                const isTriggerChar = /^[:.\/\s-]$/.test(text);
-                const isWordChar = /^[\w\u0400-\u04FF]$/.test(text);
-                if (!isTriggerChar && !isWordChar) return;
+                const change = (e.changes || [])[0];
+                if (!change) return;
+                const text = String(change.text || "");
+                if (!text) return;
+                if (!/^[a-zA-Z_]$/.test(text)) return;
 
-                if (suggestTimer) clearTimeout(suggestTimer);
-                suggestTimer = setTimeout(
-                    () => {
-                        if (!editorRef.current) return;
-                        if (isSuggestOpen()) return;
+                // Проверяем, что символ слева от вставки — НЕ буква
+                // (тогда это начало нового слова, и виджет действительно не открыт).
+                const pos = change.range ? change.range.startColumn - 1 : 0;
+                const line = editorRef.current?.getModel()?.getLineContent(change.range?.startLineNumber || 1) || "";
+                const prevChar = pos > 0 ? line.charAt(pos - 1) : "";
+                if (/[a-zA-Z_]/.test(prevChar)) return;
 
-                        const pos = editorRef.current.getPosition();
-                        const model = editorRef.current.getModel();
-                        if (!pos || !model) return;
-
-                        const lineText = model.getLineContent(pos.lineNumber);
-                        const before = lineText.slice(0, pos.column - 1);
-
-                        // Игнорируем комментарии, RQL-теги и содержимое block scalar
-                        if (/^\s*#/.test(before)) return;
-                        if (/^\s*!rql\b/.test(before)) return;
-                        if (/^\s*[|>][+\-]?\s*$/.test(before)) return;
-
-                        // Контексты, где suggest осмыслен:
-                        //   `key: <cursor>`                 — значение (dataType, type, attribute, ...)
-                        //   `key: val<cursor>`              — дорисовываем значение
-                        //   `- <cursor>`                    — элемент списка (`- id:`)
-                        //   `- key: <cursor>`               — поле объекта внутри списка
-                        //   `<indent><word>`                — field-name в объекте (`      na|` → name) ← ГЛАВНОЕ
-                        //   `<indent>- <word>`              — field-name в списке
-                        const inValue = /:\s*[^\s#]*$/.test(before);
-                        const inListItem = /^\s*-\s*[\w.]*$/.test(before);
-                        const inItemField = /^\s*-\s+\w+\s*:\s*[^\s#]*$/.test(
-                            before,
+                window.setTimeout(() => {
+                    if (!editorRef.current) return;
+                    if (isLockedRef.current) return;
+                    if (isProgrammaticChange.current) return;
+                    if (isSuggestOpen()) return;
+                    try {
+                        editorRef.current.trigger(
+                            "dg-autosuggest",
+                            "editor.action.triggerSuggest",
+                            null,
                         );
-                        const inFieldName = /^\s+[\w.]*$/.test(before);
-                        const inRootField = /^[a-zA-Z_][\w]*$/.test(before);
-
-                        if (
-                            inValue ||
-                            inListItem ||
-                            inItemField ||
-                            inFieldName ||
-                            inRootField
-                        ) {
-                            editorRef.current.trigger(
-                                "yaml-viewer",
-                                "editor.action.triggerSuggest",
-                                {},
-                            );
-                            setTimeout(() => {
-                                if (!editorRef.current) return;
-                                const el = document.querySelector('.suggest-widget') as HTMLElement | null;
-                                if (el && el.classList.contains('empty')) {
-                                    editorRef.current.trigger("yaml-viewer", "hideSuggestWidget", null);
-                                }
-                            }, 50);
-                        }
-                    },
-                    isTriggerChar ? 50 : 220,
-                );
+                    } catch {
+                        /* ignore */
+                    }
+                }, 30);
             });
 
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 0));
@@ -1454,15 +1615,19 @@ export function YamlViewerModal() {
         }
 
         return () => {
+            // 1. Сначала отменяем всё, что могло запланировать обращение к editor
             layouts.forEach(clearTimeout);
             if (cursorTimer) clearTimeout(cursorTimer);
-            if (suggestTimer) clearTimeout(suggestTimer);
             try { ro?.disconnect(); } catch { }
-            try { editor?.dispose(); } catch { }
+
+            // 2. Обнуляем ref ДО dispose — любой pending setTimeout теперь видит null
             if (editorRef.current === editor) {
                 editorRef.current = null;
-                setEditorCreated(false);
             }
+            setEditorCreated(false);
+
+            // 3. Только теперь dispose
+            try { editor?.dispose(); } catch { }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, monacoReady, filePath, loading, fetchedContent, backupResolved, backupContent]);
@@ -1609,12 +1774,20 @@ export function YamlViewerModal() {
     // ============ Provider context ============
     useEffect(() => {
         if (!monacoReady) return;
-        updateProviderContext({
-            lineMap: lineMap || null,
-            currentFilePath: filePath,
-            currentDomainId: effectiveDomainId,
-            modelIndex: index || null,
-        });
+        try {
+            updateProviderContext({
+                lineMap: lineMap || null,
+                currentFilePath: filePath,
+                currentDomainId: effectiveDomainId,
+                modelIndex: index || null,
+            });
+        } catch (err) {
+            console.error('[yaml-viewer] updateProviderContext failed:', err);
+            // Покажем в UI, но не размонтируем редактор
+            useGraphStore.getState().showSnackbar(
+                'Внутренняя ошибка автокомплита — см. консоль',
+            );
+        }
     }, [monacoReady, lineMap, filePath, effectiveDomainId, index]);
 
     useEffect(() => {
@@ -1851,11 +2024,19 @@ export function YamlViewerModal() {
         }
 
         let timer: any = null;
+        let lastRunKey = "";
 
         const runAll = () => {
             if (!editorRef.current) return;
             const model = editorRef.current.getModel();
             if (!model) return;
+
+            // Пропускаем повторный прогон, если содержимое не менялось
+            const currentText = model.getValue();
+            const runKey = `${currentText.length}:${currentText.slice(0, 32)}:${currentText.slice(-32)}`;
+            if (runKey === lastRunKey) return;
+            lastRunKey = runKey;
+
             try { applyFqidMarkers(m, model, index, domainId); } catch { /* ignore */ }
             try { applyDataTypeMarkers(m, model, index, domainId); } catch { /* ignore */ }
             try { applyEnumFieldMarkers(m, model); } catch { /* ignore */ }
@@ -1902,18 +2083,13 @@ export function YamlViewerModal() {
                     }
                 }
             } catch { /* ignore */ }
-
-            requestAnimationFrame(() => {
-                if (!editorRef.current) return;
-                try { editorRef.current.layout(); } catch { }
-            });
         };
 
         const schedule = () => {
             if (timer) clearTimeout(timer);
             // 800ms — комфортно для пользователя: маркеры обновляются
             // только когда он остановился и читает ошибку, а не во время печати.
-            timer = setTimeout(runAll, 800);
+            timer = setTimeout(runAll, 1800);
         };
 
         const disposable = editorRef.current.onDidChangeModelContent(schedule);
@@ -2014,7 +2190,7 @@ export function YamlViewerModal() {
             .filter((issue) => !isIgnored(issue, ignored))
             .map((issue) => {
                 const state = isDirty
-                    ? classifyIssue(issue, currentText, lineMap, recheckModel, index)
+                    ? classifyIssue(issue, currentText, recheckModel, index)
                     : "still";
                 if (state === "resolved") return null;
 
@@ -2068,20 +2244,6 @@ export function YamlViewerModal() {
         } else {
             m.editor.setModelMarkers(model, "yaml-syntax", []);
         }
-
-        // Принудительный layout ПОСЛЕ установки маркеров.
-        // Без этого при readOnly: true Monaco кэширует viewport=0×0 и не рисует
-        // маркеры до первого взаимодействия с редактором (unlock, focus, resize).
-        requestAnimationFrame(() => {
-            if (!editorRef.current) return;
-            try { editorRef.current.layout(); } catch { }
-        });
-
-        // Дополнительный вариант на случай, если rAF сработал слишком рано:
-        setTimeout(() => {
-            if (!editorRef.current) return;
-            try { editorRef.current.layout(); } catch { }
-        }, 400);
 
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
@@ -3693,9 +3855,10 @@ export function YamlViewerModal() {
     }, [open, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
 
     const diffCount = useMemo(() => {
-        if (!isDirty || !savedContent) return null;
-        return getLineDiff(savedContent, content);
-    }, [isDirty, savedContent, content]);
+        if (!isDirty || !savedContent || !idleContent) return null;
+        if (idleContent === savedContent) return null;
+        return getLineDiff(savedContent, idleContent);
+    }, [isDirty, savedContent, idleContent]);
 
     useEffect(() => {
         if (!editorCreated || !editorRef.current || !filePath) return;
@@ -4253,7 +4416,7 @@ export function YamlViewerModal() {
                 <div className="help-modal__header">
                     <div className="help-modal__title" style={{ flexWrap: "wrap", rowGap: 4 }}>
                         <MIcon name="description" size="sm" />
-                        
+
                         {domainId && <span className="help-modal__badge">{domainId}</span>}
 
                         {/* Статусы: черновик, diff, сохранение/изменён */}
@@ -5161,7 +5324,7 @@ export function YamlViewerModal() {
                                         <input
                                             type="text"
                                             className="yaml-viewer-nav__search-input"
-                                            placeholder="Фильтр по id..."
+                                            placeholder="id, #секция, type:enum, issues, unused"
                                             value={navQuery}
                                             onChange={(e) => {
                                                 setNavQuery(e.target.value);
@@ -5169,6 +5332,19 @@ export function YamlViewerModal() {
                                             }}
                                             spellCheck={false}
                                         />
+                                        <button
+                                            type="button"
+                                            className="yaml-viewer-nav__search-help"
+                                            onClick={() => {
+                                                useGraphStore.getState().showSnackbar(
+                                                    "#entities — фильтр по секции · type:enum — фильтр по типу · " +
+                                                    "issues — только с проблемами · unused — только неиспользуемые",
+                                                );
+                                            }}
+                                            title="Синтаксис поиска"
+                                        >
+                                            <MIcon name="help" size="sm" />
+                                        </button>
                                         {navQuery && (
                                             <button
                                                 className="yaml-viewer-nav__search-clear"
@@ -5177,17 +5353,89 @@ export function YamlViewerModal() {
                                         )}
                                     </div>
 
-                                    <div className="yaml-viewer-nav__list" ref={navListRef}>
+                                    <div className="yaml-viewer-nav__quick-filters">
+                                        <button
+                                            type="button"
+                                            className={
+                                                "yaml-nav-quick-chip" +
+                                                (isEmptyParsedQuery(parsedQuery) && !onlyProblematic ? " active" : "")
+                                            }
+                                            onClick={() => {
+                                                setNavQuery("");
+                                                setOnlyProblematic(false);
+                                            }}
+                                            title="Сбросить фильтры"
+                                        >
+                                            Все
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={
+                                                "yaml-nav-quick-chip" +
+                                                (onlyProblematic || parsedQuery.hasIssues === true ? " active" : "")
+                                            }
+                                            onClick={() => {
+                                                if (onlyProblematic) {
+                                                    setOnlyProblematic(false);
+                                                    setNavQuery("");
+                                                } else {
+                                                    setNavQuery("issues");
+                                                }
+                                            }}
+                                            title="Только с проблемами"
+                                        >
+                                            <MIcon name="warning" size="sm" />
+                                            С issues
+                                        </button>
+                                        {unusedAnalysis && (
+                                            <button
+                                                type="button"
+                                                className={
+                                                    "yaml-nav-quick-chip" +
+                                                    (parsedQuery.unused === true ? " active" : "")
+                                                }
+                                                onClick={() => {
+                                                    setNavQuery(parsedQuery.unused === true ? "" : "unused");
+                                                }}
+                                                title="Неиспользуемые элементы"
+                                            >
+                                                <MIcon name="visibility_off" size="sm" />
+                                                Unused
+                                            </button>
+                                        )}
+                                        {sectionFilterKeys.length > 1 && (
+                                            <select
+                                                className="yaml-nav-section-select"
+                                                value={parsedQuery.sectionFilter || ""}
+                                                onChange={(e) => {
+                                                    const v = e.target.value;
+                                                    setNavQuery(v ? `#${v}` : "");
+                                                }}
+                                                title="Фильтр по секции"
+                                            >
+                                                <option value="">Секции</option>
+                                                {sectionFilterKeys.map((k) => (
+                                                    <option key={k.key} value={k.key}>
+                                                        {k.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </div>
 
-                                        {navQuery.trim() !== '' || onlyProblematic ? (
+                                    <div className="yaml-viewer-nav__list" ref={navListRef}>
+                                        {!isEmptyParsedQuery(parsedQuery) || onlyProblematic ? (
                                             <FilteredNavList
-                                                nodes={filteredNavNodes}
-                                                activeIdx={activeNavIdx}
+                                                rows={filteredNavNodes}
+                                                activeKey={activeKey}
                                                 onJump={jumpTo}
                                                 onHover={setActiveNavIdx}
                                                 focusTarget={focusTarget}
                                                 onFocus={handleFocus}
-                                                unusedAnalysis={unusedAnalysis}
+                                                onContextMenu={(node, sectionKey, x, y) =>
+                                                    setNavContextMenu({ node, sectionKey, x, y })
+                                                }
+                                                onOpenIssues={() => setRightTab("issues")}
                                             />
                                         ) : (
                                             <>
@@ -5203,17 +5451,16 @@ export function YamlViewerModal() {
                                                 )}
                                                 {lineMap && lineMap.sections.length > 0 && (
                                                     lineMap.sections.map((section) => (
-                                                        <SectionNav
+                                                        <SectionNavPanel
                                                             key={section.key}
                                                             section={section}
+                                                            sectionKey={section.key}
                                                             expandedNodes={expandedNodes}
                                                             onToggleNode={toggleNode}
                                                             onJump={jumpTo}
                                                             issues={allIssues}
-                                                            activeIdx={activeNavIdx}
+                                                            activeKey={activeKey}
                                                             onSetActive={setActiveNavIdx}
-                                                            filteredNavNodes={filteredNavNodes}
-                                                            sectionKey={section.key}
                                                             entityIssuesMap={entityIssuesMap}
                                                             attrIssuesMap={attrIssuesMap}
                                                             focusTarget={focusTarget}
@@ -5222,6 +5469,9 @@ export function YamlViewerModal() {
                                                                 setNavContextMenu({ node, sectionKey, x, y })
                                                             }
                                                             unusedAnalysis={unusedAnalysis}
+                                                            cursorEntityId={entityIdUnderCursor}
+                                                            cursorAttributeId={cursorAttributeId}
+                                                            onOpenIssues={() => setRightTab("issues")}
                                                         />
                                                     ))
                                                 )}
@@ -5613,7 +5863,7 @@ export function YamlViewerModal() {
                                 lineMap={lineMap}
                                 topLine={editorTopLine}
                                 autoOpenSignal={scrollSignal}
-                                onJump={(line) => jumpTo(line)}
+                                onJump={jumpTo}
                                 enabled={yamlQuickNavEnabled}
                             />
                         )}
@@ -6112,77 +6362,6 @@ function isIgnored(issue: any, ignoredSet: Set<string>): boolean {
 }
 
 // ============ SectionNav / NavItem / FilteredNavList / IssuesPanel ============
-function hasFieldInEntityBlock(
-    fieldName: string,
-    entityLine: number,
-    lines: string[],
-): boolean {
-    const startIdx = entityLine - 1;
-    const baseLine = lines[startIdx];
-    if (!baseLine) return false;
-    const entityIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
-
-    // Находим отступ прямых дочерних элементов
-    let childIndent = -1;
-    for (let i = startIdx + 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim()) continue;
-        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-        if (indent <= entityIndent) return false;
-        childIndent = indent;
-        break;
-    }
-    if (childIndent === -1) return false;
-
-    // Ищем только на уровне childIndent
-    for (let i = startIdx + 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim()) continue;
-        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-        if (indent < childIndent) break;
-
-        if (indent === childIndent) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith("-") || trimmed.startsWith("#")) continue;
-            const re = new RegExp(`^${fieldName}\\s*:`);
-            if (re.test(trimmed)) return true;
-        }
-    }
-    return false;
-}
-
-function hasFieldInAttributeBlock(
-    fieldName: string,
-    attrLine: number,
-    lines: string[],
-): boolean {
-    const startIdx = attrLine - 1;
-    const baseLine = lines[startIdx];
-    if (!baseLine) return false;
-
-    // Отступ текущего атрибута (позиция дефиса)
-    const attrIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
-
-    for (let i = startIdx + 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim()) continue;
-
-        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-        const trimmed = line.trim();
-
-        // Если наткнулись на следующий атрибут (с таким же отступом и дефисом) - выходим
-        if (indent === attrIndent && trimmed.startsWith("-")) break;
-
-        // Если вышли из сущности - выходим
-        if (indent < attrIndent) break;
-
-        // Проверяем само поле
-        const re = new RegExp(`^${fieldName}\\s*:`);
-        if (re.test(trimmed)) return true;
-    }
-    return false;
-}
-
 type IssueState = "still" | "resolved" | "unknown";
 
 /**
@@ -6345,7 +6524,6 @@ function getActionTypeFromText(
 function classifyIssue(
     issue: any,
     _currentText: string,
-    _lineMap: LineMap | null,
     recheckModel: RecheckModel,
     index: ModelIndex | null,
 ): IssueState {
@@ -6484,567 +6662,123 @@ function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
     return null;
 }
 
-// ============ SectionNav ============
-function FilteredNavList({
-    nodes,
-    activeIdx,
-    onJump,
-    onHover,
-    focusTarget,
-    onFocus,
-    unusedAnalysis,
-}: {
-    nodes: ReturnType<typeof flatNavNodesType>;
-    activeIdx: number;
-    onJump: (line: number) => void;
-    onHover: (idx: number) => void;
-    focusTarget: FocusTarget | null;
-    onFocus: (node: NavNode, sectionKey: string) => void;
-    unusedAnalysis: UnusedAnalysis | null;
-}) {
-    if (nodes.length === 0) {
-        return (
-            <div className="yaml-viewer-nav__empty">
-                Ничего не найдено
-            </div>
-        );
-    }
-
-    return (
-        <div className="yaml-nav-filtered">
-            {nodes.map((n: any, i: number) => {
-                const canFocus =
-                    n.depth === 0 &&
-                    (n.sectionKey === "entities" || n.sectionKey === "linkages");
-                const parentKey =
-                    n.key.includes("#")
-                        ? n.key.substring(0, n.key.lastIndexOf("#"))
-                        : n.sectionKey;
-                const unusedCheck = checkUnusedInNav(
-                    unusedAnalysis,
-                    n.sectionKey,
-                    n.node,
-                    n.depth,
-                    parentKey,
-                );
-                const isFocusActive = !!(
-                    canFocus &&
-                    focusTarget &&
-                    ((focusTarget.kind === "entity" &&
-                        n.sectionKey === "entities" &&
-                        focusTarget.id === n.node.id) ||
-                        (focusTarget.kind === "linkage" &&
-                            n.sectionKey === "linkages" &&
-                            focusTarget.id === n.node.id))
-                );
-                return (
-                    <div
-                        key={n.key + '#' + i}
-                        className={
-                            "yaml-nav-filtered-row" +
-                            (i === activeIdx ? " yaml-nav-filtered-row--active" : "") +
-                            (unusedCheck.isUnused ? " yaml-nav-filtered-row--unused" : "")
-                        }
-                        title={unusedCheck.hint || undefined}
-                        onMouseEnter={() => onHover(i)}
-                    >
-                        <button
-                            type="button"
-                            className={
-                                "yaml-nav-filtered-item__main" +
-                                (n.hasIssues ? " yaml-nav-filtered-item__main--issues" : "")
-                            }
-                            onClick={() => onJump(n.line)}
-                            title={n.issuesPreview || undefined}
-                        >
-                            <code className="yaml-nav-filtered-item__id">
-                                {n.label}
-                            </code>
-                            <span className="yaml-nav-filtered-item__section">
-                                {n.sectionKey}
-                            </span>
-                            {n.hasIssues && (
-                                <span
-                                    className="yaml-nav-filtered-item__issues"
-                                    title={n.issuesPreview || "Есть проблемы"}
-                                >
-                                    <MIcon name="warning" size="sm" />
-                                </span>
-                            )}
-                            <span className="yaml-nav-filtered-item__line">:{n.line}</span>
-                        </button>
-                        {canFocus && (
-                            <button
-                                type="button"
-                                className={
-                                    "yaml-nav-filtered-item__focus" +
-                                    (isFocusActive ? " yaml-nav-filtered-item__focus--active" : "")
-                                }
-                                onClick={() => onFocus(n.node, n.sectionKey)}
-                                title={isFocusActive ? "Снять фокус" : "Фокус на этом элементе"}
-                            >
-                                <MIcon name="my_location" size="sm" />
-                            </button>
-                        )}
-
-                        {n.sectionKey === "dataTypes" && n.depth === 0 && n.node.meta === "Workflow" && (
-                            <button
-                                type="button"
-                                className="yaml-nav-filtered-item__focus yaml-nav-filtered-item__workflow-graph"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const domainId = useGraphStore.getState().yamlViewerDomainId;
-                                    if (!domainId) return;
-                                    useGraphStore.getState().setWorkflowGraphTarget({
-                                        domainId,
-                                        dataTypeId: n.node.id,
-                                    });
-                                }}
-                                title="Граф переходов"
-                            >
-                                <MIcon name="conversion_path" size="sm" />
-                            </button>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-// Тип-хак: тип flatNavNodes выводится из возвращаемого значения
-const flatNavNodesType = () => [] as Array<{
-    key: string;
-    label: string;
-    line: number;
-    depth: number;
-    sectionKey: string;
-    hasChildren: boolean;
-    expanded: boolean;
-    node: NavNode;
-}>;
-
-function SectionNav({
-    section,
-    expandedNodes,
-    onToggleNode,
-    onJump,
-    issues,
-    activeIdx,
-    onSetActive,
-    filteredNavNodes,
-    sectionKey,
-    entityIssuesMap,
-    attrIssuesMap,
-    focusTarget,
-    onFocus,
-    onContextMenu,
-    unusedAnalysis,
-}: {
-    section: SectionBlock;
-    expandedNodes: Set<string>;
-    onToggleNode: (key: string) => void;
-    onJump: (line: number) => void;
-    issues: any[];
-    activeIdx: number;
-    onSetActive: (idx: number) => void;
-    filteredNavNodes: Array<{ key: string; line: number }>;
-    sectionKey: string;
-    entityIssuesMap: Map<string, any[]>;
-    attrIssuesMap: Map<string, any[]>;
-    focusTarget: FocusTarget | null;
-    onFocus: (node: NavNode, sectionKey: string) => void;
-    onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
-    unusedAnalysis: UnusedAnalysis | null;
-}) {
-    const [open, setOpen] = useState(true);
-    const detailsRef = React.useRef<HTMLDetailsElement>(null);
-
-    React.useEffect(() => {
-        if (detailsRef.current && detailsRef.current.dataset.initialized !== '1') {
-            detailsRef.current.open = true;
-            detailsRef.current.dataset.initialized = '1';
-        }
-    }, []);
-
-    const sectionIssues = issues.filter(
-        (i) => (i.propertyPath || '').toLowerCase().indexOf(section.key.toLowerCase()) !== -1
-    );
-
-    return (
-        <details
-            className="yaml-nav-section"
-            data-section-key={section.key}
-            open={open}
-            onToggle={(e) => {
-                const next = (e.currentTarget as HTMLDetailsElement).open;
-                if (next !== open) setOpen(next);
-            }}
-        >
-            <summary className="yaml-nav-section__head">
-                <span className="yaml-nav-section__chevron" aria-hidden="true" />
-                <span className="yaml-nav-section__label" title={`${section.linesCount} строк в секции`}>
-                    {section.label}
-                    <span className="yaml-nav-section__lines">~{section.linesCount}</span>
-                </span>
-                <span className="yaml-nav-section__count">{section.count}</span>
-                {sectionIssues.length > 0 && (
-                    <span className="yaml-nav-section__issues">⚠ {sectionIssues.length}</span>
-                )}
-                <button
-                    type="button"
-                    className="yaml-nav-section__jump"
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onJump(section.line);
-                    }}
-                    title="Перейти к разделу"
-                >
-                    →
-                </button>
-            </summary>
-
-            {section.nodes.length > 0 && (
-                <div className="yaml-nav-section__items">
-                    {section.nodes.map((node) => {
-                        const issuesList =
-                            sectionKey === "entities"
-                                ? entityIssuesMap.get(node.id.toLowerCase())
-                                : undefined;
-                        return (
-                            <NavItem
-                                key={node.id}
-                                node={node}
-                                parentKey={section.key}
-                                depth={0}
-                                expandedNodes={expandedNodes}
-                                onToggleNode={onToggleNode}
-                                onJump={onJump}
-                                activeIdx={activeIdx}
-                                onSetActive={onSetActive}
-                                filteredNavNodes={filteredNavNodes}
-                                sectionKey={sectionKey}
-                                hasIssues={!!issuesList && issuesList.length > 0}
-                                issuesPreview={buildIssuesPreview(issuesList)}
-                                entityIssuesMap={entityIssuesMap}
-                                attrIssuesMap={attrIssuesMap}
-                                focusTarget={focusTarget}
-                                onFocus={onFocus}
-                                onContextMenu={onContextMenu}
-                                unusedAnalysis={unusedAnalysis}
-                            />
-                        );
-                    })}
-                </div>
-            )}
-        </details>
-    );
-}
-
-function NavItem({
-    node,
-    parentKey,
-    depth,
-    expandedNodes,
-    onToggleNode,
-    onJump,
-    activeIdx,
-    onSetActive,
-    filteredNavNodes,
-    sectionKey,
-    hasIssues,
-    issuesPreview,
-    entityIssuesMap,
-    attrIssuesMap,
-    focusTarget,
-    onFocus,
-    onContextMenu,
-    unusedAnalysis,
-}: {
-    node: NavNode;
-    parentKey: string;
-    depth: number;
-    expandedNodes: Set<string>;
-    onToggleNode: (key: string) => void;
-    onJump: (line: number) => void;
-    activeIdx: number;
-    onSetActive: (idx: number) => void;
-    filteredNavNodes: Array<{ key: string; line: number }>;
-    sectionKey: string;
-    hasIssues: boolean;
-    issuesPreview: string;
-    entityIssuesMap: Map<string, any[]>;
-    attrIssuesMap: Map<string, any[]>;
-    focusTarget: FocusTarget | null;
-    onFocus: (node: NavNode, sectionKey: string) => void;
-    onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
-    unusedAnalysis: UnusedAnalysis | null;
-}) {
-    const key = parentKey + '#' + node.id;
-    const hasChildren = !!node.children && node.children.length > 0;
-    const expanded = expandedNodes.has(key);
-
-    // ============ Unused (затенение) ============
-    const { isUnused, hint: unusedHint } = checkUnusedInNav(
-        unusedAnalysis,
-        sectionKey,
-        node,
-        depth,
-        parentKey,
-    );
-
-    // Индекс этого узла в плоском списке — для подсветки активного
-    const globalIdx = useMemo(
-        () => filteredNavNodes.findIndex((n) => n.key === key),
-        [filteredNavNodes, key]
-    );
-    const isActive = globalIdx >= 0 && globalIdx === activeIdx;
-
-    return (
-        <div className={'yaml-nav-item yaml-nav-item--d' + Math.min(depth, 4)}>
-            <div
-                className={
-                    'yaml-nav-item__row' + (isActive ? ' yaml-nav-item__row--active' : '')
-                }
-                onContextMenu={(e) => {
-                    if (depth !== 0) return;
-                    if (sectionKey !== "entities" && sectionKey !== "linkages") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onContextMenu(node, sectionKey, e.clientX, e.clientY);
-                }}
-            >
-                {hasChildren ? (
-                    <button
-                        type="button"
-                        className={
-                            'yaml-nav-item__chevron-btn' +
-                            (expanded ? ' yaml-nav-item__chevron-btn--expanded' : '')
-                        }
-                        onClick={() => onToggleNode(key)}
-                        aria-expanded={expanded}
-                        title={expanded ? 'Свернуть' : 'Развернуть'}
-                    />
-                ) : (
-                    <span className="yaml-nav-item__chevron-btn yaml-nav-item__chevron-btn--empty" />
-                )}
-                <button
-                    type="button"
-                    className={
-                        "yaml-nav-item__head" +
-                        (isUnused ? " yaml-nav-item__head--unused" : "")
-                    }
-                    onClick={() => {
-                        onJump(node.line);
-                        if (globalIdx >= 0) onSetActive(globalIdx);
-                    }}
-                    onMouseEnter={() => globalIdx >= 0 && onSetActive(globalIdx)}
-                    title={isUnused ? unusedHint || undefined : undefined}
-                >
-                    <code className="yaml-nav-item__id">{node.id}</code>
-                    {node.meta && <span className="yaml-nav-item__meta">{node.meta}</span>}
-                    {hasIssues && (
-                        <span
-                            className="yaml-nav-item__issues"
-                            title={issuesPreview || "Есть проблемы"}
-                        >
-                            <MIcon name="warning" size="sm" />
-                        </span>
-                    )}
-                </button>
-                {(/*sectionKey === "entities" || */sectionKey === "linkages") && depth === 0 && (
-                    <button
-                        type="button"
-                        className={
-                            "yaml-nav-item__focus" +
-                            (focusTarget &&
-                                (/*(focusTarget.kind === "entity" && sectionKey === "entities" && focusTarget.id === node.id) ||*/
-                                    (focusTarget.kind === "linkage" && sectionKey === "linkages" && focusTarget.id === node.id))
-                                ? " yaml-nav-item__focus--active"
-                                : "")
-                        }
-                        onClick={(e) => { e.stopPropagation(); onFocus(node, sectionKey); }}
-                        title={focusTarget && focusTarget.id === node.id ? "Снять фокус" : "Фокус на этом элементе"}
-                    >
-                        <MIcon name="my_location" size="sm" />
-                    </button>
-                )}
-                {sectionKey === "entities" && depth === 0 && (
-                    <button
-                        type="button"
-                        className="yaml-nav-item__more"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            onContextMenu(node, sectionKey, rect.left, rect.bottom);
-                        }}
-                        title="Действия"
-                    >
-                        <MIcon name="more_horiz" size="sm" />
-                    </button>
-                )}
-                {sectionKey === "dataTypes" && depth === 0 && node.meta === "Workflow" && (
-                    <button
-                        type="button"
-                        className="yaml-nav-item__focus yaml-nav-item__workflow-graph"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const domainId = useGraphStore.getState().yamlViewerDomainId;
-                            if (!domainId) return;
-                            useGraphStore.getState().setWorkflowGraphTarget({
-                                domainId,
-                                dataTypeId: node.id,
-                            });
-                        }}
-                        title="Граф переходов"
-                    >
-                        <MIcon name="conversion_path" size="sm" />
-                    </button>
-                )}
-            </div>
-
-            {hasChildren && expanded && (
-                <div className="yaml-nav-item__children">
-                    {node.children!.map((child) => {
-                        const childIssues =
-                            sectionKey === "entities"
-                                ? attrIssuesMap.get(child.id.toLowerCase())
-                                : undefined;
-                        return (
-                            <NavItem
-                                key={child.id}
-                                node={child}
-                                parentKey={key}
-                                depth={depth + 1}
-                                expandedNodes={expandedNodes}
-                                onToggleNode={onToggleNode}
-                                onJump={onJump}
-                                activeIdx={activeIdx}
-                                onSetActive={onSetActive}
-                                filteredNavNodes={filteredNavNodes}
-                                sectionKey={sectionKey}
-                                hasIssues={!!childIssues && childIssues.length > 0}
-                                issuesPreview={buildIssuesPreview(childIssues)}
-                                entityIssuesMap={entityIssuesMap}
-                                attrIssuesMap={attrIssuesMap}
-                                focusTarget={focusTarget}
-                                onFocus={onFocus}
-                                onContextMenu={onContextMenu}
-                                unusedAnalysis={unusedAnalysis}
-                            />
-                        );
-                    })}
-                </div>
-            )}
-        </div>
-    );
-}
-
 // ============ Issues ============
 
-function IssuesPanel({
-    issues,
-    allIssuesCount,
-    onJump,
-    lineMap,
-    severityFilter,
-    setSeverityFilter,
-}: {
-    issues: any[];
-    allIssuesCount: number;
-    onJump: (line: number) => void;
-    lineMap: LineMap | null;
-    severityFilter: Set<"error" | "warning" | "info">;
-    setSeverityFilter: (s: Set<"error" | "warning" | "info">) => void;
-}) {
-    const [issueGroupMode, setIssueGroupMode] = useState<"rule" | "entity">("rule");
+const IssuesPanel = React.memo(
+    function IssuesPanel({
+        issues,
+        allIssuesCount,
+        onJump,
+        lineMap,
+        severityFilter,
+        setSeverityFilter,
+    }: {
+        issues: any[];
+        allIssuesCount: number;
+        onJump: (line: number) => void;
+        lineMap: LineMap | null;
+        severityFilter: Set<"error" | "warning" | "info">;
+        setSeverityFilter: (s: Set<"error" | "warning" | "info">) => void;
+    }) {
+        const [issueGroupMode, setIssueGroupMode] = useState<"rule" | "entity">("rule");
 
-    const grouped = useMemo(() => {
-        const map = new Map<string, any[]>();
-        issues.forEach((i) => {
-            // Группируем либо по правилу, либо по сущности
-            const key = issueGroupMode === "rule"
-                ? i.ruleId
-                : (i.entityFqid ? i.entityFqid.split("/")[1] : "Без сущности");
-            if (!map.has(key)) map.set(key, []);
-            map.get(key)!.push(i);
-        });
-        return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
-    }, [issues, issueGroupMode]);
+        const grouped = useMemo(() => {
+            const map = new Map<string, any[]>();
+            issues.forEach((i) => {
+                // Группируем либо по правилу, либо по сущности
+                const key = issueGroupMode === "rule"
+                    ? i.ruleId
+                    : (i.entityFqid ? i.entityFqid.split("/")[1] : "Без сущности");
+                if (!map.has(key)) map.set(key, []);
+                map.get(key)!.push(i);
+            });
+            return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
+        }, [issues, issueGroupMode]);
 
-    const toggleSeverity = (sev: "error" | "warning" | "info") => {
-        const next = new Set(severityFilter);
-        if (next.has(sev)) next.delete(sev);
-        else next.add(sev);
-        setSeverityFilter(next);
-    };
+        const toggleSeverity = (sev: "error" | "warning" | "info") => {
+            const next = new Set(severityFilter);
+            if (next.has(sev)) next.delete(sev);
+            else next.add(sev);
+            setSeverityFilter(next);
+        };
 
-    return (
-        <div className="yaml-issues">
-            <div className="yaml-issues__severity">
-                {(["error", "warning", "info"] as const).map((sev) => (
-                    <button
-                        key={sev}
-                        className={
-                            "yaml-issues__severity-btn yaml-issues__severity-btn--" +
-                            sev +
-                            (severityFilter.has(sev) ? " active" : "")
-                        }
-                        onClick={() => toggleSeverity(sev)}
-                        title={`Показать/скрыть ${sev}`}
-                    >
-                        <span className="yaml-issues__severity-dot" />
-                        {sev === "error" ? "Ошибки" : sev === "warning" ? "Предупр." : "Инфо"}
-                    </button>
-                ))}
-            </div>
-
-            <div className="yaml-issues__toolbar">
-                <span style={{ fontSize: 11, color: "var(--text-500)" }}>Группировка:</span>
-                <button
-                    className={"yaml-issues__group-btn" + (issueGroupMode === "rule" ? " active" : "")}
-                    onClick={() => setIssueGroupMode("rule")}
-                >
-                    По правилу
-                </button>
-                <button
-                    className={"yaml-issues__group-btn" + (issueGroupMode === "entity" ? " active" : "")}
-                    onClick={() => setIssueGroupMode("entity")}
-                >
-                    По сущности
-                </button>
-            </div>
-
-            <div className="yaml-issues__header">
-                Проблемы ({issues.length}
-                {issues.length !== allIssuesCount ? ` / ${allIssuesCount}` : ""})
-            </div>
-
-            {issues.length === 0 ? (
-                <div className="yaml-issues-empty">
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-                    {allIssuesCount > 0
-                        ? "Нет проблем с выбранной severity"
-                        : "Проблем не найдено"}
-                </div>
-            ) : (
-                <div className="yaml-issues__list">
-                    {grouped.map(([ruleId, items]) => (
-                        <IssuesGroup
-                            key={ruleId}
-                            title={issueGroupMode === "rule" ? items[0].rule : ruleId}
-                            ruleId={ruleId}
-                            items={items}
-                            lineMap={lineMap}
-                            onJump={onJump}
-                        />
+        return (
+            <div className="yaml-issues">
+                <div className="yaml-issues__severity">
+                    {(["error", "warning", "info"] as const).map((sev) => (
+                        <button
+                            key={sev}
+                            className={
+                                "yaml-issues__severity-btn yaml-issues__severity-btn--" +
+                                sev +
+                                (severityFilter.has(sev) ? " active" : "")
+                            }
+                            onClick={() => toggleSeverity(sev)}
+                            title={`Показать/скрыть ${sev}`}
+                        >
+                            <span className="yaml-issues__severity-dot" />
+                            {sev === "error" ? "Ошибки" : sev === "warning" ? "Предупр." : "Инфо"}
+                        </button>
                     ))}
                 </div>
-            )}
-        </div>
-    );
-}
+
+                <div className="yaml-issues__toolbar">
+                    <span style={{ fontSize: 11, color: "var(--text-500)" }}>Группировка:</span>
+                    <button
+                        className={"yaml-issues__group-btn" + (issueGroupMode === "rule" ? " active" : "")}
+                        onClick={() => setIssueGroupMode("rule")}
+                    >
+                        По правилу
+                    </button>
+                    <button
+                        className={"yaml-issues__group-btn" + (issueGroupMode === "entity" ? " active" : "")}
+                        onClick={() => setIssueGroupMode("entity")}
+                    >
+                        По сущности
+                    </button>
+                </div>
+
+                <div className="yaml-issues__header">
+                    Проблемы ({issues.length}
+                    {issues.length !== allIssuesCount ? ` / ${allIssuesCount}` : ""})
+                </div>
+
+                {issues.length === 0 ? (
+                    <div className="yaml-issues-empty">
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                        {allIssuesCount > 0
+                            ? "Нет проблем с выбранной severity"
+                            : "Проблем не найдено"}
+                    </div>
+                ) : (
+                    <div className="yaml-issues__list">
+                        {grouped.map(([ruleId, items]) => (
+                            <IssuesGroup
+                                key={ruleId}
+                                title={issueGroupMode === "rule" ? items[0].rule : ruleId}
+                                ruleId={ruleId}
+                                items={items}
+                                lineMap={lineMap}
+                                onJump={onJump}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    },
+    (prev, next) => {
+        // Re-render только если реально изменились данные
+        return (
+            prev.issues === next.issues &&
+            prev.allIssuesCount === next.allIssuesCount &&
+            prev.lineMap === next.lineMap &&
+            prev.severityFilter === next.severityFilter &&
+            prev.onJump === next.onJump &&
+            prev.setSeverityFilter === next.setSeverityFilter
+        );
+    },
+);
 
 function IssuesGroup({
     ruleId,
@@ -8227,130 +7961,6 @@ function pushBlockDecoration(
     });
 }
 
-function checkUnusedInNav(
-    unusedAnalysis: UnusedAnalysis | null,
-    sectionKey: string,
-    node: NavNode,
-    depth: number,
-    parentKey: string,
-): { isUnused: boolean; hint: string | null } {
-    if (!unusedAnalysis) return { isUnused: false, hint: null };
-
-    // ============ entities + attributes ============
-    if (sectionKey === "entities") {
-        if (depth === 0) {
-            if (unusedAnalysis.entities.has(node.id.toLowerCase())) {
-                return {
-                    isUnused: true,
-                    hint:
-                        "Сущность не используется нигде: нет inherits, Reference, linkages, " +
-                        "views, actions, dataRules, mixins, trees, transitiveLinkages",
-                };
-            }
-        } else if (depth === 1) {
-            const parts = parentKey.split("#");
-            const entityId = parts[1];
-            if (entityId) {
-                const attrKey = `${entityId.toLowerCase()}:${node.id.toLowerCase()}`;
-                if (unusedAnalysis.attributes.has(attrKey)) {
-                    return {
-                        isUnused: true,
-                        hint:
-                            "Атрибут не используется ни в views, ни в правилах, " +
-                            "ни в фильтрах, ни в search/sorting",
-                    };
-                }
-            }
-        }
-        return { isUnused: false, hint: null };
-    }
-
-    // ============ block-level секции (depth 0) ============
-    if (depth === 0) {
-        if (sectionKey === "actions" && unusedAnalysis.actions.has(node.id)) {
-            return {
-                isUnused: true,
-                hint:
-                    "Действие не используется: нет виджета/меню/колонки, ссылающейся на него",
-            };
-        }
-        if (sectionKey === "dataTypes" && unusedAnalysis.dataTypes.has(node.id)) {
-            return {
-                isUnused: true,
-                hint: "Тип данных не используется ни одним атрибутом",
-            };
-        }
-        if (sectionKey === "sequences" && unusedAnalysis.sequences.has(node.id)) {
-            return {
-                isUnused: true,
-                hint: "Последовательность не используется ни одним Identifier-атрибутом",
-            };
-        }
-        if (sectionKey === "medias" && unusedAnalysis.medias.has(node.id)) {
-            return {
-                isUnused: true,
-                hint: "Иконка не используется ни в одном виджете или меню",
-            };
-        }
-        if (sectionKey === "trees" && unusedAnalysis.trees.has(node.id)) {
-            return {
-                isUnused: true,
-                hint: "Дерево не используется ни в одном tree-view",
-            };
-        }
-        if (
-            (sectionKey === "counterColorPattern" ||
-                sectionKey === "counterColorPatterns") &&
-            unusedAnalysis.counterColorPatterns.has(node.id)
-        ) {
-            return {
-                isUnused: true,
-                hint:
-                    "Цветовая схема счётчика не используется ни в одном виджете/колонке",
-            };
-        }
-        if (sectionKey === "uiPresets" && unusedAnalysis.uiPresets.has(node.id)) {
-            return {
-                isUnused: true,
-                hint: "UI Preset не используется ни в одном uiRule",
-            };
-        }
-        if (
-            sectionKey === "permissions" &&
-            unusedAnalysis.permissions.has(node.id)
-        ) {
-            return {
-                isUnused: true,
-                hint: "Разрешение не используется ни в одном accessRule",
-            };
-        }
-        if (
-            sectionKey === "transitiveLinkages" &&
-            unusedAnalysis.transitiveLinkages.has(node.id)
-        ) {
-            return {
-                isUnused: true,
-                hint:
-                    "Транзитивная связь не используется: " +
-                    "ни один join-id не упомянут в column.join / filter.join / widget.joinId",
-            };
-        }
-    }
-
-    // ============ nested views (panel / modal / page) ============
-    if (sectionKey === "views" && depth >= 1) {
-        if (unusedAnalysis.nestedViews.some((nv) => nv.id === node.id)) {
-            return {
-                isUnused: true,
-                hint:
-                    "Вложенное представление не используется: " +
-                    "нет action.modal / panel / pageView, ссылающегося на него",
-            };
-        }
-    }
-
-    return { isUnused: false, hint: null };
-}
 function targetLabel(target: CursorTarget | null): string {
     if (!target) return 'элемент';
     const labels: Record<string, string> = {

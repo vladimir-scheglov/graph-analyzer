@@ -1,0 +1,447 @@
+/* ============ Progress ============ */
+.delete-domain-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 20px;
+    font-size: 13px;
+    color: var(--text-200);
+    background: var(--bg-800);
+    border-bottom: 1px solid var(--border);
+}
+
+.delete-domain-progress .material-symbols-outlined {
+    animation: rotate 1.2s linear infinite;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ============ Banner ============ */
+.delete-domain-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    margin: 16px;
+    border-radius: 8px;
+    border-left: 3px solid;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.delete-domain-banner--err {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.delete-domain-banner--warn {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+
+.delete-domain-banner--ok {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: #10b981;
+    color: #10b981;
+}
+
+.delete-domain-banner__text {
+    flex: 1;
+    color: var(--text-300);
+}
+
+.delete-domain-banner__text strong {
+    color: var(--text-100);
+}
+
+/* ============ Metrics ============ */
+.delete-domain-metrics {
+    padding: 0 16px 16px;
+}
+
+.delete-domain-metrics__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-500);
+    margin-bottom: 8px;
+}
+
+.delete-domain-metrics__grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+}
+
+@media (max-width: 720px) {
+    .delete-domain-metrics__grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.delete-domain-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 6px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    text-align: center;
+}
+
+.delete-domain-metric--danger {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.04);
+}
+
+.delete-domain-metric--danger .delete-domain-metric__value {
+    color: var(--danger);
+}
+
+.delete-domain-metric--danger .material-symbols-outlined {
+    color: var(--danger);
+    opacity: 0.7;
+}
+
+.delete-domain-metric--muted {
+    opacity: 0.5;
+}
+
+.delete-domain-metric__value {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-200);
+    line-height: 1;
+}
+
+.delete-domain-metric__label {
+    font-size: 9.5px;
+    color: var(--text-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ============ Refs block ============ */
+.delete-domain-refs-block {
+    margin: 0 16px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-850);
+}
+
+.delete-domain-refs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+    gap: 8px;
+}
+
+.delete-domain-refs-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-200);
+}
+
+.delete-domain-refs-domains {
+    font-weight: 400;
+    color: var(--text-500);
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.delete-domain-refs-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.delete-domain-refs-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-400);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.delete-domain-refs-btn:hover:not(:disabled) {
+    background: var(--bg-750);
+    color: var(--text-100);
+}
+
+.delete-domain-refs-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* ============ Ref groups ============ */
+.delete-domain-refs-list {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.delete-domain-group {
+    border-bottom: 1px solid var(--border);
+}
+
+.delete-domain-group:last-child {
+    border-bottom: none;
+}
+
+.delete-domain-group__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-200);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.delete-domain-group__head:hover {
+    background: var(--bg-800);
+}
+
+.delete-domain-group__id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-300);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.delete-domain-group__badges {
+    display: flex;
+    gap: 4px;
+}
+
+.delete-domain-badge {
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    min-width: 24px;
+    text-align: center;
+}
+
+.delete-domain-badge--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+.delete-domain-badge--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+}
+
+.delete-domain-group__open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.1s, color 0.1s;
+}
+
+.delete-domain-group__open:hover {
+    background: var(--bg-750);
+    color: var(--accent-hover);
+}
+
+.delete-domain-group__body {
+    padding: 4px 12px 10px 32px;
+    background: var(--bg-900, #0a0e1a);
+}
+
+.delete-domain-group__section + .delete-domain-group__section {
+    margin-top: 10px;
+}
+
+.delete-domain-group__section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+}
+
+.delete-domain-group__section-title--err {
+    color: var(--danger);
+}
+
+.delete-domain-group__section-title--warn {
+    color: #f59e0b;
+}
+
+/* ============ Ref rows ============ */
+.delete-domain-ref-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 11px;
+    color: var(--text-400);
+    line-height: 1.4;
+}
+
+.delete-domain-ref-row__icon {
+    color: var(--text-500);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.delete-domain-ref-row__kind {
+    color: var(--text-500);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    min-width: 72px;
+}
+
+.delete-domain-ref-row__link {
+    background: transparent;
+    border: none;
+    color: var(--accent-hover);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline dotted;
+}
+
+.delete-domain-ref-row__link:hover {
+    text-decoration: underline solid;
+}
+
+.delete-domain-ref-row__text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* ============ Confirm block ============ */
+.delete-domain-confirm-block {
+    margin: 0 16px 16px;
+    padding: 14px 16px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.delete-domain-confirm-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-200);
+    margin-bottom: 4px;
+}
+
+.delete-domain-confirm-hint {
+    font-size: 11px;
+    color: var(--text-500);
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.delete-domain-confirm-hint code {
+    padding: 1px 5px;
+    background: var(--bg-750);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-300);
+}
+
+.delete-domain-confirm-input {
+    width: 100%;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.delete-domain-confirm-mismatch {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #f59e0b;
+}
+
+.delete-domain-confirm-mismatch code {
+    padding: 1px 4px;
+    background: var(--bg-750);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ============ Armed danger button ============ */
+.btn--danger-armed {
+    animation: pulse-danger 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-danger {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+}
+
+/* ============ Footer ============ */
+.delete-domain-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-850);
+    gap: 8px;
+}
+
+.delete-domain-footer__left,
+.delete-domain-footer__right {
+    display: flex;
+    gap: 8px;
+}

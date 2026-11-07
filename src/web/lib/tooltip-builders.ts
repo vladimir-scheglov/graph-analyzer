@@ -33,6 +33,8 @@ export function buildNodeTooltip(node: RFNode): string {
     typeLabel,
   )}</div>`;
   html += '<div class="tooltip__body">';
+
+  // ── Идентификация ──
   html += `<div class="tooltip__row"><span class="tooltip__label">ID:</span><span class="tooltip__value">${escapeHtml(
     d.domainId,
   )}</span></div>`;
@@ -41,14 +43,62 @@ export function buildNodeTooltip(node: RFNode): string {
       d.label,
     )}</span></div>`;
   }
+
+  // ── Версия / автор / entities ──
   if (d.version) {
     html += `<div class="tooltip__row"><span class="tooltip__label">Версия:</span><span class="tooltip__value">${escapeHtml(
       d.version,
     )}</span></div>`;
   }
+  if (d.author) {
+    html += `<div class="tooltip__row"><span class="tooltip__label">Автор:</span><span class="tooltip__value">${escapeHtml(
+      d.author,
+    )}</span></div>`;
+  }
   if (d.entitiesCount != null) {
     html += `<div class="tooltip__row"><span class="tooltip__label">Entities:</span><span class="tooltip__value">${d.entitiesCount}</span></div>`;
   }
+  if (d.updatedAt) {
+    let dt = String(d.updatedAt);
+    try {
+      dt = new Date(d.updatedAt).toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      /* ignore */
+    }
+    html += `<div class="tooltip__row"><span class="tooltip__label">Обновлён:</span><span class="tooltip__value">${escapeHtml(
+      dt,
+    )}</span></div>`;
+  }
+
+  // ── Health ──
+  const healthScore =
+    d.health && typeof d.health === "object" ? (d.health as Record<string, number>).score : d.health;
+  if (healthScore != null && d.nodeType === "domain") {
+    const healthCls =
+      healthScore >= 80 ? "good" : healthScore >= 50 ? "mid" : "bad";
+    html += `<div class="tooltip__row"><span class="tooltip__label">Health:</span><span class="tooltip__value tooltip__value--${healthCls}">${healthScore}/100</span></div>`;
+  }
+
+  // ── Валидация ──
+  if (d.__validationStatus === "invalid" && (d.__validationCount ?? 0) > 0) {
+    html += `<div class="tooltip__row"><span class="tooltip__label">Валидация:</span><span class="tooltip__value tooltip__value--bad">${d.__validationCount} проблем</span></div>`;
+  }
+
+  // ── Статусы ──
+  if (d.hasDraft === true) {
+    html += `<div class="tooltip__row"><span class="tooltip__label">Черновик:</span><span class="tooltip__value" style="color:#f59e0b">есть неопубликованные изменения</span></div>`;
+  }
+  if (d.status) {
+    html += `<div class="tooltip__row"><span class="tooltip__label">Статус:</span><span class="tooltip__value" style="color:${d.status === "DISABLED" ? "#ef4444" : "#10b981"}">${d.status === "DISABLED" ? "выключен" : "включён"}</span></div>`;
+  }
+
+  // ── Описание / теги / файл ──
   if (d.description) {
     html += `<div class="tooltip__row"><span class="tooltip__label">Описание:</span><span class="tooltip__value">${escapeHtml(
       d.description,
@@ -68,6 +118,7 @@ export function buildNodeTooltip(node: RFNode): string {
     )}">📂 Открыть файл</button></div>`;
   }
 
+  // ── FQID-ссылки ──
   const refs = d.fqidRefs || [];
   if (refs.length > 0) {
     html +=

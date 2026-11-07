@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MIcon } from "../common/MIcon";
-import { HighlightedText } from "../common/HighlightedText";
-import type { LineMap, NavNode } from "../../lib/yaml/line-map";
-import type { ModelIndex } from "../../../shared/model-types";
-import { useGraphStore } from "../../state/useGraphStore";
+import { MIcon } from "../../common/MIcon";
+import { HighlightedText } from "../../common/HighlightedText";
+import type { LineMap, NavNode } from "../../../lib/yaml/line-map";
+import type { ModelIndex } from "../../../../shared/model-types";
+import { useGraphStore } from "../../../state/useGraphStore";
 import { createPortal } from "react-dom";
-import { Hint } from "../common/Hint";
+import { Hint } from "../../common/Hint";
 
 export type JumpKind =
     | "file-start"

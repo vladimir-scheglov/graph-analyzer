@@ -35,3 +35,6 @@
 @import './attribute-finder.css';
 @import './entity-graph.css';
 @import './view-graph.css';
+@import './create-domain.css';
+@import './delete-domain.css';
+@import './yaml-viewer.css';

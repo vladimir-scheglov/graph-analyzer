@@ -1,0 +1,128 @@
+/* ============ Template preview — summary ============ */
+.create-domain-template-preview__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-400);
+}
+
+.create-domain-template-preview__summary--empty {
+    font-style: italic;
+    color: var(--text-500);
+}
+
+.create-domain-template-preview__chip {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-750);
+    border: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-300);
+}
+
+.create-domain-template-preview__chip--accent {
+    border-color: rgba(99, 102, 241, 0.4);
+    color: var(--accent-hover);
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.create-domain-template-preview__sep {
+    color: var(--text-500);
+    margin: 0 2px;
+}
+
+/* ============ Template preview — head ============ */
+.create-domain-template-preview__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.create-domain-template-preview__category {
+    margin-left: auto;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-500);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+/* ============ YAML preview ============ */
+.create-domain-template-preview__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+}
+
+.create-domain-yaml-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-300);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.1s;
+}
+
+.create-domain-yaml-toggle:hover {
+    background: var(--bg-750);
+    color: var(--text-100);
+}
+
+.create-domain-yaml-toggle__lines {
+    margin-left: 4px;
+    padding: 0 5px;
+    background: var(--bg-750);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--text-500);
+}
+
+.create-domain-yaml-copy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-400);
+    border-radius: 4px;
+    padding: 3px 6px;
+    cursor: pointer;
+    transition: color 0.1s, border-color 0.1s;
+}
+
+.create-domain-yaml-copy:hover {
+    color: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.create-domain-yaml-preview {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    max-height: 240px;
+    overflow: auto;
+    background: var(--bg-900, #0a0e1a);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-300);
+    white-space: pre;
+    tab-size: 2;
+}

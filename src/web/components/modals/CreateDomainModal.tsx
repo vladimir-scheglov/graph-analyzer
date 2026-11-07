@@ -4,9 +4,9 @@ import { useModelIndex } from "../../hooks/useModelIndex";
 import { readRemoteInfo } from "../../state/initial";
 import { MIcon } from "../common/MIcon";
 import { Combobox } from "../common/Combobox";
-import { DOMAIN_TEMPLATES } from "../../lib/domains/templates";
 import { openFileInEditor } from "../../lib/open-file";
 import { FolderTreeSelect } from "../common/FolderTreeSelect";
+import { DOMAIN_TEMPLATES, CATEGORY_LABELS, DomainTemplate } from "../../lib/domains/templates";
 
 interface RemoteFolder {
     id: string;
@@ -20,6 +20,7 @@ export function CreateDomainModal() {
     const { index } = useModelIndex();
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
+    const [yamlPreviewOpen, setYamlPreviewOpen] = useState(false);
 
     const [id, setId] = useState("");
     const [name, setName] = useState("");
@@ -49,6 +50,12 @@ export function CreateDomainModal() {
         setError(null);
         setSuccess(null);
         setSubmitting(false);
+        setYamlPreviewOpen(false);
+        setTimeout(() => {
+            document
+                .querySelector<HTMLInputElement>('input[placeholder="my.new.domain.tld"]')
+                ?.focus();
+        }, 60);
         if (isRemote) {
             fetch("/api/folders")
                 .then((r) => r.json())
@@ -289,11 +296,14 @@ export function CreateDomainModal() {
                                     </span>
                                     <Combobox
                                         value={templateId}
-                                        onChange={(v) => setTemplateId(v)}
+                                        onChange={(v) => {
+                                            setTemplateId(v);
+                                            setYamlPreviewOpen(false);
+                                        }}
                                         options={DOMAIN_TEMPLATES.map((t) => ({
                                             value: t.id,
                                             label: t.label,
-                                            hint: t.description,
+                                            hint: CATEGORY_LABELS[t.category],
                                         }))}
                                         icon="article"
                                         placeholder="Выберите шаблон"
@@ -305,10 +315,65 @@ export function CreateDomainModal() {
                                                 <span className="create-domain-template-preview__title">
                                                     {selectedTemplate.label}
                                                 </span>
+                                                <span className="create-domain-template-preview__category">
+                                                    {CATEGORY_LABELS[selectedTemplate.category]}
+                                                </span>
                                             </div>
                                             <div className="create-domain-template-preview__desc">
                                                 {selectedTemplate.description}
                                             </div>
+                                            <TemplateIncludesSummary template={selectedTemplate} />
+
+                                            <div className="create-domain-template-preview__toolbar">
+                                                <button
+                                                    type="button"
+                                                    className="create-domain-yaml-toggle"
+                                                    onClick={() => setYamlPreviewOpen((v) => !v)}
+                                                >
+                                                    <MIcon
+                                                        name={yamlPreviewOpen ? "expand_less" : "expand_more"}
+                                                        size="sm"
+                                                    />
+                                                    <span>{yamlPreviewOpen ? "Скрыть YAML" : "Показать YAML"}</span>
+                                                    {selectedTemplate.body && (
+                                                        <span className="create-domain-yaml-toggle__lines">
+                                                            {selectedTemplate.body.split("\n").length} стр.
+                                                        </span>
+                                                    )}
+                                                </button>
+                                                {yamlPreviewOpen && selectedTemplate.body && (
+                                                    <button
+                                                        type="button"
+                                                        className="create-domain-yaml-copy"
+                                                        onClick={() => {
+                                                            navigator.clipboard
+                                                                .writeText(selectedTemplate.body)
+                                                                .then(
+                                                                    () =>
+                                                                        useGraphStore
+                                                                            .getState()
+                                                                            .showSnackbar("YAML скопирован"),
+                                                                    () =>
+                                                                        useGraphStore
+                                                                            .getState()
+                                                                            .showSnackbar(
+                                                                                "Не удалось скопировать",
+                                                                            ),
+                                                                );
+                                                        }}
+                                                        title="Копировать YAML в буфер"
+                                                    >
+                                                        <MIcon name="content_copy" size="sm" />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {yamlPreviewOpen && (
+                                                <pre className="create-domain-yaml-preview">
+                                                    {selectedTemplate.body ||
+                                                        "// Пустой шаблон — только заголовок с вашими полями id, name, description, author, tags."}
+                                                </pre>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -344,6 +409,48 @@ export function CreateDomainModal() {
                     </>
                 )}
             </div>
+        </div>
+    );
+}
+
+function TemplateIncludesSummary({ template }: { template: DomainTemplate }) {
+    const inc = template.includes;
+    const items: Array<{ key: string; label: string; accent?: boolean }> = [];
+
+    if (inc.entities) items.push({ key: "e", label: `${inc.entities} сущ.` });
+    if (inc.linkages) items.push({ key: "l", label: `${inc.linkages} связ.` });
+    if (inc.dataTypes) items.push({ key: "d", label: `${inc.dataTypes} тип.` });
+    if (inc.trees) items.push({ key: "t", label: `${inc.trees} дерев.` });
+    if (inc.views) items.push({ key: "v", label: `${inc.views} views` });
+    if (inc.actions) items.push({ key: "a", label: `${inc.actions} действ.` });
+    if (inc.hasWorkflow)
+        items.push({ key: "w", label: "Workflow", accent: true });
+    if (inc.hasMenu) items.push({ key: "m", label: "меню", accent: true });
+    if (inc.hasMedias) items.push({ key: "md", label: "иконки" });
+
+    if (items.length === 0) {
+        return (
+            <div className="create-domain-template-preview__summary create-domain-template-preview__summary--empty">
+                Пустой домен
+            </div>
+        );
+    }
+
+    return (
+        <div className="create-domain-template-preview__summary">
+            {items.map((it, i) => (
+                <React.Fragment key={it.key}>
+                    {i > 0 && <span className="create-domain-template-preview__sep">·</span>}
+                    <span
+                        className={
+                            "create-domain-template-preview__chip" +
+                            (it.accent ? " create-domain-template-preview__chip--accent" : "")
+                        }
+                    >
+                        {it.label}
+                    </span>
+                </React.Fragment>
+            ))}
         </div>
     );
 }

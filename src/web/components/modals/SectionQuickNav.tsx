@@ -37,7 +37,7 @@ const ICON_BY_SECTION: Record<string, string> = {
 
 const AUTO_CLOSE_MS = 2000;
 
-export function SectionQuickNav({
+function SectionQuickNavImpl({
     lineMap,
     topLine,
     autoOpenSignal,
@@ -154,3 +154,13 @@ export function SectionQuickNav({
         </div>
     );
 }
+
+export const SectionQuickNav = React.memo(SectionQuickNavImpl, (prev, next) => {
+    return (
+        prev.lineMap === next.lineMap &&
+        prev.topLine === next.topLine &&
+        prev.autoOpenSignal === next.autoOpenSignal &&
+        prev.enabled === next.enabled &&
+        prev.onJump === next.onJump
+    );
+});

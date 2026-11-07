@@ -7,15 +7,15 @@ import React, {
     useRef,
     useState,
 } from "react";
-import { MIcon } from "../common/MIcon";
-import type { LineMap } from "../../lib/yaml/line-map";
+import { MIcon } from "../../common/MIcon";
+import type { LineMap } from "../../../lib/yaml/line-map";
 import {
     searchYaml,
     SearchOptions,
     SearchMatch,
     SearchResult,
     SearchSectionGroup,
-} from "../../lib/yaml/yaml-search";
+} from "../../../lib/yaml/yaml-search";
 
 const DEBOUNCE_MS = 250;
 const MAX_MATCHES = 500;

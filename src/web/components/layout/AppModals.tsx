@@ -37,7 +37,7 @@ import { AttributeMatrixModal } from '../modals/AttributeMatrixModal';
 import { MartinMetricsModal } from '../modals/MartinMetricsModal';
 import { DomainCompareModal } from '../modals/DomainCompareModal';
 import { PiiModal } from '../modals/PiiModal';
-import { YamlViewerModal } from '../modals/YamlViewerModal';
+import { YamlViewerModal } from '../modals/editor/YamlViewerModal';
 import { GenerateBatchModal } from '../modals/GenerateBatchModal';
 import { WorkflowGraphModal } from '../modals/WorkflowGraphModal';
 import { PublishPreviewModal } from '../modals/PublishPreviewModal';

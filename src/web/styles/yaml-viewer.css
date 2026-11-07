@@ -1,0 +1,533 @@
+/* ============ Nav issue badges ============ */
+
+.yaml-nav-section__issues,
+.yaml-nav-item__issues {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 4px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.1s;
+}
+
+.yaml-nav-section__issues--err,
+.yaml-nav-item__issues--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+.yaml-nav-section__issues--warn,
+.yaml-nav-item__issues--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+}
+
+.yaml-nav-section__issues--info,
+.yaml-nav-item__issues--info {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.yaml-nav-section__issues:hover,
+.yaml-nav-item__issues:hover {
+    filter: brightness(1.2);
+}
+
+/* ============ Unused badge ============ */
+
+.yaml-nav-section__unused {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.yaml-nav-unused-badge {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+/* ============ Children badge ============ */
+
+.yaml-nav-item__children-badge {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--bg-750);
+    color: var(--text-500);
+    font-size: 9.5px;
+    font-family: 'JetBrains Mono', monospace;
+    flex-shrink: 0;
+}
+
+/* ============ Cursor sync row ============ */
+
+.yaml-nav-item__row--cursor {
+    background: rgba(99, 102, 241, 0.08);
+    border-left: 2px solid var(--accent);
+    padding-left: 2px;
+}
+
+.yaml-nav-item__row--cursor .yaml-nav-item__id {
+    color: var(--accent-hover);
+    font-weight: 600;
+}
+
+/* ============ Filtered list groups ============ */
+
+.yaml-nav-filtered-group {
+    margin-bottom: 4px;
+}
+
+.yaml-nav-filtered-group__title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-500);
+    background: var(--bg-800);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.yaml-nav-filtered-group__count {
+    padding: 0 6px;
+    background: var(--bg-750);
+    border-radius: 8px;
+    color: var(--text-400);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+}
+
+.yaml-nav-filtered-item__meta {
+    font-size: 9.5px;
+    color: var(--text-500);
+    margin-right: 4px;
+}
+
+/* ============ Quick filters chips ============ */
+
+.yaml-viewer-nav__quick-filters {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+    overflow-x: auto;
+    flex-wrap: nowrap;
+}
+
+.yaml-viewer-nav__quick-filters::-webkit-scrollbar {
+    height: 2px;
+}
+
+.yaml-nav-quick-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    background: var(--bg-750);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-400);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.yaml-nav-quick-chip:hover {
+    color: var(--text-200);
+    border-color: var(--accent-hover);
+}
+
+.yaml-nav-quick-chip.active {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.yaml-nav-quick-chip .material-symbols-outlined {
+    font-size: 12px !important;
+}
+
+.yaml-nav-section-select {
+    padding: 3px 6px;
+    background: var(--bg-750);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-300);
+    font-size: 10.5px;
+    cursor: pointer;
+    flex-shrink: 0;
+    max-width: 120px;
+}
+
+.yaml-nav-section-select:focus {
+    outline: none;
+    border-color: var(--accent-hover);
+}
+
+/* ============ Search help ============ */
+
+.yaml-viewer-nav__search-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.yaml-viewer-nav__search-help:hover {
+    background: var(--bg-750);
+    color: var(--accent-hover);
+}
+
+/* ============ FilteredNavList: базовые кнопки ============ */
+
+.yaml-nav-filtered-item__main {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-300);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.1s, background 0.1s;
+    overflow: hidden;
+}
+
+.yaml-nav-filtered-item__main:hover {
+    background: var(--bg-750);
+    color: var(--text-100);
+}
+
+/* ── Icon-only действия: единый размер, разные цвета ── */
+
+.yaml-nav-filtered-item__focus,
+.yaml-nav-filtered-item__more,
+.yaml-nav-filtered-item__workflow-graph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-500);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.yaml-nav-filtered-item__focus:hover {
+    background: var(--bg-750);
+    color: var(--accent-hover);
+}
+
+.yaml-nav-filtered-item__focus--active {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-hover);
+}
+
+.yaml-nav-filtered-item__workflow-graph:hover {
+    background: var(--bg-750);
+    color: #a78bfa;
+}
+
+.yaml-nav-filtered-item__more:hover {
+    background: var(--bg-750);
+    color: var(--text-100);
+}
+
+/* На узких строках (depth > 0) — скрываем `more`, оставляем только `main` */
+.yaml-nav-filtered-row[data-depth]:not([data-depth="0"]) .yaml-nav-filtered-item__more {
+    display: none;
+}
+/* ============ Filtered list: строки ============ */
+
+.yaml-nav-filtered {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.yaml-nav-filtered-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 8px 2px 4px;
+    border-left: 2px solid transparent;
+    cursor: pointer;
+    transition: background 0.08s, border-color 0.08s;
+    min-height: 24px;
+}
+
+.yaml-nav-filtered-row:hover {
+    background: var(--bg-800);
+}
+
+.yaml-nav-filtered-row--active {
+    background: rgba(99, 102, 241, 0.08);
+    border-left-color: var(--accent);
+}
+
+.yaml-nav-filtered-row--active .yaml-nav-filtered-item__id {
+    color: var(--accent-hover);
+    font-weight: 600;
+}
+
+.yaml-nav-filtered-row--unused {
+    opacity: 0.75;
+}
+
+.yaml-nav-filtered-row--unused .yaml-nav-filtered-item__id {
+    font-style: italic;
+}
+
+/* ============ Filtered list: id и line ============ */
+
+.yaml-nav-filtered-item__id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-300);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.yaml-nav-filtered-item__line {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--text-500);
+    margin-left: auto;
+    padding-left: 6px;
+    flex-shrink: 0;
+}
+
+/* ============ Filtered list: group headers (sticky) ============ */
+
+.yaml-nav-filtered-group {
+    margin-bottom: 2px;
+}
+
+.yaml-nav-filtered-group__title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 10px;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-500);
+    background: var(--bg-800);
+    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.yaml-nav-filtered-group__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 15px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--bg-750);
+    color: var(--text-400);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.yaml-nav-filtered-item__meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--text-500);
+    padding: 0 4px;
+    background: var(--bg-750);
+    border-radius: 3px;
+    flex-shrink: 0;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ============ yaml-nav-issue: бейдж «N проблем» ============ */
+
+.yaml-nav-issue {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 5px;
+    height: 16px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: filter 0.1s;
+    border: 1px solid transparent;
+}
+
+.yaml-nav-issue .material-symbols-outlined {
+    font-size: 11px !important;
+}
+
+.yaml-nav-issue:hover {
+    filter: brightness(1.25);
+}
+
+.yaml-nav-issue--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.yaml-nav-issue--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.yaml-nav-issue--info {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* ============ Unused badge ∅N ============ */
+
+.yaml-nav-unused-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+/* ============ Кнопки в FilteredNavList ============ */
+
+.yaml-nav-filtered-item__main {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-300);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.yaml-nav-filtered-item__main:hover {
+    background: transparent;
+    color: var(--text-100);
+}
+
+.yaml-nav-filtered-item__focus,
+.yaml-nav-filtered-item__more,
+.yaml-nav-filtered-item__workflow-graph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-500);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    opacity: 0;
+}
+
+.yaml-nav-filtered-row:hover .yaml-nav-filtered-item__focus,
+.yaml-nav-filtered-row:hover .yaml-nav-filtered-item__more,
+.yaml-nav-filtered-row:hover .yaml-nav-filtered-item__workflow-graph,
+.yaml-nav-filtered-item__focus--active {
+    opacity: 1;
+}
+
+.yaml-nav-filtered-item__focus:hover {
+    background: var(--bg-750);
+    color: var(--accent-hover);
+}
+
+.yaml-nav-filtered-item__focus--active {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-hover);
+}
+
+.yaml-nav-filtered-item__workflow-graph:hover {
+    background: var(--bg-750);
+    color: #a78bfa;
+}
+
+.yaml-nav-filtered-item__more:hover {
+    background: var(--bg-750);
+    color: var(--text-100);
+}

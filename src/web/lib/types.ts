@@ -26,7 +26,7 @@ export interface RFNodeData {
   fileSize?: number | null;
 
   // Динамические поля, добавляемые на этапе рендера
-  health?: number | null;
+  health?: number | object | null;
   healthBreakdown?: HealthBreakdownItem[];
   __compact?: boolean;
   __topoLevel?: number | null;

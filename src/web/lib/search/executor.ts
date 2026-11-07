@@ -13,6 +13,37 @@ const DEFAULT_LIMIT = 200;
 
 // ============ score ============
 
+// ============ Enrichment cache (per ModelIndex) ============
+
+interface EnrichmentMaps {
+  piiByFqid: Map<string, number>;
+  issuesByFqid: Map<string, number>;
+}
+
+const enrichmentCache = new WeakMap<ModelIndex, EnrichmentMaps>();
+
+function getEnrichment(index: ModelIndex): EnrichmentMaps {
+  const cached = enrichmentCache.get(index);
+  if (cached) return cached;
+
+  const piiByFqid = new Map<string, number>();
+  const issuesByFqid = new Map<string, number>();
+
+  for (const h of index.pii.hits) {
+    const k = h.entityFqid.toLowerCase();
+    piiByFqid.set(k, (piiByFqid.get(k) || 0) + 1);
+  }
+  for (const issue of index.lint.lintReport.issues) {
+    if (!issue.entityFqid) continue;
+    const k = issue.entityFqid.toLowerCase();
+    issuesByFqid.set(k, (issuesByFqid.get(k) || 0) + 1);
+  }
+
+  const maps = { piiByFqid, issuesByFqid };
+  enrichmentCache.set(index, maps);
+  return maps;
+}
+
 function scoreText(haystack: string[], needle: string): number {
   const q = needle.toLowerCase();
   let best = 0;
@@ -31,13 +62,31 @@ function scoreText(haystack: string[], needle: string): number {
 function entityResult(
   e: ModelIndex["entities"][number],
   score: number,
+  index: ModelIndex,
   sublabel?: string,
 ): ModelSearchResult {
+  let sub = sublabel;
+  if (!sub) {
+    const parts: string[] = [];
+    if (e.name && e.name !== e.entityId) parts.push(e.name);
+    parts.push(`${e.attributes.length} атр.`);
+
+    const { piiByFqid, issuesByFqid } = getEnrichment(index);
+    const key = e.fqid.toLowerCase();
+    const pii = piiByFqid.get(key) || 0;
+    const issues = issuesByFqid.get(key) || 0;
+
+    if (pii > 0) parts.push(`🔒${pii}`);
+    if (issues > 0) parts.push(`⚠${issues}`);
+    parts.push(e.domainId);
+    sub = parts.join(" · ");
+  }
+
   return {
     kind: "entity",
     key: `entity:${e.fqid}`,
     label: e.entityId,
-    sublabel: sublabel ?? `${e.name} · ${e.domainId}`,
+    sublabel: sub,
     domainId: e.domainId,
     fqid: e.fqid,
     entity: e,
@@ -55,7 +104,7 @@ function attributeResult(
     kind: "attribute",
     key: `attribute:${e.fqid}#${a.id}`,
     label: `${e.entityId}.${a.id}`,
-    sublabel: sublabel ?? `${a.dataType} · ${e.domainId}`,
+    sublabel: sublabel ?? `${a.dataType} · ${e.entityId} · ${e.domainId}`,
     domainId: e.domainId,
     fqid: e.fqid,
     attributeId: a.id,
@@ -116,7 +165,7 @@ const selectEntity: Selector = (f, index) => {
   const out: ModelSearchResult[] = [];
   for (const e of index.entities) {
     const score = scoreText([e.entityId, e.name, e.description], f.value);
-    if (score > 0) out.push(entityResult(e, score));
+    if (score > 0) out.push(entityResult(e, score, index));
   }
   return out;
 };
@@ -248,7 +297,7 @@ const selectHas: Selector = (f, index) => {
   };
 
   for (const e of index.entities) {
-    if (entityHas(e)) out.push(entityResult(e, 300));
+    if (entityHas(e)) out.push(entityResult(e, 300, index));
   }
   return out;
 };
@@ -274,7 +323,7 @@ const selectWithout: Selector = (f, index) => {
       const set = new Set(inverted.map((r) => r.fqid));
       matches = !set.has(e.fqid);
     }
-    if (matches) out.push(entityResult(e, 250));
+    if (matches) out.push(entityResult(e, 250, index));
   }
   return out;
 };
@@ -284,7 +333,7 @@ const selectInherits: Selector = (f, index) => {
   for (const e of index.entities) {
     if (!e.inherits) continue;
     if (globMatch(e.inherits, f.value) || globContains(e.inherits, f.value)) {
-      out.push(entityResult(e, 500));
+      out.push(entityResult(e, 500, index));
     }
   }
   return out;
@@ -308,7 +357,7 @@ const selectTag: Selector = (f, index) => {
   const out: ModelSearchResult[] = [];
   for (const e of index.entities) {
     if (e.domainTags.some((t) => globMatch(t, f.value))) {
-      out.push(entityResult(e, 300, `тег: ${f.value}`));
+      out.push(entityResult(e, 300, index, `тег: ${f.value}`));
     }
   }
   return out;
@@ -596,12 +645,12 @@ const selectFqid: Selector = (f, index) => {
   if (raw.includes("/")) {
     // Прямой FQID — возвращаем сущность целиком.
     const e = index.entitiesByFqid[raw];
-    if (e) out.push(entityResult(e, 1000));
+    if (e) out.push(entityResult(e, 1000, index));
   } else {
     // Просто id — по всем доменам
     for (const e of index.entities) {
       if (globMatch(e.fqid, f.value) || globContains(e.fqid, f.value)) {
-        out.push(entityResult(e, 800));
+        out.push(entityResult(e, 800, index));
       }
     }
   }
@@ -689,7 +738,7 @@ function plainSearch(
       Infinity,
     );
     if (eScore > 0 && Number.isFinite(eScore)) {
-      out.push(entityResult(e, eScore));
+      out.push(entityResult(e, eScore, index));
     }
     for (const a of e.attributes) {
       const aScore = tokens.reduce(
@@ -887,7 +936,7 @@ function buildNegative(
     case "tag":
       for (const e of index.entities) {
         if (!excludeKeys.has(`entity:${e.fqid}`))
-          base.push(entityResult(e, 200));
+          base.push(entityResult(e, 200, index));
       }
       break;
     case "attr":

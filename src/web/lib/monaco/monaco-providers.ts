@@ -654,6 +654,7 @@ export function resetProviderContext(): void {
   ctx.lineMap = null;
   ctx.currentFilePath = null;
   ctx.currentDomainId = null;
+  ctx.modelIndex = null;
   ctx.onOpenFqid = undefined;
 }
 
@@ -1194,11 +1195,25 @@ function collectColumnRefs(ctx: ProviderContext): SectionRef[] {
   return out;
 }
 
+const collectRefsCache = new WeakMap<
+  SectionRef[],
+  Map<string, RefSuggestion[]>
+>();
+
 function collectRefsForField(
   items: SectionRef[],
   currentDomainId: string | null,
   opts: { shortKind: number; fqidKind?: number; typeFilter?: string },
 ): RefSuggestion[] {
+  const cacheKey = `${currentDomainId || ""}|${opts.typeFilter || ""}|${opts.shortKind}|${opts.fqidKind || ""}`;
+  let byKey = collectRefsCache.get(items);
+  if (!byKey) {
+    byKey = new Map();
+    collectRefsCache.set(items, byKey);
+  }
+  const cached = byKey.get(cacheKey);
+  if (cached) return cached;
+
   const cur = (currentDomainId || "").toLowerCase();
   const out: RefSuggestion[] = [];
   const seenLocal = new Set<string>();
@@ -1239,22 +1254,52 @@ function collectRefsForField(
     });
   }
 
+  byKey.set(cacheKey, out);
   return out;
 }
 
-function detectValueContext(model: any, position: any): ValueCtx {
-  const lines: string[] = [];
-  const lineCount = model.getLineCount();
-  for (let i = 1; i <= lineCount; i++) lines.push(model.getLineContent(i));
+let lastCtxCache: {
+  modelVersionId: number;
+  lineNumber: number;
+  lineText: string;
+  ctx: ValueCtx;
+} | null = null;
 
-  const lineText = lines[position.lineNumber - 1] || "";
+function getCachedValueContext(model: any, position: any): ValueCtx {
+  let versionId = 0;
+  try {
+    versionId = model.getVersionId();
+  } catch {
+    /* ignore */
+  }
+  const lineText = model.getLineContent(position.lineNumber);
+  if (
+    lastCtxCache &&
+    lastCtxCache.modelVersionId === versionId &&
+    lastCtxCache.lineNumber === position.lineNumber &&
+    lastCtxCache.lineText === lineText
+  ) {
+    return lastCtxCache.ctx;
+  }
+  const ctx = detectValueContext(model, position);
+  lastCtxCache = {
+    modelVersionId: versionId,
+    lineNumber: position.lineNumber,
+    lineText,
+    ctx,
+  };
+  return ctx;
+}
+
+function detectValueContext(model: any, position: any): ValueCtx {
+  const lineText = model.getLineContent(position.lineNumber);
   const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
 
-  // section
+  // section: walk-up до indent 0
   let section = "";
   for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const pl = lines[i - 1];
-    if (!pl) continue;
+    const pl = model.getLineContent(i);
+    if (!pl.trim()) continue;
     const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
     if (pIndent === 0) {
       const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
@@ -1265,37 +1310,37 @@ function detectValueContext(model: any, position: any): ValueCtx {
     }
   }
 
-  // container: ближайший не-`id` ключ с меньшим indent
-  let container = "";
-  let containerLine = -1;
-  let containerIndent = -1;
-  {
-    const dc = determineViewContainer(
-      lines,
-      position.lineNumber,
-      currentIndent,
-    );
-    container = dc.container;
-    containerLine = dc.containerLine;
-    containerIndent = dc.containerIndent;
-  }
+  // container: walk-up до первого key с меньшим indent
+  const dc = determineViewContainer(model, position.lineNumber, currentIndent);
+  const container = dc.container;
+  const containerLine = dc.containerLine;
+  const containerIndent = dc.containerIndent;
 
-  // stack (для parent lookup внутри computeItemTypeFast)
+  // stack: предки (walk-up от containerLine) — нужны computeItemTypeFast
   const stack: Array<{ indent: number; key: string }> = [];
-  for (let i = 1; i < position.lineNumber; i++) {
-    const pl = lines[i - 1];
-    if (!pl || !pl.trim() || pl.trim().startsWith("#")) continue;
-    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-    if (pIndent >= containerIndent) continue;
-    const m = pl.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
-    if (!m) continue;
-    while (stack.length && stack[stack.length - 1].indent >= pIndent)
-      stack.pop();
-    stack.push({ indent: pIndent, key: m[1] });
+  if (containerLine >= 0) {
+    let boundary = containerIndent;
+    for (let i = containerLine - 1; i >= 1; i--) {
+      const pl = model.getLineContent(i);
+      if (!pl.trim() || pl.trim().startsWith("#")) continue;
+      const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+      if (pIndent >= boundary) continue;
+
+      if (pIndent === 0) {
+        const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (m) stack.unshift({ indent: 0, key: m[1] });
+        break;
+      }
+
+      const m = pl.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+      if (!m) continue;
+      stack.unshift({ indent: pIndent, key: m[2] });
+      boundary = pIndent;
+    }
   }
 
   const itemType = computeItemTypeFast(
-    lines,
+    model,
     section,
     container,
     containerLine,
@@ -6511,29 +6556,40 @@ interface ContainerEntry {
 function findContainerPath(model: any, position: any): string[] {
   const currentLine = model.getLineContent(position.lineNumber);
   const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
-  const stack: ContainerEntry[] = [];
+  const result: string[] = [];
+  let boundary = currentIndent;
 
-  for (let i = 1; i < position.lineNumber; i++) {
+  // Walk-up: O(depth), а не O(N). Пропускаем всё, что не может быть
+  // предком курсора (indent >= boundary).
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
     const line = model.getLineContent(i);
     if (!line.trim() || line.trim().startsWith("#")) continue;
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
 
-    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
+    if (indent >= boundary) continue;
+
+    if (indent === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) result.unshift(m[1]);
+      break;
     }
 
     const m = line.match(/^(\s*)(-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*)$/);
     if (!m) continue;
-    const hasValue = m[4].trim().length > 0;
-    stack.push({ key: m[3], indent, isContainer: !hasValue });
+    const [, , , key, rest] = m;
+    const isContainer = !rest.trim();
+
+    if (isContainer) {
+      result.unshift(key);
+      boundary = indent;
+    } else {
+      // value-field / item opener: уменьшаем границу, чтобы следующая
+      // родительская строка была строго выше.
+      boundary = Math.min(boundary, indent);
+    }
   }
 
-  // Убираем контейнеры, которые «закрыты» текущим отступом курсора
-  while (stack.length > 0 && stack[stack.length - 1].indent >= currentIndent) {
-    stack.pop();
-  }
-
-  return stack.filter((s) => s.isContainer).map((s) => s.key);
+  return result;
 }
 
 function computeItemTypeFromPath(model: any, position: any): string | null {
@@ -8770,8 +8826,22 @@ function cachedScenarios(): RefSuggestion[] {
 }
 
 // Кеш `Kind` — перезаписывается при первом обращении, если needed
+const withKindCache = new WeakMap<
+  RefSuggestion[],
+  Map<number, RefSuggestion[]>
+>();
+
 function withKind(items: RefSuggestion[], kind: number): RefSuggestion[] {
-  return items.map((x) => ({ ...x, kind }));
+  let byKind = withKindCache.get(items);
+  if (!byKind) {
+    byKind = new Map();
+    withKindCache.set(items, byKind);
+  }
+  let cached = byKind.get(kind);
+  if (cached) return cached;
+  cached = items.map((x) => ({ ...x, kind }));
+  byKind.set(kind, cached);
+  return cached;
 }
 
 // ============ RQL: определение контекста и предложения ============
@@ -9533,7 +9603,7 @@ export function registerMonacoProviders(monaco: any): void {
   );
 
   monaco.languages.registerCompletionItemProvider("yaml", {
-    triggerCharacters: [":", " ", "/", ".", "-"],
+    triggerCharacters: [":","/", " ", ".", "-"],
     provideCompletionItems: (model: any, position: any) => {
       if (!ctx.modelIndex) return { suggestions: [] };
       const Kind = monaco.languages.CompletionItemKind;
@@ -9756,7 +9826,7 @@ export function registerMonacoProviders(monaco: any): void {
       // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
       // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
       const fieldName = fieldMatch[2];
-      const vctxRaw = detectValueContext(model, position);
+      const vctxRaw = getCachedValueContext(model, position);
       const pathItemType = computeItemTypeFromPath(model, position);
 
       // Приоритет: path-based, КРОМЕ мест, где detectValueContext уточняет
@@ -10222,11 +10292,7 @@ export function registerMonacoProviders(monaco: any): void {
           );
         }
         case "operation": {
-          const allLines: string[] = [];
-          const lineCount = model.getLineCount();
-          for (let k = 1; k <= lineCount; k++) {
-            allLines.push(model.getLineContent(k));
-          }
+          const allLines = model.getLinesContent() as string[];
           const actionType = findActionTypeForLine(
             allLines,
             position.lineNumber,
@@ -10257,11 +10323,7 @@ export function registerMonacoProviders(monaco: any): void {
             : { suggestions: [] };
         }
         case "page": {
-          const allLines: string[] = [];
-          const lineCount = model.getLineCount();
-          for (let k = 1; k <= lineCount; k++) {
-            allLines.push(model.getLineContent(k));
-          }
+          const allLines = model.getLinesContent() as string[];
           const actionType = findActionTypeForLine(
             allLines,
             position.lineNumber,
@@ -11651,12 +11713,12 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
  * нестандартных отступах, потому что смотрит на текст, а не на состояние.
  */
 function determineViewContainer(
-  lines: string[],
+  model: any,
   currentLineIdx: number,
   currentIndent: number,
 ): { container: string; containerLine: number; containerIndent: number } {
   for (let i = currentLineIdx - 1; i >= 1; i--) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim() || l.trim().startsWith("#")) continue;
     const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
     if (lIndent >= currentIndent) continue;
@@ -11669,23 +11731,14 @@ function determineViewContainer(
 
     if (key === "id") continue;
 
-    // ============ Отличие «item opener» от «container» ============
-    // `- buttons:` (dash) может быть:
-    //   (a) полем item (первое поле) — currentIndent == "поля item";
-    //   (b) контейнером — currentIndent > "поля item".
-    // Определяем «поля item» = indent первого дочернего элемента после dash.
-    // Пример:
-    //   - buttons:            ← indent 6
-    //       - type: close     ← indent 10 (V=10)
-    //     form: ...           ← indent 8 (currentIndent=8 < V=10) → НЕ внутри
+    // Скалярное значение на той же строке — точно не контейнер.
     if (isDash) {
-      // Скалярное значение на той же строке — точно не контейнер.
       if (rest) continue;
 
-      // Ищем V — indent первого вложенного элемента после `- key:`.
+      // Найти V — indent первого вложенного элемента после `- key:`.
       let valueIndent = -1;
-      for (let j = i; j < currentLineIdx; j++) {
-        const nl = lines[j];
+      for (let j = i + 1; j < currentLineIdx; j++) {
+        const nl = model.getLineContent(j);
         if (!nl || !nl.trim() || nl.trim().startsWith("#")) continue;
         const nInd = (nl.match(/^(\s*)/) || ["", ""])[1].length;
         if (nInd > lIndent) {
@@ -11695,8 +11748,7 @@ function determineViewContainer(
       }
 
       if (valueIndent > 0 && currentIndent < valueIndent) {
-        // Текущая строка на уровне полей item, а не внутри key's value.
-        continue;
+        continue; // не внутри key's value
       }
     }
 
@@ -11707,10 +11759,10 @@ function determineViewContainer(
 
 /** Быстрая замена detectValueContext: использует уже пройденный stack. */
 function computeItemTypeFast(
-  lines: string[],
+  model: any,
   section: string,
   container: string,
-  containerLine: number, // 1-based
+  containerLine: number,
   containerIndent: number,
   stack: Array<{ indent: number; key: string }>,
 ): string {
@@ -11802,7 +11854,7 @@ function computeItemTypeFast(
 
       // 5. control внутри widgets[] → зависит от widget.type
       if (ancestors.has("widgets")) {
-        const widgetType = findWidgetTypeForControl(lines, containerLine);
+        const widgetType = findWidgetTypeForControl(model, containerLine);
         if (widgetType === "action") return "viewWidgetActionControl";
         if (widgetType === "linkage") return "viewWidgetLinkageControl";
         if (widgetType === "linked_objects_groups") {
@@ -11822,7 +11874,7 @@ function computeItemTypeFast(
       let itemLine = -1;
       let itemIndent = -1;
       for (let i = containerLine - 1; i >= 1; i--) {
-        const l = lines[i - 1];
+        const l = model.getLineContent(i);
         if (!l || !l.trim() || l.trim().startsWith("#")) continue;
         const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
         if (ind >= containerIndent) continue;
@@ -11836,7 +11888,7 @@ function computeItemTypeFast(
       }
       if (itemLine !== -1) {
         for (let i = itemLine + 1; i < containerLine; i++) {
-          const l = lines[i - 1];
+          const l = model.getLineContent(i);
           if (!l || !l.trim()) continue;
           const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
           if (ind <= itemIndent) break;
@@ -11877,7 +11929,7 @@ function computeItemTypeFast(
       // `- id:`, `- entity:`, `- buttons:` — все они открывают item.
       let isNested = false;
       for (let i = containerLine - 1; i >= 1; i--) {
-        const l = lines[i - 1];
+        const l = model.getLineContent(i);
         if (!l || !l.trim() || l.trim().startsWith("#")) continue;
         const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
         if (lIndent >= containerIndent) continue;
@@ -11916,7 +11968,7 @@ function computeItemTypeFast(
     // Bulk-edit (без bulkSettings)
     if (container === "attributes") {
       return isInsideBulkSettings(
-        (n) => lines[n - 1] ?? "",
+        (n) => model.getLineContent(n),
         containerLine,
         containerIndent,
       )
@@ -11925,7 +11977,7 @@ function computeItemTypeFast(
     }
     if (container === "linkages") {
       return isInsideBulkSettings(
-        (n) => lines[n - 1] ?? "",
+        (n) => model.getLineContent(n),
         containerLine,
         containerIndent,
       )
@@ -13573,11 +13625,11 @@ export function applyUiRuleRefMarkers(
  * на уровне полей виджета (`widgetItemIndent + 2`).
  */
 function findWidgetTypeForControl(
-  lines: string[],
+  model: any,
   controlLine: number, // 1-based
 ): string {
-  if (controlLine < 1 || controlLine > lines.length) return "";
-  const controlText = lines[controlLine - 1];
+  if (controlLine < 1 || controlLine > model.getLineCount()) return "";
+  const controlText = model.getLineContent(controlLine);
   if (!controlText) return "";
 
   const controlIndent = (controlText.match(/^(\s*)/) || ["", ""])[1].length;
@@ -13594,7 +13646,7 @@ function findWidgetTypeForControl(
   let blockStart = controlLine;
   if (!isControlOpener) {
     for (let i = controlLine - 1; i >= 1; i--) {
-      const l = lines[i - 1];
+      const l = model.getLineContent(i);
       if (!l || !l.trim() || l.trim().startsWith("#")) continue;
       const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
       const m = l.match(/^(\s*)-\s+\S/);
@@ -13606,9 +13658,10 @@ function findWidgetTypeForControl(
     }
   }
 
-  let blockEnd = lines.length + 1;
-  for (let i = blockStart + 1; i <= lines.length; i++) {
-    const l = lines[i - 1];
+  const lineCount = model.getLineCount();
+  let blockEnd = lineCount + 1;
+  for (let i = blockStart + 1; i <= lineCount; i++) {
+    const l = model.getLineContent(i);
     if (!l || !l.trim()) continue;
     const m = l.match(/^(\s*)-\s+\S/);
     if (m && m[1].length <= widgetItemIndent) {
@@ -13620,7 +13673,7 @@ function findWidgetTypeForControl(
   // ============ Поиск `type:` на уровне полей виджета ============
   let blockScalarIndent = -1;
   for (let i = blockStart; i < blockEnd; i++) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim()) continue;
     const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
 
