@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
+import { useGraphStore } from '../../state/useGraphStore';
 
 /**
  * Компактный возраст: "3d", "5h", "2mo". Локально — единственный потребитель.
@@ -28,6 +29,10 @@ export function DomainNode({ data, selected }: NodeProps) {
     const isDisabled = data.status === 'DISABLED';
     const isInvalid = data.__invalid === true;
     const hasDraft = data.hasDraft === true;
+    const domainIdForFreshness = data.domainId;
+    const staleCount = useGraphStore((s) =>
+        s.freshnessMap?.get(domainIdForFreshness),
+    );
 
     const healthScore =
         data.health && typeof data.health === 'object' ? data.health.score : data.health;
@@ -205,6 +210,14 @@ export function DomainNode({ data, selected }: NodeProps) {
                         {entitiesBadge}
                         {healthBadge}
                         {validationBadge}
+                        {staleCount != null && staleCount > 0 && (
+                            <span
+                                className="rf-node__stale"
+                                title={`${staleCount} ссылок из других доменов устарели — target изменился`}
+                            >
+                                ↻ {staleCount}
+                            </span>
+                        )}
                         {data.__topoLevel != null && (
                             <span className="topo-badge">L{data.__topoLevel}</span>
                         )}

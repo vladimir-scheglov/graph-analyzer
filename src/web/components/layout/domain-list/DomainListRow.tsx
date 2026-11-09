@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useGraphStore } from "../../../state/useGraphStore";
 import { MIcon } from "../../common/MIcon";
 import { openFileInEditor } from "../../../lib/open-file";
 import { plural, relativeTimeShort } from "../../../lib/format";
 import type { EnrichedDomain } from "./types";
+import { annotationsStore } from "../../../lib/storage/annotations";
 
 export interface DomainListRowProps {
     domain: EnrichedDomain;
@@ -23,6 +24,37 @@ export const DomainListRow = React.memo(function DomainListRow({
     const d = domain;
     const isProblematic = d.node.data.nodeType !== "domain";
     const isDisabled = d.statusNormalized === "disabled";
+    const staleCount = useGraphStore((s) => s.freshnessMap.get(d.domainId));
+
+    // Badge «📌 N»: загружаем один раз на mount домена. Обновление — при
+    // следующем mount (переключение фильтра, перезагрузка страницы).
+    // Подписки на событие «annotations-changed» в annotationsStore нет —
+    // если добавишь, обнови и здесь.
+    const [annCount, setAnnCount] = useState(0);
+    useEffect(() => {
+        let cancelled = false;
+
+        const load = () => {
+            annotationsStore
+                .list()
+                .then((list) => {
+                    if (cancelled) return;
+                    const cnt = list.filter(
+                        (a) => a.domainId === d.domainId && !a.resolvedAt,
+                    ).length;
+                    setAnnCount(cnt);
+                })
+                .catch(() => { });
+        };
+
+        load();
+        const unsub = annotationsStore.subscribe(load);
+
+        return () => {
+            cancelled = true;
+            unsub();
+        };
+    }, [d.domainId]);
 
     const openSchema = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -133,6 +165,29 @@ export const DomainListRow = React.memo(function DomainListRow({
                             }
                         >
                             {isDisabled ? "OFF" : "ON"}
+                        </span>
+                    )}
+                    {annCount > 0 && (
+                        <span
+                            className="domain-list-row__badge domain-list-row__badge--annotation"
+                            title={`${annCount} открытых TODO-заметок`}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 3,
+                                fontSize: 11,
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                background: "rgba(245, 158, 11, 0.15)",
+                                color: "#f59e0b",
+                            }}
+                        >
+                            📌 {annCount}
+                        </span>
+                    )}
+                    {staleCount && (
+                        <span className="badge badge--warn" title={`${staleCount} ссылок устарели`}>
+                            ↻ {staleCount}
                         </span>
                     )}
                 </div>

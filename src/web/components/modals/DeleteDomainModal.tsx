@@ -380,7 +380,7 @@ export function DeleteDomainModal() {
             setStage({ label: "Обновление индекса…", status: "active" });
             const st = useGraphStore.getState();
             st.bumpModelVersion();
-            await st.refreshGraphFromServer();
+            await st.refreshGraphFromServer(index);
             st.setDeleteDomainTarget(null);
         } catch (e: any) {
             setError(e.message || String(e));

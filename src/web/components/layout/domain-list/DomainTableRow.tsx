@@ -4,6 +4,7 @@ import { MIcon } from "../../common/MIcon";
 import { openFileInEditor } from "../../../lib/open-file";
 import { plural, relativeTimeShort } from "../../../lib/format";
 import type { EnrichedDomain } from "./types";
+import { useModelIndex } from "../../../hooks/useModelIndex";
 
 export interface DomainTableRowProps {
     domain: EnrichedDomain;
@@ -25,6 +26,7 @@ export const DomainTableRow = React.memo(function DomainTableRow({
     const d = domain;
     const status = d.statusNormalized;
     const isDisabled = status === "disabled";
+    const { index } = useModelIndex();
 
     const openSchema = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -53,7 +55,7 @@ export const DomainTableRow = React.memo(function DomainTableRow({
                 useGraphStore.getState().showSnackbar("Ошибка смены статуса");
                 return;
             }
-            useGraphStore.getState().refreshGraphFromServer(true).catch(() => { });
+            useGraphStore.getState().refreshGraphFromServer(index, true).catch(() => { });
         } catch {
             /* ignore */
         }

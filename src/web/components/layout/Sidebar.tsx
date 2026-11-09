@@ -13,6 +13,8 @@ import { ActivitySection } from './sections/ActivitySection';
 import { NewsSection } from './sections/NewsSection';
 import { LegendSection } from './sections/LegendSection';
 import { SidebarMenu, type SidebarSection } from './SidebarMenu';
+import { AnnotationsPanel } from '../annotations/AnnotationsPanel';
+import { Section } from './Section';
 
 export interface SidebarProps {
     healthMap: Map<string, any>;
@@ -45,6 +47,7 @@ export function Sidebar(props: SidebarProps) {
     const allSections: SidebarSection[] = useMemo(
         () => [
             { id: 'project-health', title: 'Здоровье модели', icon: 'monitor_heart' },
+            { id: 'my-todos', title: 'Мои TODO', icon: 'push_pin' },
             { id: 'problems', title: 'Проблемы', icon: 'warning' },
             { id: 'activity', title: 'Активность', icon: 'trending_up' },
             { id: 'ratings', title: 'Рейтинги', icon: 'bar_chart' },
@@ -294,6 +297,13 @@ export function Sidebar(props: SidebarProps) {
                 {!hidden.has('project-health') && matches('Здоровье модели') && (
                     <ProjectHealthSection />
                 )}
+
+                {!hidden.has('my-todos') && matches('Мои TODO') && (
+                    <Section id="my-todos" title="Мои TODO" icon="push_pin">
+                        <AnnotationsPanel />
+                    </Section>
+                )}
+
 
                 {!hidden.has('problems') &&
                     hasProblems &&

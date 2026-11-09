@@ -25,7 +25,8 @@ import {
     useGraphEvents,
     useNodeInteractions,
     useGraphLayout,
-    useGlobalClickDelegation
+    useGlobalClickDelegation,
+    useDependencyFreshness
 } from './hooks';
 
 import { findCycles } from './lib/algorithms/cycles';
@@ -50,6 +51,7 @@ export default function App() {
     const rules = useGraphStore((s) => s.rules);
     const viewMode = useGraphStore((s) => s.viewMode);
 
+    useDependencyFreshness();
     // ============ Инициализация (однократно) ============
     const didInit = useRef(false);
     useEffect(() => {

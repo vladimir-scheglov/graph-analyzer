@@ -203,39 +203,6 @@ export function CheatsheetModal() {
             };
             actions.appendChild(btnCopy);
 
-            // ── В редактор ──
-            const btnOpen = document.createElement("button");
-            btnOpen.type = "button";
-            btnOpen.className = "cheatsheet-open-btn";
-            btnOpen.textContent = "→ В редактор";
-            btnOpen.title = "Скопировать YAML и открыть редактор";
-            btnOpen.onclick = () => {
-                const st = useGraphStore.getState();
-                navigator.clipboard
-                    .writeText(code)
-                    .then(() => {
-                        // Если редактор закрыт — открыть на первом доступном файле
-                        if (!st.yamlViewerOpen) {
-                            const node = st.nodes.find(
-                                (n: any) => n.data && n.data.filePath,
-                            );
-                            if (node?.data.filePath) {
-                                st.setYamlViewerFilePath(node.data.filePath);
-                                st.setYamlViewerFqid(null);
-                                st.setYamlViewerDomainId(node.data.domainId);
-                                st.setYamlViewerOpen(true);
-                            }
-                        }
-                        st.showSnackbar(
-                            "YAML скопирован. Вставьте в редактор (Ctrl+V) в нужное место.",
-                        );
-                    })
-                    .catch(() => {
-                        st.showSnackbar("Не удалось скопировать YAML");
-                    });
-            };
-            actions.appendChild(btnOpen);
-
             (pre as HTMLElement).style.position = "relative";
             pre.appendChild(actions);
         });

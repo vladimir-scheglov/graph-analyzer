@@ -22,6 +22,7 @@ import {
 } from "../../../core/analyzer/lint-baseline";
 import { alertDialog, confirmDialog } from "../../lib/dialogs";
 import { Popover } from "../common/Popover";
+import { isAutoFixable } from "../../lib/monaco/quickfix-rules";
 
 // ============ Константы ============
 
@@ -203,6 +204,57 @@ export function LintModal() {
         query,
         isIssueNew,
     ]);
+
+    const autoFixableCount = useMemo(
+        () => filteredIssues.filter((i) => isAutoFixable(i.ruleId, i.message)).length,
+        [filteredIssues],
+    );
+
+    const handleFixAll = useCallback(async () => {
+        const targetDomain =
+            filterDomain ||
+            filteredIssues[0]?.domainId ||
+            null;
+
+        if (!targetDomain) {
+            useGraphStore.getState().showSnackbar("Нет домена для автоисправления");
+            return;
+        }
+
+        const node = nodes.find(
+            (n) =>
+                (n.data.domainId || "").toLowerCase() === targetDomain.toLowerCase(),
+        );
+
+        if (!node?.data.filePath) {
+            useGraphStore.getState().showSnackbar("Файл схемы не найден");
+            return;
+        }
+
+        // 1. Закрываем LintModal ДО открытия YamlViewer
+        useGraphStore.getState().setLintOpen(false);
+
+        // 2. Открываем YamlViewer (dirty-check — если пользователь отменил, восстанавливаем)
+        const ok = await openFileInEditor(
+            node.data.filePath,
+            null,
+            targetDomain,
+        );
+        if (!ok) {
+            useGraphStore.getState().setLintOpen(true);
+            return;
+        }
+
+        // 3. Даём YamlViewer смонтировать Monaco и дождаться маркеров.
+        //    Обработчик события ниже сам разблокирует файл и применит правки.
+        setTimeout(() => {
+            document.dispatchEvent(
+                new CustomEvent("dg:lint-fix-all", {
+                    detail: { domainId: targetDomain },
+                }),
+            );
+        }, 600);
+    }, [filterDomain, filteredIssues, nodes]);
 
     const grouped = useMemo((): IssueGroup[] => {
         if (!filteredIssues.length) return [];
@@ -1219,6 +1271,25 @@ export function LintModal() {
                                 flexWrap: "wrap",
                             }}
                         >
+                            <button
+                                className="btn"
+                                onClick={handleFixAll}
+                                disabled={autoFixableCount === 0}
+                                title={
+                                    autoFixableCount === 0
+                                        ? "Для текущих проблем автофиксов нет — правьте вручную"
+                                        : `Применить ${autoFixableCount} ${autoFixableCount === 1 ? "автофикс" : "автофикса"} (остальные — вручную)`
+                                }
+                            >
+                                <MIcon name="auto_fix_high" size="sm" />
+                                Исправить все ({autoFixableCount})
+                                {autoFixableCount < filteredIssues.length && (
+                                    <span style={{ opacity: 0.55, marginLeft: 4, fontSize: 11 }}>
+                                        / {filteredIssues.length}
+                                    </span>
+                                )}
+                            </button>
+
                             <button
                                 className="btn"
                                 onClick={expandAll}

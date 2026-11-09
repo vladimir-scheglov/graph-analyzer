@@ -21,3 +21,4 @@ export { useGraphEvents } from "./useGraphEvents";
 export { useNodeInteractions } from "./useNodeInteractions";
 export { useGraphLayout } from "./useGraphLayout";
 export { useGlobalClickDelegation } from "./useGlobalClickDelegation";
+export { useDependencyFreshness } from "./useDependencyFreshness";

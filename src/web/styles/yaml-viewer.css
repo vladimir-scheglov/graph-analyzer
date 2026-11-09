@@ -82,7 +82,6 @@
 .yaml-nav-item__row--cursor {
     background: rgba(99, 102, 241, 0.08);
     border-left: 2px solid var(--accent);
-    padding-left: 2px;
 }
 
 .yaml-nav-item__row--cursor .yaml-nav-item__id {
@@ -530,4 +529,144 @@
 .yaml-nav-filtered-item__more:hover {
     background: var(--bg-750);
     color: var(--text-100);
+}
+/* ═══════════ Status bar под редактором ═══════════ */
+
+.yaml-viewer-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-850, #0f1524);
+  font-size: 11px;
+  color: var(--text-400);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.yaml-viewer-statusbar__left,
+.yaml-viewer-statusbar__center,
+.yaml-viewer-statusbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.yaml-viewer-statusbar__right {
+    padding-right: 16px;
+}
+
+.yaml-viewer-statusbar__center {
+  flex: 1;
+  justify-content: center;
+}
+
+.yaml-viewer-statusbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+
+.yaml-viewer-statusbar__item--muted {
+  color: var(--text-500);
+}
+
+.yaml-viewer-statusbar__item--ok {
+  color: var(--success);
+}
+
+.yaml-viewer-statusbar__item--warn {
+  color: var(--warning);
+}
+
+.yaml-viewer-statusbar__item--err {
+  color: var(--danger);
+}
+
+.yaml-viewer-statusbar__item--clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.yaml-viewer-statusbar__item--clickable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Главная подсказка про Shift+Esc — акцентная кнопка */
+.yaml-viewer-statusbar__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-400);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.yaml-viewer-statusbar__hint:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+  background: var(--accent-soft, rgba(99, 102, 241, 0.08));
+}
+
+.yaml-viewer-statusbar__hint kbd {
+  display: inline-block;
+  min-width: 14px;
+  padding: 0 3px;
+  border: 1px solid var(--border-hover, #334155);
+  border-radius: 3px;
+  background: var(--bg-750, #16203a);
+  color: var(--text-200);
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.yaml-viewer-statusbar__hint-sep {
+  color: var(--text-500);
+  font-size: 10px;
+}
+
+.yaml-viewer-statusbar__hint-label {
+  margin-left: 4px;
+  color: var(--text-500);
+}
+
+.yaml-viewer-statusbar__hint:hover .yaml-viewer-statusbar__hint-label {
+  color: var(--accent-hover);
+}
+
+/* На узких экранах — скрываем менее важное */
+@media (max-width: 1024px) {
+  .yaml-viewer-statusbar__center {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .yaml-viewer-statusbar__item--muted {
+    display: none;
+  }
+  .yaml-viewer-statusbar__hint-label {
+    display: none;
+  }
 }

@@ -3208,10 +3208,6 @@
     padding-left: 20px;
 }
 
-.monaco-editor .suggest-widget.empty {
-    display: none !important;
-    pointer-events: none !important;
-}
 .monaco-editor .suggest-widget:not(:has(.monaco-list-row)) {
     display: none !important;
     pointer-events: none !important;
@@ -3643,21 +3639,6 @@
 }
 
 /* Кнопка «Копировать» на pre-блоках */
-.cheatsheet-copy-btn {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    padding: 2px 8px;
-    font-size: 10px;
-    background: var(--bg-750);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text-400);
-    cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    opacity: 0;
-    transition: opacity 0.15s;
-}
 .cheatsheet-md pre:hover .cheatsheet-copy-btn {
     opacity: 1;
 }
@@ -6599,6 +6580,32 @@ select.create-domain-input {
     margin-left: auto;
 }
 
+.yaml-issues__nav-btn--primary {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+
+.yaml-issues__nav-btn--primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.yaml-issues__nav-btn--primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.yaml-issues__nav-count {
+  margin-left: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
 /* ============ Header: сводка по источникам ============ */
 .yaml-issues__header {
     display: flex;
@@ -6829,6 +6836,14 @@ select.create-domain-input {
     border-color: var(--border);
     color: var(--text-200);
 }
+
+.yaml-issue__fix-badge {
+  font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.yaml-issue__fix-badge--no { opacity: 0.45; }
 
 /* ============ Фокус на панели ============ */
 .yaml-issues:focus-visible {

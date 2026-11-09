@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigation } from "../../hooks/useNavigation";
 import { useGraphStore } from "../../state/useGraphStore";
 import { MIcon } from "../common/MIcon";
+import { PinButton } from "../annotations/PinButton";
 
 export interface EdgeTabProps {
     edge: any;
@@ -94,6 +95,13 @@ export function EdgeTab({ edge, allNodes }: EdgeTabProps) {
                     <span className="edge-tab__badge">ненаправленная</span>
                 )}
             </div>
+
+            <PinButton
+                target={`edge:${edge.id}`}
+                domainId={link.domainId}
+                kind="edge"
+                label={fullLabel}
+            />
 
             {/* ── Title ── */}
             <div className="edge-tab__title">{fullLabel}</div>

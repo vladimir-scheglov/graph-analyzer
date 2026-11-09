@@ -20,6 +20,7 @@ import {
     HelpButton,
 } from "../common/ModalHelp";
 import { useHelpEscape } from "../../hooks/useHelpEscape";
+import { computeRecommendations, Recommendation } from "../../lib/model/recommendations";
 
 // ============ Grade ============
 
@@ -1447,6 +1448,8 @@ export function HealthDashboardModal() {
                             </div>
                         </div>
 
+                        <AutoRecommendationsCard index={index} />
+
                         {/* ============ Table ============ */}
                         <div className="health-table-wrap">
                             <table className="health-table">
@@ -2290,6 +2293,92 @@ function HealthRowDetails({
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+function AutoRecommendationsCard({ index }: { index: ModelIndex }) {
+    const recs = useMemo(() => computeRecommendations(index), [index]);
+    if (recs.length === 0) return null;
+
+    const open = (r: Recommendation) => {
+        const st = useGraphStore.getState();
+        if (r.action?.kind === "open-lint") st.setLintOpen(true);
+        else if (r.action?.kind === "open-pii") st.setPiiOpen(true);
+        else if (r.targets[0]) {
+            st.setEntityCatalogInitialFqid(r.targets[0]);
+            st.setEntityCatalogOpen(true);
+        }
+    };
+
+    // Группировка по severity: 🔴 error → 🟡 warning → 🟢 info
+    const severityOrder: Array<"error" | "warning" | "info"> = [
+        "error",
+        "warning",
+        "info",
+    ];
+    const grouped = new Map<string, Recommendation[]>();
+    for (const r of recs) {
+        const sev = String(r.severity || "info");
+        if (!grouped.has(sev)) grouped.set(sev, []);
+        grouped.get(sev)!.push(r);
+    }
+
+    const severityMeta: Record<
+        string,
+        { label: string; icon: string; cls: string }
+    > = {
+        error: { label: "🔴 Критично", icon: "error", cls: "error" },
+        warning: { label: "🟡 Важно", icon: "warning", cls: "warning" },
+        info: { label: "🟢 Рекомендации", icon: "info", cls: "info" },
+    };
+
+    return (
+        <div className="auto-recommendations">
+            <div className="auto-recommendations__title">
+                <MIcon name="lightbulb" size="sm" />
+                Что улучшить в первую очередь
+            </div>
+            {severityOrder.map((sev) => {
+                const items = grouped.get(sev);
+                if (!items || items.length === 0) return null;
+                const meta = severityMeta[sev] || {
+                    label: sev,
+                    icon: "info",
+                    cls: "info",
+                };
+                return (
+                    <div key={sev} className="auto-recommendations__group">
+                        <div className="auto-recommendations__group-title">
+                            <MIcon name={meta.icon} size="sm" />
+                            <span>{meta.label}</span>
+                            <span className="auto-recommendations__group-count">
+                                {items.length}
+                            </span>
+                        </div>
+                        {items.slice(0, 4).map((r) => (
+                            <button
+                                key={r.id}
+                                className={
+                                    "auto-recommendations__item auto-recommendations__item--" +
+                                    r.severity
+                                }
+                                onClick={() => open(r)}
+                            >
+                                <div className="auto-recommendations__head">
+                                    <strong>{r.title}</strong>
+                                    <span className="auto-recommendations__impact">
+                                        impact {r.impact}
+                                    </span>
+                                </div>
+                                <div className="auto-recommendations__desc">
+                                    {r.description}
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                );
+            })}
         </div>
     );
 }

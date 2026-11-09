@@ -1,5 +1,5 @@
 const DB_NAME = "dg-storage";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface StoreDef {
   name: string;
@@ -10,6 +10,7 @@ const STORES: StoreDef[] = [
   { name: "yaml-backups", keyPath: "filePath" },
   // Задел под будущую миграцию снимков
   { name: "snapshots", keyPath: "slot" },
+  { name: "annotations", keyPath: "id" },
 ];
 
 let dbPromise: Promise<IDBDatabase> | null = null;

@@ -19,6 +19,9 @@ import {
     applyAttributeRefMarkers,
     applyActionRequiredFieldsMarkers,
     INLINE_COVERED_RULE_IDS,
+    buildQuickFix,
+    applyWorkflowStatusRefMarkers,
+    KNOWN_VALUE_FIELDS,
 } from '../../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../../lib/yaml/external-refs';
@@ -47,7 +50,7 @@ import { SectionQuickNav } from "../SectionQuickNav";
 import { planEdits } from "../../../lib/yaml/apply-generation";
 import { findBlockRange } from "../../../lib/yaml/view-insert";
 import { Popover } from "../../common/Popover";
-import { relativeTime, pluralFew } from '../../../lib/format';
+import { relativeTime, pluralFew, escapeHtml } from '../../../lib/format';
 import type { YamlExpertiseMeta } from '../../../hooks/useYamlContent';
 import { computeUnusedInYaml, UnusedAnalysis } from '../../../lib/yaml/unused-analysis';
 import { YamlQuickJump } from "./YamlQuickJump";
@@ -72,11 +75,29 @@ import {
     SectionIssueStats,
 } from "./YamlViewerNavPanel";
 import { yamlBackups } from '../../../lib/storage/yaml-backup';
+import { applyAllFixes, MarkerWithFix } from '../../../lib/monaco/fix-all';
+import { applyInlineDiffDecorations, buildLineDiffMarks } from '../../../lib/monaco/inline-diff';
+import { computePreSaveImpact } from '../../../lib/model/pre-save-impact';
+import { PinButton } from '../../annotations/PinButton';
+import { Annotation, annotationsStore } from '../../../lib/storage/annotations';
+import { isAutoFixable } from '../../../lib/monaco/quickfix-rules';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
 type DiffAgainst = "previous" | "published" | null;
 const EMPTY_BOOKMARKS: number[] = [];
+const INLINE_SOURCES = [
+    "attribute-validator",
+    "fqid-validator",
+    "dataType-validator",
+    "enum-validator",
+    "view-ref-validator",
+    "ui-rule-validator",
+    "attribute-ref-validator",
+    "action-required-validator",
+    "rql-check",
+    "workflow-status-validator",
+];
 
 /**
  * Запускает серверную валидацию текущего контента.
@@ -207,6 +228,7 @@ export function YamlViewerModal() {
     const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
     const [lastKnownMtime, setLastKnownMtime] = useState<number>(0);
     const lastEditAtRef = useRef<number | null>(null);
+    const runAllMarkersRef = useRef<(() => void) | null>(null);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const mode: "local" | "hybrid" | "remote" = !remoteInfo?.server
@@ -285,6 +307,11 @@ export function YamlViewerModal() {
     const diffContainerRef = useRef<HTMLDivElement>(null);
     const diffEditorRef = useRef<any>(null);
     const [cursorLine, setCursorLine] = useState(1);
+    const [cursorColumn, setCursorColumn] = useState(1);
+    const [selection, setSelection] = useState<{ 
+        chars: number;
+        lines: number;
+    } | null>(null);
     const [leftWidth, setLeftWidth] = useState(380);
     const isDraggingLeft = useRef(false);
     const decorationsCollection = useRef<any>(null);
@@ -520,6 +547,33 @@ export function YamlViewerModal() {
         savedContentRef.current = savedContent;
     }, [savedContent]);
 
+    /**
+     * Если открытый suggest widget не содержит ни одной строки
+     * (или в нём показано "No suggestions") — закрыть его.
+     *
+     * Monaco 0.52 не закрывает такой widget автоматически, и он
+     * перехватывает ↑/↓, пока пользователь не нажмёт Esc.
+     */
+    const closeEmptySuggestWidget = useCallback(() => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const widget = document.querySelector(".suggest-widget") as HTMLElement | null;
+        if (!widget) return;
+        if (widget.style.display === "none") return;
+        if (widget.offsetParent === null) return;
+
+        const rows = widget.querySelectorAll(".monaco-list-row");
+        const isEmpty =
+            widget.classList.contains("empty") ||
+            widget.classList.contains("no-suggestions") ||
+            rows.length === 0;
+        if (!isEmpty) return;
+
+        try {
+            ed.trigger("dg", "hideSuggestWidget", null);
+        } catch { /* ignore */ }
+    }, []);
+
     // Слушаем правки в редакторе → debounce → setContent
     useEffect(() => {
         if (!editorCreated || !editorRef.current) return;
@@ -543,6 +597,7 @@ export function YamlViewerModal() {
                 useGraphStore.getState().showSnackbar("Файл автоматически разблокирован для применения изменений");
             }
 
+            window.setTimeout(closeEmptySuggestWidget, 40);
             lastEditAtRef.current = Date.now();
             clearTimeout(liveDebounce.current);
             liveDebounce.current = setTimeout(() => {
@@ -596,6 +651,8 @@ export function YamlViewerModal() {
     >("idle");
     const [copyFeedback, setCopyFeedback] = useState(false);
     const [saveFeedback, setSaveFeedback] = useState(false);
+    const [inlineMarkersVersion, setInlineMarkersVersion] = useState(0);
+    const inlineMarkersRef = useRef<Set<string> | null>(null);
 
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
     const [navQuery, setNavQuery] = useState('');
@@ -634,6 +691,9 @@ export function YamlViewerModal() {
     } | null>(null);
 
     const { goto: gotoDomain } = useNavigation();
+
+    const [pinAnnotations, setPinAnnotations] = useState<Annotation[]>([]);
+    const pinDecorationsRef = useRef<any>(null);
 
     // ============ Monaco refs ============
     const editorRef = useRef<any>(null);
@@ -858,6 +918,25 @@ export function YamlViewerModal() {
         return m;
     }, [domainIssues]);
 
+    const pinByLine = useMemo(() => {
+        const map = new Map<number, Annotation[]>();
+        const newPrefix = `line:${effectiveDomainId}:`;
+        for (const a of pinAnnotations) {
+            let line: number | null = null;
+            if (a.target.startsWith(newPrefix)) {
+                line = parseInt(a.target.slice(newPrefix.length), 10);
+            } else if (a.target.startsWith("line:")) {
+                // старый формат `line:<filePath>:<N>` — берём только номер
+                const m = a.target.match(/:(\d+)$/);
+                if (m) line = parseInt(m[1], 10);
+            }
+            if (line == null || isNaN(line)) continue;
+            if (!map.has(line)) map.set(line, []);
+            map.get(line)!.push(a);
+        }
+        return map;
+    }, [pinAnnotations, effectiveDomainId]);
+
     /** Объединённые issues: серверный линтер + клиентский RQL-чек. */
     const allIssues = useMemo(() => {
         if (!checksEnabled) return domainIssues;
@@ -893,25 +972,45 @@ export function YamlViewerModal() {
 
     const effectiveIssues = useMemo(() => {
         if (!checksEnabled) return allIssues;
-        // Пока идёт активный набор — не трогаем (idleContent отстаёт на 1.5с)
         if (!isDirty || !lineMap) return allIssues;
         if (idleContent === savedContent) return allIssues;
 
         const out: any[] = [];
         for (const issue of allIssues) {
-            // classifyIssue не использует lineMap — убран из сигнатуры
-            const state = classifyIssue(
-                issue,
-                idleContent,
-                recheckModel,
-                index,
-            );
+            const state = classifyIssue(issue, idleContent, recheckModel, index);
             if (state === "resolved") continue;
+
+            // Правило покрывается inline-валидатором → доверяем inline.
+            // Если inline сейчас не даёт маркер с этим (ruleId, line) —
+            // проблема решена (или скрыта фильтром severity, что для панели
+            // означает то же самое: показывать её не надо).
+            if (
+                INLINE_COVERED_RULE_IDS.has(issue.ruleId) &&
+                inlineMarkersRef.current !== null
+            ) {
+                const line = findIssueLine(issue, lineMap);
+                if (
+                    line != null &&
+                    !inlineMarkersRef.current.has(`${issue.ruleId}#${line}`)
+                ) {
+                    continue;
+                }
+            }
+
             if (state === "unknown") out.push({ ...issue, __isUnknown: true });
             else out.push(issue);
         }
         return out;
-    }, [allIssues, isDirty, idleContent, lineMap, savedContent, recheckModel, index]);
+    }, [
+        allIssues,
+        isDirty,
+        idleContent,
+        lineMap,
+        savedContent,
+        recheckModel,
+        index,
+        inlineMarkersVersion,
+    ]);
 
     // Стабильная ссылка для IssuesPanel: возвращаем prev, если содержимое
     // семантически не изменилось. Иначе IssuesPanel (React.memo по ref'у
@@ -1346,6 +1445,47 @@ export function YamlViewerModal() {
         }
     }, [open, filePath]);
 
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current) return;
+        const m = (window as any).monaco;
+        if (!m) return;
+        const model = editorRef.current.getModel();
+        if (!model) return;
+
+        if (!pinDecorationsRef.current) {
+            pinDecorationsRef.current = editorRef.current.createDecorationsCollection([]);
+        }
+
+        const decorations: any[] = [];
+        const lineCount = model.getLineCount();
+
+        pinByLine.forEach((anns, line) => {
+            if (line < 1 || line > lineCount) return;
+
+            // Monaco рендерит markdown → HTML-теги не работают. Используем
+            // только markdown-синтаксис: **bold** и переносы строк.
+            const header = `**📌 ${anns.length} ${anns.length === 1 ? "заметка" : "заметок"
+                }**`;
+            const body = anns.map((a) => `- ${a.text}`).join("\n");
+            const value = `${header}\n\n${body}`;
+
+            decorations.push({
+                range: new m.Range(line, 1, line, 1),
+                options: {
+                    isWholeLine: false,
+                    glyphMarginClassName: "yaml-pin-glyph",
+                    glyphMarginHoverMessage: { value },
+                },
+            });
+        });
+
+        try {
+            pinDecorationsRef.current.set(decorations);
+        } catch {
+            /* ignore */
+        }
+    }, [editorCreated, pinByLine]);
+
     // ============ Скрытие затенённых строк при фокусе ============
     // Идея: focusResult.lineLevel содержит ТОЛЬКО связанные строки
     // (primary/secondary/tertiary). Всё остальное — «затенено».
@@ -1546,6 +1686,38 @@ export function YamlViewerModal() {
         };
     }, [editorCreated]);
 
+    const closeEmptySuggestWidgetDirect = useCallback(() => {
+        const ed = editorRef.current;
+        if (!ed) return;
+
+        const el = document.querySelector(".suggest-widget") as HTMLElement | null;
+        if (!el) return;
+        if (!el.classList.contains("visible")) return;
+
+        const rows = el.querySelectorAll(".monaco-list-row");
+        if (rows.length > 0) return; // widget с результатами — не трогаем
+
+        try {
+            const ctrl = ed.getContribution?.("editor.contrib.suggestController");
+            const widget = (ctrl as any)?.widget?.value;
+            if (!widget) return;
+
+            if (typeof widget.hide === "function") {
+                widget.hide();
+            } else if (typeof widget._setVisible === "function") {
+                widget._setVisible(false);
+            } else if (typeof widget._setState === "function") {
+                // 0 = Idle в SuggestController.State
+                widget._setState(0);
+            }
+        } catch { /* ignore */ }
+    }, []);
+
+    const closeEmptySuggestWidgetDirectRef = useRef(closeEmptySuggestWidgetDirect);
+    useEffect(() => {
+        closeEmptySuggestWidgetDirectRef.current = closeEmptySuggestWidgetDirect;
+    }, [closeEmptySuggestWidgetDirect]);
+
     // ============ Monaco: create ============
     useEffect(() => {
         if (!open) return;
@@ -1563,6 +1735,36 @@ export function YamlViewerModal() {
         // Контент уже разрешён — либо бэкап, либо файл с диска
         const initialContent = backupContent ?? fetchedContent;
         const restoredFromBackup = backupContent !== null;
+
+        const onKeyDownCapture = (e: KeyboardEvent) => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            const ed = editorRef.current;
+            if (!ed) return;
+            if (!ed.hasTextFocus()) return;
+
+            const widget = document.querySelector(".suggest-widget") as HTMLElement | null;
+            if (!widget || !widget.classList.contains("visible")) return;
+            if (widget.querySelectorAll(".monaco-list-row").length > 0) return;
+
+            // Widget открыт, но пуст — Monaco будет перехватывать стрелки впустую.
+            // Закрываем widget и вручную перемещаем курсор в редакторе.
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+
+            closeEmptySuggestWidgetDirectRef.current();
+
+            const pos = ed.getPosition();
+            if (!pos) return;
+            const lineCount = ed.getModel()?.getLineCount() ?? 1;
+            const targetLine =
+                e.key === "ArrowUp"
+                    ? Math.max(1, pos.lineNumber - 1)
+                    : Math.min(lineCount, pos.lineNumber + 1);
+
+            ed.setPosition({ lineNumber: targetLine, column: pos.column });
+            ed.revealLineInCenterIfOutsideViewport(targetLine);
+        };
 
         // Если восстанавливаем бэкап, принудительно переводим в режим редактирования!
         if (restoredFromBackup) {
@@ -1651,17 +1853,17 @@ export function YamlViewerModal() {
                 selectionHighlight: false,
                 renderValidationDecorations: 'on',
                 lightbulb: { enabled: 'on' },
-                wordBasedSuggestions: false as any,
+                wordBasedSuggestions: "off",
                 suggest: {
                     showWords: false,
                     showSnippets: true,
                     showMethods: false,
                     showFunctions: false,
-                    filterGraceful: true as any,
-                    preview: false as any,
-                    showDetails: true as any,
-                    showInlineDetails: true as any,
-                    showStatusBar: true as any,
+                    filterGraceful: true,
+                    preview: false,
+                    showDetails: true,
+                    showInlineDetails: true,
+                    showStatusBar: false,
                 } as any,
 
                 quickSuggestions: false,
@@ -1698,6 +1900,10 @@ export function YamlViewerModal() {
                     }
                 }
             }, 50);
+
+            editor.onDidBlurEditorWidget(() => {
+                window.setTimeout(closeEmptySuggestWidget, 0);
+            });
 
             setEditorCreated(true);
 
@@ -1779,6 +1985,8 @@ export function YamlViewerModal() {
                 useGraphStore.getState().showSnackbar("Файл заблокирован. Нажмите 🔒 для редактирования.");
             });
 
+            document.addEventListener("keydown", onKeyDownCapture, true);
+
             editor.onDidPaste(() => {
                 if (!isLockedRef.current) return;
                 isProgrammaticChange.current = true; // Чтобы не триггерить авто-разблокировку
@@ -1790,11 +1998,32 @@ export function YamlViewerModal() {
             editor.onDidChangeCursorPosition((e: any) => {
                 if (cursorTimer) clearTimeout(cursorTimer);
                 const line = e.position.lineNumber;
+                const col = e.position.column;
                 cursorTimer = setTimeout(() => {
-                    // setCursorLine тоже в transition: он пересчитывает currentContext,
-                    // cursorAttributeId и тянет за собой memo-компараторы SectionNavPanel.
-                    startTransition(() => setCursorLine(line));
+                    startTransition(() => {
+                        setCursorLine(line);
+                        setCursorColumn(col);
+                    });
                 }, 120);
+            });
+
+            editor.onDidChangeCursorSelection((e: any) => {
+                const sel = e.selection;
+                if (
+                    !sel ||
+                    (sel.startLineNumber === sel.endLineNumber &&
+                        sel.startColumn === sel.endColumn)
+                ) {
+                    setSelection(null);
+                    return;
+                }
+                const model = editor.getModel();
+                if (!model) return;
+                const text = model.getValueInRange(sel) || "";
+                setSelection({
+                    chars: text.length,
+                    lines: sel.endLineNumber - sel.startLineNumber + 1,
+                });
             });
 
             editor.onDidScrollChange(() => {
@@ -1817,26 +2046,21 @@ export function YamlViewerModal() {
             // Monaco сам фильтрует по введённому символу.
 
             const isSuggestOpen = (): boolean => {
-                const el = document.querySelector(
-                    ".suggest-widget",
-                ) as HTMLElement | null;
+                const el = document.querySelector(".suggest-widget") as HTMLElement | null;
                 if (!el) return false;
-                if (el.classList.contains("visible")) return true;
-                // Fallback: строки есть и виджет не спрятан
-                if (el.querySelectorAll(".monaco-list-row").length === 0) return false;
-                return el.offsetParent !== null && el.style.display !== "none";
+                if (!el.classList.contains("visible")) return false;
+                // ВАЖНО: НЕ проверять el.offsetParent — для position: fixed он всегда null,
+                // и тогда функция всегда возвращает false, ломая логику триггеров.
+                return el.querySelectorAll(".monaco-list-row").length > 0;
             };
 
-            // Триггерим suggest ТОЛЬКО когда Monaco сам не открыл бы виджет:
-            // — quickSuggestions отключён,
-            // — виджет не открыт,
-            // — это первое нажатие буквы (нет предыдущей буквы подряд).
-            // Второй+ символ слова Monaco фильтрует сам без вызова провайдера.
+            // ============ Auto-suggest: ТОЛЬКО на "field:" / "field: " ============
+            // Раньше триггерили на первой букве любого слова — это открывало widget
+            // с полями entity, widget фильтровался до нуля и висел, перехватывая ↑/↓.
             editor.onDidChangeModelContent((e: any) => {
                 if (isLockedRef.current) return;
                 if (isProgrammaticChange.current) return;
 
-                // Правки ломают диапазоны setHiddenAreas — выключаем режим
                 if (hideDimmedRef.current) {
                     setHideDimmed(false);
                     useGraphStore
@@ -1844,20 +2068,54 @@ export function YamlViewerModal() {
                         .showSnackbar("Режим скрытия отключён для редактирования");
                 }
 
+                const change = (e.changes || [])[0];
+                const typedText = change ? String(change.text || "") : "";
+
+                // ============ NEW: accept field-suggestion → открыть widget для значения ============
+                // Monaco вставил "fieldName: " как единую строку — `:` не прошёл через
+                // `type`, поэтому suggestOnTriggerCharacters не сработал. Триггерим вручную,
+                // но только для полей, у которых реально есть value-автокомплит.
+                const fieldAccept = typedText.match(/^([a-zA-Z_][\w]*):\s+$/);
+                if (fieldAccept && KNOWN_VALUE_FIELDS.has(fieldAccept[1])) {
+                    window.setTimeout(() => {
+                        if (!editorRef.current) return;
+                        if (isLockedRef.current) return;
+                        if (isProgrammaticChange.current) return;
+                        if (isSuggestOpen()) return;
+                        try {
+                            editorRef.current.trigger(
+                                "dg-autosuggest",
+                                "editor.action.triggerSuggest",
+                                null,
+                            );
+                        } catch { /* ignore */ }
+                        // Если провайдер вернёт null (пусто) — не даём widget'у висеть
+                        window.setTimeout(() => closeEmptySuggestWidgetDirectRef.current(), 100);
+                    }, 30);
+                    return; // не даём остальным веткам авто-триггера сработать
+                }
+
+                // При вводе НЕ-буквы — подчистить пустой widget
+                if (typedText && !/^[a-zA-Z_]$/.test(typedText)) {
+                    window.setTimeout(() => closeEmptySuggestWidgetDirectRef.current(), 100);
+                }
+
                 if (isSuggestOpen()) return;
 
-                const change = (e.changes || [])[0];
                 if (!change) return;
-                const text = String(change.text || "");
-                if (!text) return;
-                if (!/^[a-zA-Z_]$/.test(text)) return;
 
-                // Проверяем, что символ слева от вставки — НЕ буква
-                // (тогда это начало нового слова, и виджет действительно не открыт).
-                const pos = change.range ? change.range.startColumn - 1 : 0;
-                const line = editorRef.current?.getModel()?.getLineContent(change.range?.startLineNumber || 1) || "";
-                const prevChar = pos > 0 ? line.charAt(pos - 1) : "";
-                if (/[a-zA-Z_]/.test(prevChar)) return;
+                const text = String(change.text || "");
+                const newLine = change.range?.startLineNumber ?? 1;
+                const newCol = (change.range?.startColumn ?? 1) + text.length;
+                const lineText =
+                    editorRef.current?.getModel()?.getLineContent(newLine) || "";
+                const before = lineText.slice(0, newCol - 1);
+
+                // 2) Авто-триггер ТОЛЬКО для имён полей:
+                //    строка до курсора — это indent + опциональный "- " + буквы, без ":".
+                //    Значения после "field:" открываются через suggestOnTriggerCharacters.
+                const isFieldName = /^\s*(?:-\s+)?[a-zA-Z_][\w]*$/.test(before);
+                if (!isFieldName) return;
 
                 window.setTimeout(() => {
                     if (!editorRef.current) return;
@@ -1870,12 +2128,9 @@ export function YamlViewerModal() {
                             "editor.action.triggerSuggest",
                             null,
                         );
-                    } catch {
-                        /* ignore */
-                    }
+                    } catch { /* ignore */ }
                 }, 30);
             });
-
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 0));
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 100));
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 350));
@@ -1896,6 +2151,8 @@ export function YamlViewerModal() {
         }
 
         return () => {
+            document.removeEventListener("keydown", onKeyDownCapture, true);
+
             // 1. Сначала отменяем всё, что могло запланировать обращение к editor
             layouts.forEach(clearTimeout);
             if (cursorTimer) clearTimeout(cursorTimer);
@@ -1920,6 +2177,33 @@ export function YamlViewerModal() {
         }, 250); // 250мс — совпадает с длительностью CSS-анимации
         return () => clearTimeout(t);
     }, [leftCollapsed, rightCollapsed]);
+
+    useEffect(() => {
+        if (!open || !effectiveDomainId) {
+            setPinAnnotations([]);
+            return;
+        }
+        let cancelled = false;
+        const load = () => {
+            annotationsStore
+                .list()
+                .then((list) => {
+                    if (cancelled) return;
+                    setPinAnnotations(
+                        list.filter(
+                            (a) => !a.resolvedAt && a.domainId === effectiveDomainId,
+                        ),
+                    );
+                })
+                .catch(() => { });
+        };
+        load();
+        const unsub = annotationsStore.subscribe(load);
+        return () => {
+            cancelled = true;
+            unsub();
+        };
+    }, [open, effectiveDomainId]);
 
     // ============ Ctrl+S ============
     useEffect(() => {
@@ -2296,6 +2580,7 @@ export function YamlViewerModal() {
                     "attribute-ref-validator",
                     "rql-check",
                     "action-required-validator",
+                    "workflow-status-validator"
                 ];
                 for (const src of sources) {
                     try { m.editor.setModelMarkers(model, src, []); } catch { }
@@ -2325,6 +2610,7 @@ export function YamlViewerModal() {
             try { applyAttributeMarkers(m, model); } catch { /* ignore */ }
             try { applyUiRuleRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
             try { applyAttributeRefMarkers(m, model); } catch { /* ignore */ }
+            try { applyWorkflowStatusRefMarkers(m, model); } catch { /* ignore */ }
             try { applyRqlMarkers(m, model); } catch { /* ignore */ }
 
             // Post-filter по severityFilter: inline-валидаторы не знают про
@@ -2338,17 +2624,7 @@ export function YamlViewerModal() {
                     [m.MarkerSeverity.Info]: "info",
                     [m.MarkerSeverity.Hint]: "info",
                 };
-                const INLINE_SOURCES = [
-                    "attribute-validator",
-                    "fqid-validator",
-                    "dataType-validator",
-                    "enum-validator",
-                    "view-ref-validator",
-                    "ui-rule-validator",
-                    "attribute-ref-validator",
-                    "action-required-validator",
-                    "rql-check",
-                ];
+
                 for (const source of INLINE_SOURCES) {
                     const markers = m.editor.getModelMarkers({
                         resource: model.uri,
@@ -2364,20 +2640,42 @@ export function YamlViewerModal() {
                     }
                 }
             } catch { /* ignore */ }
+
+            // ── Собираем актуальные inline-маркеры: (ruleId#line) для правил,
+            //    покрытых inline-валидаторами. Используется в effectiveIssues,
+            //    чтобы убирать из панели «Проблемы» уже исправленные проблемы.
+            try {
+                const codes = new Set<string>();
+                for (const source of INLINE_SOURCES) {
+                    const list = m.editor.getModelMarkers({
+                        resource: model.uri,
+                        owner: source,
+                    });
+                    for (const mk of list) {
+                        if (mk.code) codes.add(`${mk.code}#${mk.startLineNumber}`);
+                    }
+                }
+                inlineMarkersRef.current = codes;
+                setInlineMarkersVersion((v) => v + 1);
+            } catch {
+                /* ignore */
+            }
         };
 
         const schedule = () => {
             if (timer) clearTimeout(timer);
             // 800ms — комфортно для пользователя: маркеры обновляются
             // только когда он остановился и читает ошибку, а не во время печати.
-            timer = setTimeout(runAll, 1800);
+            timer = setTimeout(runAll, 600);
         };
 
         const disposable = editorRef.current.onDidChangeModelContent(schedule);
         runAll(); // первый запуск — после открытия файла
+        runAllMarkersRef.current = runAll;
 
         return () => {
             if (timer) clearTimeout(timer);
+            runAllMarkersRef.current = null;
             try { disposable?.dispose?.(); } catch { /* ignore */ }
         };
     }, [checksEnabled, monacoReady, editorCreated, index, domainId, severityFilter]);
@@ -3138,6 +3436,82 @@ export function YamlViewerModal() {
             return;
         }
 
+        const impact = computePreSaveImpact(
+            effectiveDomainId!,
+            savedContent,
+            valueToSave,
+            index!,
+        );
+        if (impact?.hasImpact) {
+            const brokenRefsCount = impact.brokenRefs.length;
+            const staleDomainsCount = impact.staleDomains.length;
+            const affectedDomainsCount = new Set(
+                impact.brokenRefs.map((r: any) => r.fromDomainId),
+            ).size;
+
+            const refsPreview = impact.brokenRefs
+                .slice(0, 5)
+                .map((r: any) => {
+                    const path =
+                        r.propertyPath ||
+                        r.fqidRef ||
+                        [r.entityId, r.attributeId].filter(Boolean).join(".") ||
+                        "?";
+                    return `  • ${r.fromDomainId} → ${path}`;
+                })
+                .join("\n");
+            const moreRefs =
+                brokenRefsCount > 5
+                    ? `\n  …и ещё ${brokenRefsCount - 5}`
+                    : "";
+
+            const stalePreview = impact.staleDomains
+                .slice(0, 5)
+                .map((d: any) =>
+                    typeof d === "string" ? d : d.domainId || d.name || "?",
+                )
+                .join("\n");
+            const moreStale =
+                staleDomainsCount > 5
+                    ? `\n  …и ещё ${staleDomainsCount - 5}`
+                    : "";
+
+            const detailLines: string[] = [];
+            if (brokenRefsCount > 0) {
+                detailLines.push(
+                    `🔴 Сломается (${brokenRefsCount} ${brokenRefsCount === 1 ? "ссылка" : "ссылок"
+                    } в ${affectedDomainsCount} ${affectedDomainsCount === 1 ? "домене" : "доменах"
+                    }):`,
+                );
+                if (refsPreview) detailLines.push(refsPreview);
+                if (moreRefs) detailLines.push(moreRefs);
+            }
+            if (staleDomainsCount > 0) {
+                if (detailLines.length > 0) detailLines.push("");
+                detailLines.push(
+                    `🟡 Устареет (${staleDomainsCount} ${staleDomainsCount === 1 ? "домен" : "доменов"
+                    }):`,
+                );
+                if (stalePreview) detailLines.push(stalePreview);
+                if (moreStale) detailLines.push(moreStale);
+            }
+            detailLines.push("");
+            detailLines.push(
+                "После сохранения откройте проблемные файлы и поправьте ссылки. Файл уже будет записан на диск.",
+            );
+
+            const ok = await confirmDialog(
+                "Изменения затронут другие домены",
+                {
+                    detail: detailLines.join("\n"),
+                    danger: impact.brokenRefs.length > 0,
+                    confirmLabel: "Всё равно сохранить",
+                    cancelLabel: "Отмена",
+                },
+            );
+            if (!ok) return;
+        }
+
         setIsSaving(true);
         setSaveStage("writing");
         setSaveError(null);
@@ -3178,7 +3552,7 @@ export function YamlViewerModal() {
             // поэтому один fetch /api/model и один /api/graph дают свежие данные.
             const st = useGraphStore.getState();
             st.bumpModelVersion();
-            st.refreshGraphFromServer(true).catch((e: any) => {
+            st.refreshGraphFromServer(index, true).catch((e: any) => {
                 console.warn("[yaml-save] refreshGraphFromServer failed:", e);
                 st.showSnackbar(
                     "Файл сохранён, но граф не обновился. Нажмите F5.",
@@ -3273,7 +3647,7 @@ export function YamlViewerModal() {
             setSaveStage("idle");
             void yamlBackups.delete(filePath!);
         }
-    }, [isLocked, savedContent, filePath, mode, isSaving]);
+    }, [isLocked, savedContent, filePath, mode, isSaving, effectiveDomainId]);
 
     const handleDiffPublished = useCallback(async () => {
         if (!filePath) return;
@@ -3383,6 +3757,184 @@ export function YamlViewerModal() {
 
         useGraphStore.getState().setYamlViewerOpen(false);
     }, [isDirty, isLocked, isSaving, filePath]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const runFixAll = (
+            domainId: string | null,
+            attempt: number,
+            filter?: { keys?: Array<{ ruleId: string; line: number }> },
+        ) => {
+            const ed = editorRef.current;
+            if (!ed) {
+                if (attempt < 20)
+                    setTimeout(() => runFixAll(domainId, attempt + 1, filter), 300);
+                return;
+            }
+            if (domainId && domainId !== effectiveDomainId) return;
+
+            const m = (window as any).monaco;
+            const model = ed.getModel();
+            if (!m || !model) {
+                if (attempt < 20)
+                    setTimeout(() => runFixAll(domainId, attempt + 1, filter), 300);
+                return;
+            }
+
+            // Разблокировка (как было)
+            if (isLockedRef.current) {
+                isLockedRef.current = false;
+                setIsLocked(false);
+            }
+            (ed as any).__dgFixAllInProgress = true;
+            try { ed.updateOptions({ readOnly: false }); } catch { /* ignore */ }
+            try { ed.focus(); } catch { /* ignore */ }
+
+            const allMarkers = [
+                ...m.editor.getModelMarkers({ resource: model.uri, owner: "dg-linter" }),
+                ...m.editor.getModelMarkers({
+                    resource: model.uri,
+                    owner: "attribute-validator",
+                }),
+            ];
+
+            // Маркеры ещё не построены (runAllMarkers ещё не отработал) → ждём
+            if (allMarkers.length === 0) {
+                if (attempt < 20) {
+                    setTimeout(() => runFixAll(domainId, attempt + 1, filter), 300);
+                } else {
+                    (ed as any).__dgFixAllInProgress = false;
+                    useGraphStore
+                        .getState()
+                        .showSnackbar("Нет проблем для автоисправления");
+                }
+                return;
+            }
+
+            // ============ NEW: фильтрация по группе ============
+            let markers = allMarkers;
+            if (filter?.keys && filter.keys.length > 0) {
+                const keys = new Set(
+                    filter.keys.map((k) => `${k.ruleId}#${k.line}`),
+                );
+                markers = allMarkers.filter((mk: any) =>
+                    keys.has(`${mk.code}#${mk.startLineNumber}`),
+                );
+                if (markers.length === 0) {
+                    (ed as any).__dgFixAllInProgress = false;
+                    useGraphStore
+                        .getState()
+                        .showSnackbar("В этой группе нет проблем с автофиксом");
+                    return;
+                }
+            }
+
+            const fixes: MarkerWithFix[] = markers
+                .map((mk: any) => ({ ...mk, fix: buildQuickFix(mk, model) }))
+                .filter((x: any) => x.fix != null);
+
+            if (fixes.length === 0) {
+                (ed as any).__dgFixAllInProgress = false;
+                useGraphStore
+                    .getState()
+                    .showSnackbar(
+                        filter
+                            ? "В этой группе нет автофиксов — правьте вручную"
+                            : "Нет проблем, для которых есть автофикс",
+                    );
+                return;
+            }
+
+            // ============ дальше — без изменений (rAF, sanitize, applyAllFixes) ============
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    const edNow = editorRef.current;
+                    if (!edNow) return;
+
+                    const readOnlyNow = edNow.getOption(
+                        m.editor.EditorOption.readOnly,
+                    );
+                    if (readOnlyNow) {
+                        try { edNow.updateOptions({ readOnly: false }); } catch { /* ignore */ }
+                    }
+
+                    const lineCount = model.getLineCount();
+                    const sanitized: MarkerWithFix[] = fixes
+                        .map((f) => {
+                            const edits = (f.fix as any).edits
+                                .filter((e: any) => {
+                                    if (e.startLineNumber < 1 || e.startLineNumber > lineCount)
+                                        return false;
+                                    if (e.endLineNumber < 1 || e.endLineNumber > lineCount)
+                                        return false;
+                                    const maxCol = model.getLineMaxColumn(e.startLineNumber);
+                                    if (e.startColumn < 1 || e.startColumn > maxCol) return false;
+                                    const maxEndCol = model.getLineMaxColumn(e.endLineNumber);
+                                    if (e.endColumn < 1 || e.endColumn > maxEndCol) return false;
+                                    return true;
+                                })
+                                .map((e: any) => ({
+                                    ...e,
+                                    startColumn: Math.min(
+                                        e.startColumn,
+                                        model.getLineMaxColumn(e.startLineNumber),
+                                    ),
+                                    endColumn: Math.min(
+                                        e.endColumn,
+                                        model.getLineMaxColumn(e.endLineNumber),
+                                    ),
+                                }));
+                            if (edits.length === 0) return null;
+                            return { ...f, fix: { ...(f.fix as any), edits } };
+                        })
+                        .filter((x) => x !== null) as MarkerWithFix[];
+
+                    if (sanitized.length === 0) {
+                        (edNow as any).__dgFixAllInProgress = false;
+                        useGraphStore
+                            .getState()
+                            .showSnackbar("Все автофиксы содержат невалидные диапазоны");
+                        return;
+                    }
+
+                    const { applied, skipped } = applyAllFixes(edNow, m, sanitized);
+                    setTimeout(() => {
+                        try { runAllMarkersRef.current?.(); } catch { /* ignore */ }
+                    }, 0);
+                    (edNow as any).__dgFixAllInProgress = false;
+                    useGraphStore
+                        .getState()
+                        .showSnackbar(
+                            `Исправлено: ${applied}${skipped > 0 ? `, пропущено: ${skipped}` : ""
+                            }`,
+                        );
+                });
+            });
+        };
+
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            runFixAll(detail?.domainId || null, 0, detail?.filter);
+        };
+
+        document.addEventListener("dg:lint-fix-all", handler);
+        return () => document.removeEventListener("dg:lint-fix-all", handler);
+    }, [open, effectiveDomainId]);
+
+    // Effect в компоненте
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current || !isDirty) return;
+        const m = (window as any).monaco;
+        if (!m) return;
+
+        const saved = savedContentRef.current;
+        if (!saved) return;
+
+        const marks = buildLineDiffMarks(saved, content);
+        const cleanup = applyInlineDiffDecorations(editorRef.current, m, marks);
+        return cleanup;
+    }, [editorCreated, isDirty, content, savedContent]);
 
     // ============ Keyboard nav ============
     useEffect(() => {
@@ -3682,7 +4234,11 @@ export function YamlViewerModal() {
 
     useEffect(() => {
         if (!editorRef.current) return;
-        try { editorRef.current.updateOptions({ readOnly: isLocked }); } catch { }
+        // Если редактор в процессе автофикса — не откатывать readOnly назад
+        if ((editorRef.current as any).__dgFixAllInProgress) return;
+        try {
+            editorRef.current.updateOptions({ readOnly: isLocked });
+        } catch { /* ignore */ }
     }, [isLocked, editorCreated]);
 
     useEffect(() => {
@@ -4201,6 +4757,25 @@ export function YamlViewerModal() {
             },
         }));
 
+        // ============ Shift+Esc — принудительный показ автодополнения ============
+        // Ctrl+Space на macOS перехватывается Spotlight, поэтому используем Shift+Esc.
+        // Esc одиночный в Monaco закрывает suggest/find widget — Shift+Esc свободен.
+        actions.push(
+            ed.addAction({
+                id: "dg-force-suggest",
+                label: "Показать автодополнение",
+                keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Escape],
+                contextMenuGroupId: "navigation",
+                contextMenuOrder: 0,
+                run: (ed: any) => {
+                    if (!ed.hasTextFocus || !ed.hasTextFocus()) return;
+                    try {
+                        ed.trigger("dg-force-suggest", "editor.action.triggerSuggest", null);
+                    } catch { /* ignore */ }
+                },
+            })
+        );
+
         return () => actions.forEach((a) => a.dispose());
     }, [editorCreated, filePath]);
 
@@ -4322,7 +4897,7 @@ export function YamlViewerModal() {
 
             const st = useGraphStore.getState();
             st.bumpModelVersion();
-            st.refreshGraphFromServer(true).catch((e: any) => {
+            st.refreshGraphFromServer(index, true).catch((e: any) => {
                 console.warn("[yaml-publish] refreshGraphFromServer failed:", e);
             });
 
@@ -4707,6 +5282,41 @@ export function YamlViewerModal() {
         useGraphStore.getState().setTooltip(null);
         (window as any).__tooltipHovered = false;
     }, [open]);
+
+    useEffect(() => {
+        return () => {
+            if (pinDecorationsRef.current) {
+                try { pinDecorationsRef.current.clear(); } catch { /* ignore */ }
+                pinDecorationsRef.current = null;
+            }
+        };
+    }, [editorCreated]);
+
+    // Отступ текущей строки — критично в YAML
+    const currentIndent = useMemo(() => {
+        if (!idleContent) return null;
+        const lines = idleContent.split("\n");
+        const line = lines[cursorLine - 1];
+        if (line === undefined) return null;
+        const m = line.match(/^(\s*)/);
+        if (!m) return null;
+        const indent = m[1];
+        if (!indent) return { spaces: 0, tabs: 0, total: 0 };
+        const spaces = (indent.match(/ /g) || []).length;
+        const tabs = (indent.match(/\t/g) || []).length;
+        return { spaces, tabs, total: spaces + tabs };
+    }, [idleContent, cursorLine]);
+
+    const totalLines = useMemo(
+        () => (content ? content.split("\n").length : 0),
+        [content],
+    );
+
+    const lintBreakdown = useMemo(() => {
+        const errs = filteredIssues.filter((i) => i.severity === "error").length;
+        const warns = filteredIssues.filter((i) => i.severity === "warning").length;
+        return { errs, warns };
+    }, [filteredIssues]);
 
     if (!open) return null;
 
@@ -6066,6 +6676,14 @@ export function YamlViewerModal() {
                                             </React.Fragment>
                                         ))}
                                         <span className="yaml-viewer-breadcrumbs__line">:{cursorLine}</span>
+                                        {domainId && (
+                                            <PinButton
+                                                target={`line:${domainId}:${cursorLine}`}
+                                                domainId={domainId}
+                                                kind="domain"
+                                                label={`${domainId} :${cursorLine}`}
+                                            />
+                                        )}
                                     </>
                                 ) : (
                                     <span className="yaml-viewer-breadcrumbs__item">—</span>
@@ -6341,6 +6959,157 @@ export function YamlViewerModal() {
                                 enabled={yamlQuickNavEnabled}
                             />
                         )}
+
+                        {/* ═══════════ Footer / Status bar ═══════════ */}
+                        <div className="yaml-viewer-statusbar">
+                            {/* ── Левая зона: контекст курсора ── */}
+                            <div className="yaml-viewer-statusbar__left">
+                                <span
+                                    className="yaml-viewer-statusbar__item"
+                                    title="Позиция курсора (строка, колонка)"
+                                >
+                                    Ln {cursorLine}, Col {cursorColumn}
+                                </span>
+
+                                {selection && (
+                                    <span
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                        title="Выделенный фрагмент"
+                                    >
+                                        Выделено: {selection.chars}{" "}
+                                        {pluralFew(selection.chars, "символ", "символа", "символов")}
+                                        {selection.lines > 1 && ` · ${selection.lines} стр.`}
+                                    </span>
+                                )}
+
+                                {currentIndent && currentIndent.total > 0 && (
+                                    <span
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                        title="Отступ текущей строки"
+                                    >
+                                        {currentIndent.tabs > 0
+                                            ? `Tabs: ${currentIndent.tabs}`
+                                            : `Spaces: ${currentIndent.spaces}`}
+                                    </span>
+                                )}
+
+                                <span
+                                    className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                    title="Всего строк в файле"
+                                >
+                                    {totalLines} {pluralFew(totalLines, "строка", "строки", "строк")}
+                                </span>
+                            </div>
+
+                            {/* ── Центр: валидация ── */}
+                            <div className="yaml-viewer-statusbar__center">
+                                {yamlSyntaxIssue ? (
+                                    <button
+                                        type="button"
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--err yaml-viewer-statusbar__item--clickable"
+                                        onClick={() => {
+                                            const ln = yamlSyntaxIssue.line || 1;
+                                            jumpTo(ln);
+                                        }}
+                                        title="Перейти к ошибке YAML"
+                                    >
+                                        <MIcon name="error" size="sm" />
+                                        YAML: ошибка (стр. {yamlSyntaxIssue.line || "?"})
+                                    </button>
+                                ) : (
+                                    <span className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--ok">
+                                        <MIcon name="check_circle" size="sm" />
+                                        YAML валиден
+                                    </span>
+                                )}
+
+                                {issueCount > 0 && (
+                                    <button
+                                        type="button"
+                                        className={
+                                            "yaml-viewer-statusbar__item yaml-viewer-statusbar__item--clickable " +
+                                            (lintBreakdown.errs > 0
+                                                ? "yaml-viewer-statusbar__item--err"
+                                                : "yaml-viewer-statusbar__item--warn")
+                                        }
+                                        onClick={() => setRightTab("issues")}
+                                        title="Открыть список проблем в правой панели"
+                                    >
+                                        <MIcon name="warning" size="sm" />
+                                        {lintBreakdown.errs > 0 && `${lintBreakdown.errs}E`}
+                                        {lintBreakdown.errs > 0 && lintBreakdown.warns > 0 && " · "}
+                                        {lintBreakdown.warns > 0 && `${lintBreakdown.warns}W`}
+                                        {lintBreakdown.errs === 0 && lintBreakdown.warns === 0 && `${issueCount}`}
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* ── Правая зона: состояние + главная подсказка ── */}
+                            <div className="yaml-viewer-statusbar__right">
+                                {yamlContentSource === "draft" && (
+                                    <span
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--warn"
+                                        title="Открыт черновик с сервера (не опубликован)"
+                                    >
+                                        <MIcon name="edit_note" size="sm" />
+                                        черновик
+                                    </span>
+                                )}
+
+                                {isDirty && (
+                                    <span
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--warn"
+                                        title="Есть несохранённые изменения"
+                                    >
+                                        ● не сохранён
+                                    </span>
+                                )}
+
+                                {isLocked ? (
+                                    <span
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                        title="Файл заблокирован (двойной Shift — разблокировать)"
+                                    >
+                                        <MIcon name="lock" size="sm" />
+                                        locked
+                                    </span>
+                                ) : (
+                                    <span
+                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--ok"
+                                        title="Режим редактирования"
+                                    >
+                                        <MIcon name="lock_open" size="sm" />
+                                        editing
+                                    </span>
+                                )}
+
+                                <button
+                                    type="button"
+                                    className="yaml-viewer-statusbar__hint"
+                                    onClick={() => {
+                                        const ed = editorRef.current;
+                                        if (!ed) return;
+                                        try {
+                                            ed.trigger(
+                                                "dg-force-suggest",
+                                                "editor.action.triggerSuggest",
+                                                null,
+                                            );
+                                        } catch {
+                                            /* ignore */
+                                        }
+                                    }}
+                                    title="Открыть автодополнение в текущей позиции (Shift+Esc)"
+                                >
+                                    <kbd>Shift</kbd>
+                                    <span className="yaml-viewer-statusbar__hint-sep">+</span>
+                                    <kbd>Esc</kbd>
+                                    <span className="yaml-viewer-statusbar__hint-label">
+                                        автодополнение
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Right panel with tabs */}
@@ -8107,6 +8876,41 @@ const IssuesPanel = React.memo(
             [issues, query],
         );
 
+        const autoFixableCount = useMemo(
+            () =>
+                filtered.filter((i) => isAutoFixable(i.ruleId, i.message)).length,
+            [filtered],
+        );
+
+        const handleFixAll = useCallback(() => {
+            if (autoFixableCount === 0) return;
+            document.dispatchEvent(
+                new CustomEvent("dg:lint-fix-all", { detail: { domainId } }),
+            );
+        }, [autoFixableCount, domainId]);
+
+        const handleFixGroup = useCallback(
+            (items: any[]) => {
+                if (!domainId || !lineMap) return;
+
+                const keys: Array<{ ruleId: string; line: number }> = [];
+                for (const issue of items) {
+                    if (!isAutoFixable(issue.ruleId, issue.message)) continue;
+                    const line = findIssueLine(issue, lineMap);
+                    if (line == null) continue;
+                    keys.push({ ruleId: issue.ruleId, line });
+                }
+                if (keys.length === 0) return;
+
+                document.dispatchEvent(
+                    new CustomEvent("dg:lint-fix-all", {
+                        detail: { domainId, filter: { keys } },
+                    }),
+                );
+            },
+            [domainId, lineMap],
+        );
+
         // ── Счётчики по severity (по всем) ──
         const sevCounts = useMemo(() => {
             const c = { error: 0, warning: 0, info: 0 };
@@ -8467,6 +9271,23 @@ const IssuesPanel = React.memo(
                     <div className="yaml-issues__nav-actions">
                         <button
                             type="button"
+                            className="yaml-issues__nav-btn yaml-issues__nav-btn--primary"
+                            style={{ width: "auto", padding: "0 4px" }}
+                            onClick={handleFixAll}
+                            disabled={autoFixableCount === 0}
+                            title={
+                                autoFixableCount === 0
+                                    ? "Для текущих проблем автофиксов нет"
+                                    : `Применить ${autoFixableCount} ${autoFixableCount === 1 ? "автофикс" : "автофикса"}`
+                            }
+                        >
+                            <MIcon name="auto_fix_high" size="sm" />
+                            {autoFixableCount > 0 && (
+                                <span className="yaml-issues__nav-count">{autoFixableCount}</span>
+                            )}
+                        </button>
+                        <button
+                            type="button"
                             className="yaml-issues__nav-btn"
                             onClick={expandAll}
                             title="Развернуть всё"
@@ -8588,6 +9409,7 @@ const IssuesPanel = React.memo(
                                 onCopyIssue={copyIssue}
                                 onOpenCatalog={openInCatalog}
                                 onOpenLinter={openInLinter}
+                                onFixGroup={() => handleFixGroup(items)}
                             />
                         ))}
                     </div>
@@ -8622,6 +9444,7 @@ interface IssuesGroupProps {
     onCopyIssue: (item: { issue: any; line: number | null }) => void;
     onOpenCatalog: (fqid: string) => void;
     onOpenLinter: () => void;
+    onFixGroup?: () => void;
 }
 
 function IssuesGroup({
@@ -8638,7 +9461,17 @@ function IssuesGroup({
     onCopyIssue,
     onOpenCatalog,
     onOpenLinter,
+    onFixGroup,
 }: IssuesGroupProps) {
+    const fixableCount = items.filter((i) =>
+        isAutoFixable(i.ruleId, i.message),
+    ).length;
+    const totalCount = items.length;
+    const fixTitle =
+        fixableCount === totalCount
+            ? `Применить ${fixableCount} автофикс${fixableCount === 1 ? "" : "ов"} в этой группе`
+            : `Применить ${fixableCount} из ${totalCount} — остальные правятся вручную`;
+
     return (
         <div className={"yaml-issues__group" + (expanded ? " open" : "")}>
             <div className="yaml-issues__group-title">
@@ -8657,6 +9490,30 @@ function IssuesGroup({
                     </span>
                 </button>
                 <div className="yaml-issues__group-actions">
+                    {onFixGroup && fixableCount > 0 && (
+                        <button
+                            type="button"
+                            className="yaml-issues__group-action yaml-issues__group-action--fix"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onFixGroup();
+                            }}
+                            title={fixTitle}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 3,
+                                color: "var(--accent-hover)",
+                                fontWeight: 600,
+                                width: "auto",
+                                padding: "0 4px",
+                                margin: "0 4px",
+                            }}
+                        >
+                            <MIcon name="auto_fix_high" size="sm" />
+                            <span>{fixableCount}</span>
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="yaml-issues__group-action"
@@ -8684,6 +9541,8 @@ function IssuesGroup({
                     const key = issueKey(issue, line);
                     const isActive = key === activeKey;
                     const disabled = line == null;
+                    const fixable = isAutoFixable(issue.ruleId, issue.message);
+
                     return (
                         <div
                             key={i}
@@ -8766,6 +9625,16 @@ function IssuesGroup({
                                 )}
                             </div>
                             <div className="yaml-issue__actions">
+                                <span
+                                    className={
+                                        "yaml-issue__fix-badge" +
+                                        (fixable ? " yaml-issue__fix-badge--yes" : " yaml-issue__fix-badge--no")
+                                    }
+                                    title={fixable ? "Есть автофикс (Alt+Enter в редакторе)" : "Требует ручного исправления"}
+                                >
+                                    {fixable ? "🔧" : "✋"}
+                                </span>
+
                                 <button
                                     type="button"
                                     className="yaml-issue__action"

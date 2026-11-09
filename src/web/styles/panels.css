@@ -1639,9 +1639,13 @@
 }
 /* ============ Backlinks ============ */
 .yaml-viewer-editor__canvas {
-    padding-bottom: 40px;
-    width: 100%;
-    height: 100%;
+  flex: 1 1 auto;          /* занять всё оставшееся место */
+  min-height: 0;           /* обязательно: иначе flex-child не сожмётся ниже content */
+  height: auto;            /* ← было 100% */
+  width: 100%;
+  padding-bottom: 0;       /* ← было 40px */
+  position: relative;      /* нужен для diff-контейнера внутри */
+  overflow: hidden;        /* Monaco не должен вылезать за границы */
 }
 /* ============ Таблица сниппетов в справке ============ */
 .snippets-table {

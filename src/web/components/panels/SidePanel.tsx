@@ -5,6 +5,7 @@ import { DetailsTab } from './DetailsTab';
 import { EdgeTab } from './EdgeTab';
 import { EntitiesTab } from './EntitiesTab';
 import type { EntityIndex, RFNode, RFEdge } from '../../lib/types';
+import { PinButton } from '../annotations/PinButton';
 
 export interface SidePanelProps {
     allNodes: RFNode[];
@@ -387,6 +388,15 @@ export function SidePanel(props: SidePanelProps) {
                         onOpenEntityHierarchy={props.onOpenEntityHierarchy}
                     />
                 </div>
+
+                {panelNode && panelNode.data.domainId && (
+                    <PinButton
+                        target={`domain:${panelNode.data.domainId}`}
+                        domainId={panelNode.data.domainId}
+                        kind="domain"
+                        label={panelNode.data.domainId}
+                    />
+                )}
             </div>
 
             {/* ── Resizer ── */}

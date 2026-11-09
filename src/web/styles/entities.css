@@ -3911,6 +3911,8 @@ tr.highlighted .entity-matrix-row-head {
 }
 
 .yaml-viewer-body {
+   display: flex;
+  align-items: stretch;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -4065,6 +4067,7 @@ tr.highlighted .entity-matrix-row-head {
   min-width: 0;
   padding-right: 4px;
   overflow: hidden;
+  border-left: 2px solid transparent;
 }
 .yaml-nav-item__row:hover {
   background: var(--bg-800);
@@ -4424,9 +4427,12 @@ tr.highlighted .entity-matrix-row-head {
 .yaml-viewer-editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;  
   position: relative;
   background: var(--editor-bg);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .yaml-viewer-editor__loading,
 .yaml-viewer-editor__error {

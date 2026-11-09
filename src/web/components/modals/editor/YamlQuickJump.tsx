@@ -839,8 +839,8 @@ export function YamlQuickJump({
 
     // при закрытии попапа — сбрасываем
     useEffect(() => {
-        if (!open) setHelpOpen(false);
-    }, [open]);
+        if (!helpOpen) setHelpOpen(false);
+    }, [helpOpen]);
 
     const isFavorite = (item: JumpItem): boolean => {
         const key = favKey(item);

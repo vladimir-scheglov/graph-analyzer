@@ -1,0 +1,151 @@
+.pin-button {
+  position: relative;
+  display: inline-flex;
+}
+
+.pin-button__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-400);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.pin-button__trigger:hover {
+  background: var(--bg-750);
+  color: var(--text-200);
+  border-color: var(--border);
+}
+
+.pin-button__trigger.active {
+  color: var(--warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.pin-button__trigger span:not(.material-symbols-outlined) {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.pin-button__popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  min-width: 260px;
+  max-width: 320px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover, var(--border));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pin-button__target {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-500);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  word-break: break-all;
+}
+
+.pin-button__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  border-left: 3px solid;
+  background: var(--bg-750);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pin-button__note span {
+  flex: 1;
+  color: var(--text-200);
+  word-break: break-word;
+}
+
+.pin-button__note button {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 13px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.pin-button__note button:hover {
+  color: var(--success, #10b981);
+}
+
+.pin-button__note--yellow { border-left-color: #f59e0b; }
+.pin-button__note--red    { border-left-color: #ef4444; }
+.pin-button__note--green  { border-left-color: #10b981; }
+.pin-button__note--blue   { border-left-color: #3b82f6; }
+
+.pin-button__popover textarea {
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  background: var(--bg-850, #0a0e1a);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-100);
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.pin-button__popover textarea:focus {
+  border-color: var(--accent);
+}
+
+.pin-button__popover .btn {
+  align-self: flex-end;
+}
+.yaml-pin-glyph {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+}
+
+.yaml-pin-glyph::before {
+  content: "📌";
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  opacity: 0.85;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.yaml-pin-glyph:hover::before {
+  opacity: 1;
+  transform: scale(1.15);
+}

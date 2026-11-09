@@ -133,7 +133,7 @@ export function CreateDomainModal() {
             st.bumpModelVersion();
 
             try {
-                await st.refreshGraphFromServer();
+                await st.refreshGraphFromServer(index);
             } catch (e: any) {
                 st.showSnackbar(
                     "Домен создан, но граф не обновился. Обновите страницу (F5).",

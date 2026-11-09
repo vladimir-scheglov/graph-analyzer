@@ -12,6 +12,8 @@ import type {
 } from "../../core/analyzer/schema-generator/types";
 import type { GraphData } from "../../shared/types";
 import { getInitialEdges, getInitialNodes } from "./initial";
+import { computeFreshness } from "../lib/model/dependency-freshness";
+import { ModelIndex } from "../../shared/model-types";
 
 // ============ Типы состояния ============
 
@@ -515,7 +517,10 @@ export interface GraphState {
   deleteDomainTarget: { domainId: string } | null;
   setCreateDomainOpen: (v: boolean) => void;
   setDeleteDomainTarget: (v: { domainId: string } | null) => void;
-  refreshGraphFromServer: (preservePositions?: boolean) => Promise<void>;
+  refreshGraphFromServer: (
+    index: ModelIndex | null,
+    preservePositions?: boolean,
+  ) => Promise<void>;
   yamlViewerPendingGoto:
     | { kind: "fqid"; fqid: string }
     | { kind: "line"; line: number; column?: number }
@@ -560,6 +565,9 @@ export interface GraphState {
 
   /** Сразу установить набор свёрнутых секций (для «Свернуть всё»). */
   setCollapsedSections: (ids: Set<string>) => void;
+
+  freshnessMap: Map<string, number>;
+  setFreshnessMap: (w: Map<string, number>) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1225,7 +1233,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setCreateDomainOpen: (v) => set({ createDomainOpen: v }),
   setDeleteDomainTarget: (v) => set({ deleteDomainTarget: v }),
 
-  refreshGraphFromServer: async (preservePositions) => {
+  refreshGraphFromServer: async (index, preservePositions) => {
     const res = await fetch("/api/graph", {
       method: "GET",
       cache: "no-store",
@@ -1273,6 +1281,21 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       didInitialFit: preserve ? get().didInitialFit : false,
       hiddenNodeIds: new Set(),
     });
+
+    if (index) {
+      const freshnessMap = new Map<string, number>();
+      for (const domain of nextNodes) {
+        const report = computeFreshness(
+          index,
+          domain.data.domainId,
+          domain.data.version || "",
+        );
+        if (report.totalStaleRefs > 0) {
+          freshnessMap.set(domain.data.domainId, report.totalStaleRefs);
+        }
+      }
+      set({ freshnessMap });
+    }
 
     // fitView — после того, как reactflow отрендерит новые nodes
     setTimeout(() => {
@@ -1338,6 +1361,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       }
       return { hiddenSidebarSections: next };
     }),
+
+  freshnessMap: new Map<string, number>(),
+  setFreshnessMap: (v) => set({ freshnessMap: v }),
 
   // Сброс всего
   resetAll: () =>

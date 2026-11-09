@@ -38,3 +38,5 @@
 @import './create-domain.css';
 @import './delete-domain.css';
 @import './yaml-viewer.css';
+@import './pin-button.css';
+@import './annotations-panel.css';

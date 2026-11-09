@@ -10,6 +10,7 @@ import { DomainMixinsPanel } from "./DomainMixinsPanel";
 import { openFileInEditor } from "../../lib/open-file";
 import { DomainSonarPanel } from "./DomainSonarPanel";
 import type { RFNode, RFEdge, FQIDRef } from "../../lib/types";
+import { PinButton } from "../annotations/PinButton";
 
 export interface DetailsTabProps {
     node: RFNode | null;
@@ -346,6 +347,12 @@ export function DetailsTab({
                     >
                         <MIcon name="dashboard" size="sm" />
                     </button>
+                    <PinButton
+                        target={`domain:${domainId}`}
+                        domainId={domainId}
+                        kind="domain"
+                        label={domainId}
+                    />
                 </div>
             )}
 

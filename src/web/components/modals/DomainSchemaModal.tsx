@@ -39,6 +39,7 @@ import {
 } from "./DomainSchemaHelpers";
 import { SECTION_LABELS } from "../../lib/consts";
 import { PROFILE_INFO } from "./GenerateSchemaProfiles";
+import { PinButton } from "../annotations/PinButton";
 
 const DOMAIN_PROFILES = PROFILE_INFO.filter((p) => p.scope === "domain");
 
@@ -469,7 +470,7 @@ export function DomainSchemaModal() {
             //    refreshGraphFromServer вернёт старый, и оптимистичный апдейт
             //    из п.1 затрётся. Поэтому оборачиваем в retry — ждём, пока
             //    rebuild на сервере отработает, и обновляемся снова.
-            await st.refreshGraphFromServer(true).catch((e: any) => {
+            await st.refreshGraphFromServer(index, true).catch((e: any) => {
                 console.warn("[toggle-status] refresh failed:", e);
             });
 
@@ -495,7 +496,7 @@ export function DomainSchemaModal() {
                 );
                 if (fresh && newStatus && fresh.data.status !== newStatus) {
                     // всё ещё старое — ещё один refresh
-                    cur.refreshGraphFromServer(true).catch(() => { });
+                    cur.refreshGraphFromServer(index, true).catch(() => { });
                 }
             }, 250);
 
@@ -1033,6 +1034,16 @@ function DomainSchemaHeader({
                     >
                         <MIcon name="description" />
                     </button>
+                    
+                    {schema && (
+                        <PinButton
+                            target={`domain:${schema.domainId}`}
+                            domainId={schema.domainId}
+                            kind="domain"
+                            label={schema.domainId}
+                        />
+                    )}
+                    
                     <button className="help-modal__close" onClick={onClose}>
                         ✕
                     </button>
