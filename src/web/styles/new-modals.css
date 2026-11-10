@@ -2556,3 +2556,22 @@
   color: var(--text-400);
   line-height: 1.45;
 }
+
+.auto-recommendations__group-title {
+  margin-bottom: 8px;
+  .material-symbols-outlined {
+    font-size: 16px !important;
+  }
+}
+
+.auto-recommendations__group__sev--error .material-symbols-outlined {
+    color: var(--danger);
+}
+
+.auto-recommendations__group__sev--warning .material-symbols-outlined {
+    color: var(--warning);
+}
+
+.auto-recommendations__group__sev--info .material-symbols-outlined {
+    color: var(--accent);
+}

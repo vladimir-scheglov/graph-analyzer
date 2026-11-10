@@ -6692,8 +6692,7 @@ select.create-domain-input {
     transition: opacity 0.12s;
 }
 
-.yaml-issues__group-title:hover .yaml-issues__group-actions,
-.yaml-issues__group-title:focus-within .yaml-issues__group-actions {
+.yaml-issues__group-title:hover .yaml-issues__group-actions {
     opacity: 1;
 }
 

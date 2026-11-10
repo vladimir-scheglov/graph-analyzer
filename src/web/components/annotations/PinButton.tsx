@@ -16,6 +16,28 @@ export interface PinButtonProps {
     domainId: string;
     kind: Annotation["kind"];
     label?: string;
+
+    /**
+     * Готовый список заметок (уже отфильтрованный вызывающей стороной,
+     * например из `pinByLine` в YamlViewerModal). Если задан — PinButton
+     * НЕ подписывается на annotationsStore для чтения. Источник истины —
+     * родитель.
+     *
+     * Зачем: gutter-декорации строятся из `pinByLine`, а PinButton
+     * независимо читал store по точному target'у. Расхождение приводило
+     * к «значок в gutter есть, а кнопка пустая». Когда оба читают
+     * `pinByLine`, расхождение невозможно по построению.
+     *
+     * Добавление новых заметок всё равно идёт через annotationsStore
+     * (родитель увидит через свою подписку).
+     */
+    annotationsOverride?: Annotation[];
+
+    /** Кастомный resolve (по умолчанию — annotationsStore.update). */
+    onResolve?: (id: string) => void;
+
+    /** Кастомный delete (по умолчанию — annotationsStore.remove). */
+    onDelete?: (id: string) => void;
 }
 
 const POPOVER_WIDTH = 300;
@@ -24,7 +46,15 @@ const POPOVER_MIN_HEIGHT = 160;
 const VIEWPORT_MARGIN = 8;
 const GAP = 6;
 
-export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
+export function PinButton({
+    target,
+    domainId,
+    kind,
+    label,
+    annotationsOverride,
+    onResolve,
+    onDelete,
+}: PinButtonProps) {
     const [annotations, setAnnotations] = useState<Annotation[]>([]);
     const [open, setOpen] = useState(false);
     const [text, setText] = useState("");
@@ -39,8 +69,15 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
         maxHeight: number;
     } | null>(null);
 
-    // ── Подписка на изменения ──
+    // ── Источник данных ──
+    // Если передан override — используем его, без подписки на store.
+    // Иначе — подписка по точному target (старое поведение).
     useEffect(() => {
+        if (annotationsOverride) {
+            setAnnotations(annotationsOverride);
+            return;
+        }
+
         let cancelled = false;
         const load = () => {
             annotationsStore
@@ -56,9 +93,9 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
             cancelled = true;
             unsub();
         };
-    }, [target]);
+    }, [target, annotationsOverride]);
 
-    // ── Расчёт позиции (flip up/down) ──
+    // ── Расчёт позиции popover (flip up/down) ──
     const computePosition = () => {
         const trigger = triggerRef.current;
         if (!trigger) return;
@@ -144,8 +181,8 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
         };
         const onEsc = (e: KeyboardEvent) => {
             if (e.key !== "Escape") return;
-            // Не даём Escape закрыть родительскую модалку — это должен быть
-            // закрытый поповер, а не редактор.
+            // Не даём Escape закрыть родительскую модалку — это должен
+            // быть закрытый поповер, а не редактор.
             e.stopPropagation();
             e.stopImmediatePropagation();
             setOpen(false);
@@ -158,6 +195,7 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
         };
     }, [open]);
 
+    // ── Действия ──
     const add = async () => {
         if (!text.trim()) return;
         await annotationsStore.add({
@@ -172,7 +210,19 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
     };
 
     const resolve = async (id: string) => {
-        await annotationsStore.update(id, { resolvedAt: Date.now() });
+        if (onResolve) {
+            onResolve(id);
+        } else {
+            await annotationsStore.update(id, { resolvedAt: Date.now() });
+        }
+    };
+
+    const remove = async (id: string) => {
+        if (onDelete) {
+            onDelete(id);
+        } else {
+            await annotationsStore.remove(id);
+        }
     };
 
     const activeCount = annotations.length;
@@ -182,9 +232,15 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
             <button
                 ref={triggerRef}
                 type="button"
-                className={"pin-button__trigger" + (activeCount > 0 ? " active" : "")}
+                className={
+                    "pin-button__trigger" + (activeCount > 0 ? " active" : "")
+                }
                 onClick={() => setOpen((v) => !v)}
-                title={activeCount > 0 ? `${activeCount} заметок` : "Добавить заметку"}
+                title={
+                    activeCount > 0
+                        ? `${activeCount} заметок`
+                        : "Добавить заметку"
+                }
             >
                 <MIcon name="push_pin" size="sm" fill={activeCount > 0} />
                 {activeCount > 0 && <span>{activeCount}</span>}
@@ -205,19 +261,47 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
                             zIndex: 10000,
                         }}
                     >
-                        {label && <div className="pin-button__target">{label}</div>}
+                        {label && (
+                            <div className="pin-button__target">{label}</div>
+                        )}
 
                         {annotations.map((a) => (
                             <div
                                 key={a.id}
-                                className={"pin-button__note pin-button__note--" + a.color}
+                                className={
+                                    "pin-button__note pin-button__note--" +
+                                    a.color
+                                }
                             >
-                                <span>{a.text}</span>
-                                <button onClick={() => resolve(a.id)} title="Решено">
-                                    ✓
-                                </button>
+                                <span className="pin-button__note-text">
+                                    {a.text}
+                                </span>
+                                <div className="pin-button__note-actions">
+                                    <button
+                                        type="button"
+                                        className="pin-button__note-resolve"
+                                        onClick={() => resolve(a.id)}
+                                        title="Пометить решённой"
+                                    >
+                                        ✓
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="pin-button__note-delete"
+                                        onClick={() => remove(a.id)}
+                                        title="Удалить заметку"
+                                    >
+                                        🗑
+                                    </button>
+                                </div>
                             </div>
                         ))}
+
+                        {annotations.length === 0 && (
+                            <div className="pin-button__empty">
+                                Заметок пока нет
+                            </div>
+                        )}
 
                         <textarea
                             value={text}
@@ -225,7 +309,10 @@ export function PinButton({ target, domainId, kind, label }: PinButtonProps) {
                             placeholder="TODO: …"
                             rows={2}
                             onKeyDown={(e) => {
-                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                if (
+                                    e.key === "Enter" &&
+                                    (e.ctrlKey || e.metaKey)
+                                ) {
                                     e.preventDefault();
                                     void add();
                                 }

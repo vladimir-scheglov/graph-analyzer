@@ -604,7 +604,7 @@ export function EntitiesCatalogModal() {
 
     return (
         <div
-            className="help-overlay help-overlay--fullscreen"
+            className="help-overlay help-overlay--fullscreen help-overlay--above-yaml"
             onMouseDown={() => useGraphStore.getState().setEntityCatalogOpen(false)}
         >
             <div
@@ -1162,6 +1162,7 @@ export function EntitiesCatalogModal() {
                                     fqid={selectedFqid}
                                     index={index}
                                     onBack={handleBack}
+                                    onClose={() => useGraphStore.getState().setEntityCatalogOpen(false)}
                                     onGotoDomain={handleGotoDomain}
                                     onSelectEntity={handleSelectFromImpact}
                                 />

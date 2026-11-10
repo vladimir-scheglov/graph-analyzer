@@ -76,10 +76,10 @@ import {
 } from "./YamlViewerNavPanel";
 import { yamlBackups } from '../../../lib/storage/yaml-backup';
 import { applyAllFixes, MarkerWithFix } from '../../../lib/monaco/fix-all';
-import { applyInlineDiffDecorations, buildLineDiffMarks } from '../../../lib/monaco/inline-diff';
+import { applyInlineDiffDecorations, buildLineDiffMarks, LineDiffMarks } from '../../../lib/monaco/inline-diff';
 import { computePreSaveImpact } from '../../../lib/model/pre-save-impact';
 import { PinButton } from '../../annotations/PinButton';
-import { Annotation, annotationsStore } from '../../../lib/storage/annotations';
+import { Annotation, annotationsStore, matchLineTarget } from '../../../lib/storage/annotations';
 import { isAutoFixable } from '../../../lib/monaco/quickfix-rules';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
@@ -308,7 +308,7 @@ export function YamlViewerModal() {
     const diffEditorRef = useRef<any>(null);
     const [cursorLine, setCursorLine] = useState(1);
     const [cursorColumn, setCursorColumn] = useState(1);
-    const [selection, setSelection] = useState<{ 
+    const [selection, setSelection] = useState<{
         chars: number;
         lines: number;
     } | null>(null);
@@ -836,21 +836,32 @@ export function YamlViewerModal() {
         if (!focusTarget && hideDimmed) setHideDimmed(false);
     }, [focusTarget, hideDimmed]);
 
-    // ============ Issues ============
-    // Полный набор серверных issues — для панели «Проблемы», навигации,
-    // счётчиков. НЕ фильтруем inline-покрытые: пользователь должен видеть
-    // их в панели (это реальные проблемы схемы), даже если в редакторе
-    // уже есть inline-маркер.
-    //
-    // Фильтр INLINE_COVERED_RULE_IDS применяется отдельно — только
-    // при установке маркеров dg-linter (см. эффект ниже), чтобы не
-    // дублировать маркеры в gutter/overview-ruler.
     const domainIssues = useMemo(() => {
         if (!index || !effectiveDomainId) return [];
-        return index.lint.lintReport.issues.filter(
+        const raw = index.lint.lintReport.issues.filter(
             (i) => i.domainId === effectiveDomainId,
         );
-    }, [index, effectiveDomainId]);
+        if (!lineMap || !idleContent) return raw;
+
+        return raw.map((issue) => {
+            if (typeof (issue as any).line === "number") return issue;
+            if (
+                issue.ruleId !== "view/filter-linked-entity-attribute-unknown" &&
+                !/linkedEntity\[/.test(String(issue.propertyPath || ""))
+            ) {
+                return issue;
+            }
+            const resolved = findLinkedEntityAttributeLine(
+                idleContent,
+                lineMap,
+                issue,
+                index,
+                effectiveDomainId,
+            );
+            if (resolved == null) return issue;
+            return { ...issue, __preResolvedLine: resolved };
+        });
+    }, [index, effectiveDomainId, lineMap, idleContent]);
 
     // ============ Счётчики для шапки ============
     const counters = useMemo(() => {
@@ -2005,6 +2016,20 @@ export function YamlViewerModal() {
                         setCursorColumn(col);
                     });
                 }, 120);
+            });
+
+            editor.onMouseDown((e: any) => {
+                if (
+                    e.target.type === m.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+                    typeof e.target.position?.lineNumber === "number"
+                ) {
+                    const ln = e.target.position.lineNumber;
+                    if (pinByLine.has(ln)) {
+                        jumpTo(ln);
+                        // Не открываем popover автоматически — кнопка в breadcrumbs
+                        // уже показывает счётчик для текущей строки.
+                    }
+                }
             });
 
             editor.onDidChangeCursorSelection((e: any) => {
@@ -3922,19 +3947,40 @@ export function YamlViewerModal() {
         return () => document.removeEventListener("dg:lint-fix-all", handler);
     }, [open, effectiveDomainId]);
 
-    // Effect в компоненте
+    const [diffMarks, setDiffMarks] = useState<LineDiffMarks | null>(null);
     useEffect(() => {
-        if (!editorCreated || !editorRef.current || !isDirty) return;
+        if (!isDirty || !checksEnabled) {
+            setDiffMarks(null);
+            return;
+        }
+        const t = setTimeout(() => {
+            const saved = savedContentRef.current;
+            if (!saved) return;
+            const marks = buildLineDiffMarks(saved, content);
+            setDiffMarks(marks);
+        }, 200);
+        return () => clearTimeout(t);
+    }, [isDirty, savedContent, content, checksEnabled]);
+
+
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current) return;
         const m = (window as any).monaco;
         if (!m) return;
 
-        const saved = savedContentRef.current;
-        if (!saved) return;
+        if (!diffMarks) {
+            // Нечего рисовать — очищаем всё, что было.
+            // applyInlineDiffDecorations возвращает cleanup, но здесь его
+            // нет (мы не вызывали), поэтому чистим через пустые marks.
+            return applyInlineDiffDecorations(editorRef.current, m, {
+                added: [],
+                modified: [],
+                unchanged: [],
+            });
+        }
 
-        const marks = buildLineDiffMarks(saved, content);
-        const cleanup = applyInlineDiffDecorations(editorRef.current, m, marks);
-        return cleanup;
-    }, [editorCreated, isDirty, content, savedContent]);
+        return applyInlineDiffDecorations(editorRef.current, m, diffMarks);
+    }, [editorCreated, diffMarks]);
 
     // ============ Keyboard nav ============
     useEffect(() => {
@@ -6682,6 +6728,9 @@ export function YamlViewerModal() {
                                                 domainId={domainId}
                                                 kind="domain"
                                                 label={`${domainId} :${cursorLine}`}
+                                                annotationsOverride={pinByLine.get(cursorLine) || []}
+                                                onResolve={(id) => annotationsStore.update(id, { resolvedAt: Date.now() })}
+                                                onDelete={(id) => annotationsStore.remove(id)}
                                             />
                                         )}
                                     </>
@@ -8181,7 +8230,6 @@ function ExternalRefsPanel({
                                         }
                                     >
                                         <span className="yaml-issues__group-chevron">
-                                            {isExpanded ? "▾" : "▸"}
                                         </span>
                                         {g.labelIcon && (
                                             <MIcon
@@ -8212,9 +8260,6 @@ function ExternalRefsPanel({
                                         >
                                             {g.label}
                                         </span>
-                                        <span className="yaml-issues__group-count">
-                                            {g.sublabel || g.items.length}
-                                        </span>
                                     </button>
                                     <div className="yaml-issues__group-actions">
                                         <button
@@ -8244,6 +8289,9 @@ function ExternalRefsPanel({
                                             </button>
                                         )}
                                     </div>
+                                    <span className="yaml-issues__group-count">
+                                        {g.sublabel || g.items.length}
+                                    </span>
                                 </div>
                                 {isExpanded && (
                                     <div className="yaml-issues__group-body">
@@ -8706,13 +8754,363 @@ function findNestedPathLine(
     return line;
 }
 
-function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
-    if (!lineMap) return null;
+/**
+ * Правила, для которых propertyPath указывает на НЕструктурированный путь
+ * (use[].linkedEntity[].attribute) и которые не резолвятся через lineMap.
+ * Для них нужен content-aware резолв.
+ */
+const RULES_NEEDING_LINKED_ENTITY_RESOLVE = new Set<string>([
+    "view/filter-linked-entity-attribute-unknown",
+    // сюда добавить другие аналогичные правила, если появятся
+]);
 
-    // 1. Клиентские ошибки RQL
-    if (issue.__clientOnly && typeof issue.line === 'number' && issue.line > 0) {
+// ============================================================
+// content-aware резолв для view/filter-linked-entity-attribute-unknown
+// ============================================================
+
+interface LinkedEntityAttr {
+    attribute: string;
+    line: number; // 1-based
+}
+
+interface UseEntry {
+    linkageId: string; // local id или FQID
+    linkageLine: number; // 1-based строка `- linkage: X`
+    attrs: LinkedEntityAttr[];
+}
+
+function extractLinkedEntityAttrName(issue: any): string | null {
+    const msg = String(issue.message || "");
+    const m = msg.match(
+        /linkedEntity\.attribute\s+[«"']?([^\s«»"'#:]+)[»"']?/,
+    );
+    if (m) return m[1];
+
+    const aid = issue.attributeId;
+    if (typeof aid === "string" && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(aid)) {
+        return aid;
+    }
+    return null;
+}
+
+function extractLinkedEntityViewId(issue: any): string | null {
+    const path = String(issue.propertyPath || "");
+    const fromPath = path.match(/views\[([^\]]+)\]/);
+    if (fromPath) return fromPath[1];
+
+    const msg = String(issue.message || "");
+    const fromMsg = msg.match(/View\s+[«"']([^»"']+)[»"']/);
+    if (fromMsg) return fromMsg[1];
+
+    return null;
+}
+
+/**
+ * Target FQID из сообщения серверного линтера:
+ *   `linkedEntity.attribute «identifier» не найден в «it.assets.rvision.ru/device»`
+ *   → "it.assets.rvision.ru/device"
+ */
+function extractLinkedEntityTargetFqid(issue: any): string | null {
+    const msg = String(issue.message || "");
+    const m = msg.match(/не\s+найден\s+в\s+[«"']([^»"']+)[»"']/);
+    return m ? m[1].toLowerCase() : null;
+}
+
+function findLinkageById(
+    linkageId: string,
+    currentDomainId: string,
+    index: ModelIndex | null,
+): any | null {
+    if (!index) return null;
+    const slash = linkageId.indexOf("/");
+    const domain =
+        slash > 0
+            ? linkageId.slice(0, slash).toLowerCase()
+            : currentDomainId.toLowerCase();
+    const id = slash > 0 ? linkageId.slice(slash + 1) : linkageId;
+    return (
+        index.entityLinkages.find(
+            (l) => l.domainId.toLowerCase() === domain && l.id === id,
+        ) || null
+    );
+}
+
+function resolveViewSourceFqid(
+    viewId: string,
+    index: ModelIndex | null,
+    currentDomainId: string,
+): string | null {
+    if (!index) return null;
+    const schema = index.schemasByDomain[currentDomainId];
+    if (!schema) return null;
+    const view = (schema.sections.views.items || []).find(
+        (v: any) => v.id === viewId,
+    );
+    if (!view) return null;
+    const src = (view as any).sourceEntity || (view as any).entity;
+    if (!src) return null;
+    const s = String(src);
+    return s.includes("/")
+        ? s.toLowerCase()
+        : `${currentDomainId}/${s}`.toLowerCase();
+}
+
+/**
+ * Возвращает target FQID для linkage относительно source-сущности view.
+ *   - 1_n: source=side1 → target=side2; source=side2 → target=side1.
+ *   - n_n: target=side2 (обе стороны рабочие — но обычно сервер
+ *     в сообщении пишет именно side2 или side1; при совпадении
+ *     отработает по FQID ниже).
+ *   - self-loop: target=linkage.side2Fqid (совпадает с source).
+ */
+function resolveLinkageTarget(
+    linkage: any,
+    sourceFqid: string | null,
+): string | null {
+    if (!linkage) return null;
+    if (!sourceFqid) return linkage.side2Fqid;
+    const src = sourceFqid.toLowerCase();
+    if (linkage.side1Fqid === src) return linkage.side2Fqid;
+    if (linkage.side2Fqid === src) return linkage.side1Fqid;
+    return linkage.side2Fqid;
+}
+
+/**
+ * Парсит `view.table.filter.linkages.use[]` внутри view.
+ * Возвращает [{ linkageId, linkageLine, attrs: [{ attribute, line }] }].
+ */
+function parseLinkedEntityUseBlocks(
+    content: string,
+    lineMap: LineMap,
+    viewId: string,
+): UseEntry[] {
+    const result: UseEntry[] = [];
+    const viewsSection = lineMap.sections.find((s) => s.key === "views");
+    if (!viewsSection) return result;
+
+    const viewIdx = viewsSection.nodes.findIndex((n) => n.id === viewId);
+    if (viewIdx < 0) return result;
+
+    const viewNode = viewsSection.nodes[viewIdx];
+    const nextNode = viewsSection.nodes[viewIdx + 1];
+    const startLine = viewNode.line;
+    const endLine = nextNode
+        ? nextNode.line - 1
+        : viewsSection.line + viewsSection.linesCount - 1;
+
+    const lines = content.split("\n");
+    const lastLine = Math.min(endLine, lines.length);
+
+    // ── Шаг 1: `filter:` ── (первый в пределах view, не важно под table: или нет)
+    let filterIdx = -1;
+    let filterIndent = -1;
+    for (let i = startLine - 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const m = line.match(/^(\s*)(?:-\s+)?filter\s*:\s*(?:#.*)?$/);
+        if (m) {
+            filterIdx = i;
+            filterIndent = m[1].length;
+            break;
+        }
+    }
+    if (filterIdx < 0) return result;
+
+    // ── Шаг 2: `linkages:` под `filter:` ── (bounded by filter scope)
+    let linkagesIdx = -1;
+    let linkagesIndent = -1;
+    for (let i = filterIdx + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= filterIndent) break;
+        const m = line.match(/^(\s*)(?:-\s+)?linkages\s*:\s*(?:#.*)?$/);
+        if (m) {
+            linkagesIdx = i;
+            linkagesIndent = m[1].length;
+            break;
+        }
+    }
+    if (linkagesIdx < 0) return result;
+
+    // ── Шаг 3: `use:` под `linkages:` ── (bounded by linkages scope)
+    let useIdx = -1;
+    let useIndent = -1;
+    for (let i = linkagesIdx + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= linkagesIndent) break;
+        const m = line.match(/^(\s*)(?:-\s+)?use\s*:\s*(?:#.*)?$/);
+        if (m) {
+            useIdx = i;
+            useIndent = m[1].length;
+            break;
+        }
+    }
+    if (useIdx < 0) return result;
+
+    // ── Шаг 4: разбор `- linkage:` и `linkedEntity:` под `use:` ──
+    let currentLinkageId: string | null = null;
+    let currentLinkageLine = -1;
+    let currentAttrs: LinkedEntityAttr[] = [];
+    let inLinkedEntity = false;
+    let linkedEntityIndent = -1;
+
+    const flush = () => {
+        if (currentLinkageId) {
+            result.push({
+                linkageId: currentLinkageId,
+                linkageLine: currentLinkageLine,
+                attrs: currentAttrs,
+            });
+        }
+        currentLinkageId = null;
+        currentLinkageLine = -1;
+        currentAttrs = [];
+        inLinkedEntity = false;
+        linkedEntityIndent = -1;
+    };
+
+    for (let i = useIdx + 1; i < lastLine; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+        // Вышли из use: — блок закончился
+        if (ind <= useIndent) {
+            flush();
+            break;
+        }
+
+        const useLinkageM = line.match(
+            /^(\s*)-\s+linkage\s*:\s*["']?([^\s"'#:]+)["']?/,
+        );
+        if (useLinkageM) {
+            flush();
+            currentLinkageId = useLinkageM[2];
+            currentLinkageLine = i + 1;
+            continue;
+        }
+        if (!currentLinkageId) continue;
+
+        const inlineM = line.match(
+            /^\s*(?:-\s+)?linkedEntity\s*:\s*\[([^\]]*)\]/,
+        );
+        if (inlineM) {
+            const items = inlineM[1]
+                .split(",")
+                .map((s) => s.trim().replace(/^["']|["']$/g, ""));
+            for (const attr of items) {
+                currentAttrs.push({ attribute: attr, line: i + 1 });
+            }
+            continue;
+        }
+
+        const blockM = line.match(
+            /^(\s*)(?:-\s+)?linkedEntity\s*:\s*(?:#.*)?$/,
+        );
+        if (blockM) {
+            inLinkedEntity = true;
+            linkedEntityIndent = blockM[1].length;
+            continue;
+        }
+
+        if (inLinkedEntity && ind > linkedEntityIndent) {
+            const attrM = line.match(
+                /^\s*-\s+attribute\s*:\s*["']?([^\s"'#:]+)["']?/,
+            );
+            if (attrM) {
+                currentAttrs.push({ attribute: attrM[1], line: i + 1 });
+                continue;
+            }
+            const bareM = line.match(/^\s*-\s*["']?([^\s"'#\]]+)["']?\s*$/);
+            if (bareM) {
+                currentAttrs.push({ attribute: bareM[1], line: i + 1 });
+                continue;
+            }
+        }
+
+        if (inLinkedEntity && ind <= linkedEntityIndent) {
+            inLinkedEntity = false;
+            linkedEntityIndent = -1;
+        }
+    }
+    flush();
+
+    return result;
+}
+
+/**
+ * Резолвит строку конкретного `- attribute: X` для issue.
+ *
+ * Стратегия:
+ *   1. Парсим все use[] блоки в view.
+ *   2. Для каждого use резолвим target FQID через linkage.
+ *   3. Ищем use, target которого совпадает с target из message issue.
+ *   4. В этом use ищем attr с именем из issue.
+ *
+ * Если target резолвить нельзя (нет index, linkage не найден) —
+ * fallback на «первый use с этим attr» (старое поведение).
+ */
+function findLinkedEntityAttributeLine(
+    content: string,
+    lineMap: LineMap,
+    issue: any,
+    index: ModelIndex | null,
+    currentDomainId: string,
+): number | null {
+    const viewId = extractLinkedEntityViewId(issue);
+    const attrName = extractLinkedEntityAttrName(issue);
+    const targetFqid = extractLinkedEntityTargetFqid(issue);
+    if (!viewId || !attrName) return null;
+
+    const useBlocks = parseLinkedEntityUseBlocks(content, lineMap, viewId);
+    if (useBlocks.length === 0) return null;
+
+    const sourceFqid = resolveViewSourceFqid(viewId, index, currentDomainId);
+
+    // Pass 1: точное совпадение по target FQID
+    if (targetFqid) {
+        for (const use of useBlocks) {
+            const linkage = findLinkageById(
+                use.linkageId,
+                currentDomainId,
+                index,
+            );
+            const resolvedTarget = resolveLinkageTarget(linkage, sourceFqid);
+            if (!resolvedTarget) continue;
+            if (resolvedTarget.toLowerCase() !== targetFqid) continue;
+            const attr = use.attrs.find((a) => a.attribute === attrName);
+            if (attr) return attr.line;
+        }
+    }
+
+    // Pass 2: fallback — первый use с этим attr (старое поведение)
+    for (const use of useBlocks) {
+        const attr = use.attrs.find((a) => a.attribute === attrName);
+        if (attr) return attr.line;
+    }
+
+    return null;
+}
+
+function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
+    // 0. Явная pre-resolution от content-aware резолверов (linkedEntity и т.п.)
+    if (
+        typeof issue.__preResolvedLine === "number" &&
+        issue.__preResolvedLine > 0
+    ) {
+        return issue.__preResolvedLine;
+    }
+
+    // 1. Клиентские ошибки RQL / YAML — они сами проставляют line
+    if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0) {
         return issue.line;
     }
+
+    if (!lineMap) return null;
 
     // 2. Поиск по propertyPath (если есть)
     if (issue.propertyPath) {
@@ -9482,12 +9880,8 @@ function IssuesGroup({
                     title={expanded ? "Свернуть" : "Развернуть"}
                 >
                     <span className="yaml-issues__group-chevron">
-                        {expanded ? "▾" : "▸"}
                     </span>
                     <span className="yaml-issues__group-label">{title}</span>
-                    <span className="yaml-issues__group-count">
-                        {items.length}
-                    </span>
                 </button>
                 <div className="yaml-issues__group-actions">
                     {onFixGroup && fixableCount > 0 && (
@@ -9533,6 +9927,9 @@ function IssuesGroup({
                         </button>
                     )}
                 </div>
+                <span className="yaml-issues__group-count">
+                    {items.length}
+                </span>
             </div>
             {expanded &&
                 items.map((issue, i) => {
@@ -11662,7 +12059,6 @@ const BacklinksPanel = React.memo(function BacklinksPanel({
                                         onClick={() => toggleGroup(g.key)}
                                     >
                                         <span className="yaml-issues__group-chevron">
-                                            {isExpanded ? "▾" : "▸"}
                                         </span>
                                         {g.color && (
                                             <span
@@ -11672,9 +12068,6 @@ const BacklinksPanel = React.memo(function BacklinksPanel({
                                         )}
                                         <span className="yaml-issues__group-label">
                                             {g.label}
-                                        </span>
-                                        <span className="yaml-issues__group-count">
-                                            {g.sublabel || g.items.length}
                                         </span>
                                     </button>
                                     <div className="yaml-issues__group-actions">
@@ -11690,6 +12083,9 @@ const BacklinksPanel = React.memo(function BacklinksPanel({
                                             />
                                         </button>
                                     </div>
+                                    <span className="yaml-issues__group-count">
+                                        {g.sublabel || g.items.length}
+                                    </span>
                                 </div>
                                 {isExpanded && (
                                     <div className="yaml-issues__group-body">

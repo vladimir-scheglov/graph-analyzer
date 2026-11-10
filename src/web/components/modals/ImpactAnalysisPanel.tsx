@@ -9,6 +9,7 @@ export interface ImpactAnalysisPanelProps {
     fqid: string;
     index: ModelIndex;
     onBack: () => void;
+    onClose: () => void;
     onGotoDomain: (domainId: string) => void;
     onSelectEntity: (fqid: string) => void;
 }
@@ -81,6 +82,7 @@ export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
                                     entity.domainId.toLowerCase(),
                             );
                             if (node?.data.filePath) {
+                                props.onClose();
                                 openFileInEditor(
                                     node.data.filePath,
                                     entity.fqid,

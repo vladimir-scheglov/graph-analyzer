@@ -10591,6 +10591,18 @@ function notify() {
 function uid() {
   return `ann_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
+function matchLineTarget(line) {
+  return (a) => {
+    if (a.resolvedAt)
+      return false;
+    if (!a.target.startsWith("line:"))
+      return false;
+    const m = a.target.match(/:(\d+)$/);
+    if (!m)
+      return false;
+    return parseInt(m[1], 10) === line;
+  };
+}
 var STORE, listeners, annotationsStore;
 var init_annotations = __esm({
   "src/web/lib/storage/annotations.ts"() {
@@ -10602,10 +10614,6 @@ var init_annotations = __esm({
       async list() {
         const all = await idbGetAll(STORE);
         return all.sort((a, b) => b.createdAt - a.createdAt);
-      },
-      async listForTarget(target) {
-        const all = await this.list();
-        return all.filter((a) => a.target === target && !a.resolvedAt);
       },
       async byDomain() {
         const all = await this.list();
@@ -10645,6 +10653,20 @@ var init_annotations = __esm({
       },
       async delete(id) {
         await idbDelete(STORE, id);
+        notify();
+      },
+      async listForTarget(target) {
+        const all = await this.list();
+        return all.filter((a) => a.target === target && !a.resolvedAt);
+      },
+      /** NEW: все незакрытые заметки для строки N (любой target с этим N). */
+      async listForLine(line) {
+        const all = await this.list();
+        return all.filter(matchLineTarget(line));
+      },
+      /** NEW: удалить заметку полностью (не только resolvedAt). */
+      async remove(id) {
+        await idbDelete("annotations", id);
         notify();
       }
     };
@@ -12076,7 +12098,15 @@ import {
 } from "react";
 import { createPortal as createPortal2 } from "react-dom";
 import { jsx as jsx32, jsxs as jsxs31 } from "react/jsx-runtime";
-function PinButton({ target, domainId, kind, label }) {
+function PinButton({
+  target,
+  domainId,
+  kind,
+  label,
+  annotationsOverride,
+  onResolve,
+  onDelete
+}) {
   const [annotations, setAnnotations] = useState16([]);
   const [open, setOpen] = useState16(false);
   const [text, setText] = useState16("");
@@ -12085,6 +12115,10 @@ function PinButton({ target, domainId, kind, label }) {
   const popoverRef = useRef10(null);
   const [pos, setPos] = useState16(null);
   useEffect19(() => {
+    if (annotationsOverride) {
+      setAnnotations(annotationsOverride);
+      return;
+    }
     let cancelled = false;
     const load2 = () => {
       annotationsStore.listForTarget(target).then((list) => {
@@ -12099,7 +12133,7 @@ function PinButton({ target, domainId, kind, label }) {
       cancelled = true;
       unsub();
     };
-  }, [target]);
+  }, [target, annotationsOverride]);
   const computePosition = () => {
     const trigger = triggerRef.current;
     if (!trigger)
@@ -12195,7 +12229,18 @@ function PinButton({ target, domainId, kind, label }) {
     setText("");
   };
   const resolve = async (id) => {
-    await annotationsStore.update(id, { resolvedAt: Date.now() });
+    if (onResolve) {
+      onResolve(id);
+    } else {
+      await annotationsStore.update(id, { resolvedAt: Date.now() });
+    }
+  };
+  const remove = async (id) => {
+    if (onDelete) {
+      onDelete(id);
+    } else {
+      await annotationsStore.remove(id);
+    }
   };
   const activeCount = annotations.length;
   return /* @__PURE__ */ jsxs31("div", { className: "pin-button", ref: wrapRef, children: [
@@ -12234,12 +12279,34 @@ function PinButton({ target, domainId, kind, label }) {
               {
                 className: "pin-button__note pin-button__note--" + a.color,
                 children: [
-                  /* @__PURE__ */ jsx32("span", { children: a.text }),
-                  /* @__PURE__ */ jsx32("button", { onClick: () => resolve(a.id), title: "\u0420\u0435\u0448\u0435\u043D\u043E", children: "\u2713" })
+                  /* @__PURE__ */ jsx32("span", { className: "pin-button__note-text", children: a.text }),
+                  /* @__PURE__ */ jsxs31("div", { className: "pin-button__note-actions", children: [
+                    /* @__PURE__ */ jsx32(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pin-button__note-resolve",
+                        onClick: () => resolve(a.id),
+                        title: "\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C \u0440\u0435\u0448\u0451\u043D\u043D\u043E\u0439",
+                        children: "\u2713"
+                      }
+                    ),
+                    /* @__PURE__ */ jsx32(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pin-button__note-delete",
+                        onClick: () => remove(a.id),
+                        title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0443",
+                        children: "\u{1F5D1}"
+                      }
+                    )
+                  ] })
                 ]
               },
               a.id
             )),
+            annotations.length === 0 && /* @__PURE__ */ jsx32("div", { className: "pin-button__empty", children: "\u0417\u0430\u043C\u0435\u0442\u043E\u043A \u043F\u043E\u043A\u0430 \u043D\u0435\u0442" }),
             /* @__PURE__ */ jsx32(
               "textarea",
               {
@@ -23953,6 +24020,7 @@ function ImpactAnalysisPanel(props) {
                 (n) => (n.data.domainId || "").toLowerCase() === entity.domainId.toLowerCase()
               );
               if (node?.data.filePath) {
+                props.onClose();
                 openFileInEditor(
                   node.data.filePath,
                   entity.fqid,
@@ -24652,7 +24720,7 @@ function EntitiesCatalogModal() {
   return /* @__PURE__ */ jsx62(
     "div",
     {
-      className: "help-overlay help-overlay--fullscreen",
+      className: "help-overlay help-overlay--fullscreen help-overlay--above-yaml",
       onMouseDown: () => useGraphStore.getState().setEntityCatalogOpen(false),
       children: /* @__PURE__ */ jsxs59(
         "div",
@@ -25232,6 +25300,7 @@ function EntitiesCatalogModal() {
                   fqid: selectedFqid,
                   index,
                   onBack: handleBack,
+                  onClose: () => useGraphStore.getState().setEntityCatalogOpen(false),
                   onGotoDomain: handleGotoDomain,
                   onSelectEntity: handleSelectFromImpact
                 }
@@ -80293,51 +80362,294 @@ var init_YamlQuickJump = __esm({
   }
 });
 
+// node_modules/diff/libesm/diff/base.js
+var Diff;
+var init_base = __esm({
+  "node_modules/diff/libesm/diff/base.js"() {
+    Diff = class {
+      diff(oldStr, newStr, options = {}) {
+        let callback;
+        if (typeof options === "function") {
+          callback = options;
+          options = {};
+        } else if ("callback" in options) {
+          callback = options.callback;
+        }
+        const oldString = this.castInput(oldStr, options);
+        const newString = this.castInput(newStr, options);
+        const oldTokens = this.removeEmpty(this.tokenize(oldString, options));
+        const newTokens = this.removeEmpty(this.tokenize(newString, options));
+        return this.diffWithOptionsObj(oldTokens, newTokens, options, callback);
+      }
+      diffWithOptionsObj(oldTokens, newTokens, options, callback) {
+        var _a;
+        const done = (value) => {
+          value = this.postProcess(value, options);
+          if (callback) {
+            setTimeout(function() {
+              callback(value);
+            }, 0);
+            return void 0;
+          } else {
+            return value;
+          }
+        };
+        const newLen = newTokens.length, oldLen = oldTokens.length;
+        let editLength = 1;
+        let maxEditLength = newLen + oldLen;
+        if (options.maxEditLength != null) {
+          maxEditLength = Math.min(maxEditLength, options.maxEditLength);
+        }
+        const maxExecutionTime = (_a = options.timeout) !== null && _a !== void 0 ? _a : Infinity;
+        const abortAfterTimestamp = Date.now() + maxExecutionTime;
+        const bestPath = [{ oldPos: -1, lastComponent: void 0 }];
+        let newPos = this.extractCommon(bestPath[0], newTokens, oldTokens, 0, options);
+        if (bestPath[0].oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+          return done(this.buildValues(bestPath[0].lastComponent, newTokens, oldTokens));
+        }
+        let minDiagonalToConsider = -Infinity, maxDiagonalToConsider = Infinity;
+        const execEditLength = () => {
+          for (let diagonalPath = Math.max(minDiagonalToConsider, -editLength); diagonalPath <= Math.min(maxDiagonalToConsider, editLength); diagonalPath += 2) {
+            let basePath;
+            const removePath = bestPath[diagonalPath - 1], addPath = bestPath[diagonalPath + 1];
+            if (removePath) {
+              bestPath[diagonalPath - 1] = void 0;
+            }
+            let canAdd = false;
+            if (addPath) {
+              const addPathNewPos = addPath.oldPos - diagonalPath;
+              canAdd = addPath && 0 <= addPathNewPos && addPathNewPos < newLen;
+            }
+            const canRemove = removePath && removePath.oldPos + 1 < oldLen;
+            if (!canAdd && !canRemove) {
+              bestPath[diagonalPath] = void 0;
+              continue;
+            }
+            if (!canRemove || canAdd && removePath.oldPos < addPath.oldPos) {
+              basePath = this.addToPath(addPath, true, false, 0, options);
+            } else {
+              basePath = this.addToPath(removePath, false, true, 1, options);
+            }
+            newPos = this.extractCommon(basePath, newTokens, oldTokens, diagonalPath, options);
+            if (basePath.oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+              return done(this.buildValues(basePath.lastComponent, newTokens, oldTokens)) || true;
+            } else {
+              bestPath[diagonalPath] = basePath;
+              if (basePath.oldPos + 1 >= oldLen) {
+                maxDiagonalToConsider = Math.min(maxDiagonalToConsider, diagonalPath - 1);
+              }
+              if (newPos + 1 >= newLen) {
+                minDiagonalToConsider = Math.max(minDiagonalToConsider, diagonalPath + 1);
+              }
+            }
+          }
+          editLength++;
+        };
+        if (callback) {
+          (function exec() {
+            setTimeout(function() {
+              if (editLength > maxEditLength || Date.now() > abortAfterTimestamp) {
+                return callback(void 0);
+              }
+              if (!execEditLength()) {
+                exec();
+              }
+            }, 0);
+          })();
+        } else {
+          while (editLength <= maxEditLength && Date.now() <= abortAfterTimestamp) {
+            const ret = execEditLength();
+            if (ret) {
+              return ret;
+            }
+          }
+        }
+      }
+      addToPath(path, added, removed, oldPosInc, options) {
+        const last = path.lastComponent;
+        if (last && !options.oneChangePerToken && last.added === added && last.removed === removed) {
+          return {
+            oldPos: path.oldPos + oldPosInc,
+            lastComponent: { count: last.count + 1, added, removed, previousComponent: last.previousComponent }
+          };
+        } else {
+          return {
+            oldPos: path.oldPos + oldPosInc,
+            lastComponent: { count: 1, added, removed, previousComponent: last }
+          };
+        }
+      }
+      extractCommon(basePath, newTokens, oldTokens, diagonalPath, options) {
+        const newLen = newTokens.length, oldLen = oldTokens.length;
+        let oldPos = basePath.oldPos, newPos = oldPos - diagonalPath, commonCount = 0;
+        while (newPos + 1 < newLen && oldPos + 1 < oldLen && this.equals(oldTokens[oldPos + 1], newTokens[newPos + 1], options)) {
+          newPos++;
+          oldPos++;
+          commonCount++;
+          if (options.oneChangePerToken) {
+            basePath.lastComponent = { count: 1, previousComponent: basePath.lastComponent, added: false, removed: false };
+          }
+        }
+        if (commonCount && !options.oneChangePerToken) {
+          basePath.lastComponent = { count: commonCount, previousComponent: basePath.lastComponent, added: false, removed: false };
+        }
+        basePath.oldPos = oldPos;
+        return newPos;
+      }
+      equals(left, right, options) {
+        if (options.comparator) {
+          return options.comparator(left, right);
+        } else {
+          return left === right || !!options.ignoreCase && left.toLowerCase() === right.toLowerCase();
+        }
+      }
+      removeEmpty(array) {
+        const ret = [];
+        for (let i = 0; i < array.length; i++) {
+          if (array[i]) {
+            ret.push(array[i]);
+          }
+        }
+        return ret;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      castInput(value, options) {
+        return value;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      tokenize(value, options) {
+        return Array.from(value);
+      }
+      join(chars) {
+        return chars.join("");
+      }
+      postProcess(changeObjects, options) {
+        return changeObjects;
+      }
+      get useLongestToken() {
+        return false;
+      }
+      buildValues(lastComponent, newTokens, oldTokens) {
+        const components = [];
+        let nextComponent;
+        while (lastComponent) {
+          components.push(lastComponent);
+          nextComponent = lastComponent.previousComponent;
+          delete lastComponent.previousComponent;
+          lastComponent = nextComponent;
+        }
+        components.reverse();
+        const componentLen = components.length;
+        let componentPos = 0, newPos = 0, oldPos = 0;
+        for (; componentPos < componentLen; componentPos++) {
+          const component = components[componentPos];
+          if (!component.removed) {
+            if (!component.added && this.useLongestToken) {
+              let value = newTokens.slice(newPos, newPos + component.count);
+              value = value.map(function(value2, i) {
+                const oldValue = oldTokens[oldPos + i];
+                return oldValue.length > value2.length ? oldValue : value2;
+              });
+              component.value = this.join(value);
+            } else {
+              component.value = this.join(newTokens.slice(newPos, newPos + component.count));
+            }
+            newPos += component.count;
+            if (!component.added) {
+              oldPos += component.count;
+            }
+          } else {
+            component.value = this.join(oldTokens.slice(oldPos, oldPos + component.count));
+            oldPos += component.count;
+          }
+        }
+        return components;
+      }
+    };
+  }
+});
+
+// node_modules/diff/libesm/diff/line.js
+function diffLines(oldStr, newStr, options) {
+  return lineDiff.diff(oldStr, newStr, options);
+}
+function tokenize(value, options) {
+  if (options.stripTrailingCr) {
+    value = value.replace(/\r\n/g, "\n");
+  }
+  const retLines = [], linesAndNewlines = value.split(/(\n|\r\n)/);
+  if (!linesAndNewlines[linesAndNewlines.length - 1]) {
+    linesAndNewlines.pop();
+  }
+  for (let i = 0; i < linesAndNewlines.length; i++) {
+    const line = linesAndNewlines[i];
+    if (i % 2 && !options.newlineIsToken) {
+      retLines[retLines.length - 1] += line;
+    } else {
+      retLines.push(line);
+    }
+  }
+  return retLines;
+}
+var LineDiff, lineDiff;
+var init_line = __esm({
+  "node_modules/diff/libesm/diff/line.js"() {
+    init_base();
+    LineDiff = class extends Diff {
+      constructor() {
+        super(...arguments);
+        this.tokenize = tokenize;
+      }
+      equals(left, right, options) {
+        if (options.ignoreWhitespace) {
+          if (!options.newlineIsToken || !left.includes("\n")) {
+            left = left.trim();
+          }
+          if (!options.newlineIsToken || !right.includes("\n")) {
+            right = right.trim();
+          }
+        } else if (options.ignoreNewlineAtEof && !options.newlineIsToken) {
+          if (left.endsWith("\n")) {
+            left = left.slice(0, -1);
+          }
+          if (right.endsWith("\n")) {
+            right = right.slice(0, -1);
+          }
+        }
+        return super.equals(left, right, options);
+      }
+    };
+    lineDiff = new LineDiff();
+  }
+});
+
+// node_modules/diff/libesm/index.js
+var init_libesm = __esm({
+  "node_modules/diff/libesm/index.js"() {
+    init_line();
+  }
+});
+
 // src/web/lib/diff-lines.ts
 function getLineDiff(oldStr, newStr) {
-  const oldLines = oldStr.split("\n");
-  const newLines = newStr.split("\n");
-  if (oldLines.length > LCS_LIMIT || newLines.length > LCS_LIMIT) {
-    return approximateLineDiff(oldLines, newLines);
-  }
-  const dp = Array(oldLines.length + 1).fill(0).map(() => Array(newLines.length + 1).fill(0));
-  for (let i = 1; i <= oldLines.length; i++) {
-    for (let j = 1; j <= newLines.length; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
+  let added = 0;
+  let removed = 0;
+  const chunks = diffLines(oldStr, newStr, { newlineIsToken: false });
+  for (const c of chunks) {
+    if (c.added) {
+      const lines = c.value.split("\n");
+      added += lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+    } else if (c.removed) {
+      const lines = c.value.split("\n");
+      removed += lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
     }
   }
-  const common2 = dp[oldLines.length][newLines.length];
-  return {
-    added: newLines.length - common2,
-    removed: oldLines.length - common2
-  };
+  return { added, removed };
 }
-function approximateLineDiff(oldLines, newLines) {
-  const countOld = /* @__PURE__ */ new Map();
-  for (const l of oldLines)
-    countOld.set(l, (countOld.get(l) || 0) + 1);
-  let common2 = 0;
-  for (const l of newLines) {
-    const c = countOld.get(l) || 0;
-    if (c > 0) {
-      common2++;
-      countOld.set(l, c - 1);
-    }
-  }
-  return {
-    added: newLines.length - common2,
-    removed: oldLines.length - common2
-  };
-}
-var LCS_LIMIT;
 var init_diff_lines = __esm({
   "src/web/lib/diff-lines.ts"() {
     "use strict";
-    LCS_LIMIT = 1500;
+    init_libesm();
   }
 });
 
@@ -87460,98 +87772,193 @@ var init_fix_all = __esm({
 });
 
 // src/web/lib/monaco/inline-diff.ts
-function buildLineDiffMarks(savedContent, currentContent) {
-  const a = savedContent.split("\n");
-  const b = currentContent.split("\n");
-  if (a.length > 2e3 || b.length > 2e3) {
-    return approximateDiff(a, b);
+function normalizeForCompare(s) {
+  let t = s.trim();
+  t = t.replace(/^-\s+/, "");
+  const hash = t.indexOf(" #");
+  if (hash >= 0)
+    t = t.slice(0, hash).trim();
+  return t;
+}
+function splitKeyValue(normalized) {
+  const colon = normalized.indexOf(":");
+  if (colon <= 0)
+    return { key: normalized, value: "" };
+  return {
+    key: normalized.slice(0, colon).trim(),
+    value: normalized.slice(colon + 1).trim()
+  };
+}
+function prefixSuffixSimilarity(a, b) {
+  if (a === b)
+    return 1;
+  if (!a || !b)
+    return 0;
+  const la = a.length;
+  const lb = b.length;
+  const maxLen = Math.max(la, lb);
+  const minLen = Math.min(la, lb);
+  let prefix = 0;
+  while (prefix < minLen && a.charCodeAt(prefix) === b.charCodeAt(prefix))
+    prefix++;
+  let suffix = 0;
+  while (suffix < minLen - prefix && a.charCodeAt(la - 1 - suffix) === b.charCodeAt(lb - 1 - suffix))
+    suffix++;
+  return (prefix + suffix) / maxLen;
+}
+function similarity(a, b) {
+  const na = normalizeForCompare(a);
+  const nb = normalizeForCompare(b);
+  if (na === nb)
+    return 1;
+  if (!na || !nb)
+    return 0;
+  const ka = splitKeyValue(na);
+  const kb = splitKeyValue(nb);
+  if (ka.value !== "" && kb.value !== "") {
+    if (ka.key !== kb.key)
+      return 0;
+    return prefixSuffixSimilarity(ka.value, kb.value);
   }
-  const dp = lcsMatrix(a, b);
-  const reversed = [];
-  let i = a.length;
-  let j = b.length;
-  while (i > 0 && j > 0) {
-    if (a[i - 1] === b[j - 1]) {
-      reversed.push({ kind: "same", bIdx: j - 1 });
-      i--;
-      j--;
-    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-      reversed.push({ kind: "del" });
-      i--;
-    } else {
-      reversed.push({ kind: "ins", bIdx: j - 1 });
-      j--;
-    }
+  if (ka.value === "" && kb.value === "") {
+    if (ka.key !== kb.key)
+      return 0;
+    return 1;
   }
-  while (i > 0) {
-    reversed.push({ kind: "del" });
-    i--;
-  }
-  while (j > 0) {
-    reversed.push({ kind: "ins", bIdx: j - 1 });
-    j--;
-  }
-  const steps = reversed.reverse();
+  return prefixSuffixSimilarity(na, nb);
+}
+function pairBlocks(blocks) {
   const added = [];
   const modified = [];
-  const unchanged = [];
-  let pendingDel = 0;
-  const pendingIns = [];
-  const flush = () => {
-    const pairs2 = Math.min(pendingDel, pendingIns.length);
-    for (let k = 0; k < pairs2; k++)
-      modified.push(pendingIns[k] + 1);
-    for (let k = pairs2; k < pendingIns.length; k++)
-      added.push(pendingIns[k] + 1);
-    pendingDel = 0;
-    pendingIns.length = 0;
+  const removed = [];
+  for (const block of blocks) {
+    const { removedLines, addedLines } = block;
+    const n = removedLines.length;
+    const m = addedLines.length;
+    if (n === 0) {
+      added.push(...addedLines);
+      continue;
+    }
+    if (m === 0) {
+      removed.push(...removedLines);
+      continue;
+    }
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      const sim = similarity(
+        block._removedTexts?.[i] ?? "",
+        block._addedTexts?.[j] ?? ""
+      );
+      if (sim >= SIMILARITY_THRESHOLD) {
+        modified.push(addedLines[j]);
+        i++;
+        j++;
+      } else {
+        const simNextRemoved = i + 1 < n ? similarity(
+          block._removedTexts?.[i + 1] ?? "",
+          block._addedTexts?.[j] ?? ""
+        ) : -1;
+        const simNextAdded = j + 1 < m ? similarity(
+          block._removedTexts?.[i] ?? "",
+          block._addedTexts?.[j + 1] ?? ""
+        ) : -1;
+        if (simNextRemoved >= SIMILARITY_THRESHOLD && simNextRemoved >= simNextAdded) {
+          removed.push(removedLines[i]);
+          i++;
+        } else if (simNextAdded >= SIMILARITY_THRESHOLD) {
+          added.push(addedLines[j]);
+          j++;
+        } else {
+          added.push(addedLines[j]);
+          j++;
+        }
+      }
+    }
+    while (i < n) {
+      removed.push(removedLines[i]);
+      i++;
+    }
+    while (j < m) {
+      added.push(addedLines[j]);
+      j++;
+    }
+  }
+  return { added, modified, removed };
+}
+function buildLineDiffMarks(savedContent, currentContent) {
+  if (savedContent === currentContent) {
+    const lines = savedContent.split("\n").length;
+    return {
+      added: [],
+      modified: [],
+      unchanged: Array.from({ length: lines }, (_, i) => i + 1)
+    };
+  }
+  const chunks = diffLines(savedContent, currentContent, {
+    newlineIsToken: false
+  });
+  const blocks = [];
+  let currentRemoved = [];
+  let currentAdded = [];
+  let currentRemovedTexts = [];
+  let currentAddedTexts = [];
+  let oldLine = 1;
+  let newLine = 1;
+  const flushBlock = () => {
+    if (currentRemoved.length === 0 && currentAdded.length === 0)
+      return;
+    blocks.push({
+      removedLines: currentRemoved,
+      addedLines: currentAdded,
+      _removedTexts: currentRemovedTexts,
+      _addedTexts: currentAddedTexts
+    });
+    currentRemoved = [];
+    currentAdded = [];
+    currentRemovedTexts = [];
+    currentAddedTexts = [];
   };
-  for (const s of steps) {
-    if (s.kind === "same") {
-      flush();
-      unchanged.push(s.bIdx + 1);
-    } else if (s.kind === "del") {
-      pendingDel++;
-    } else {
-      pendingIns.push(s.bIdx);
+  for (const chunk of chunks) {
+    const rawLines = chunk.value.split("\n");
+    const lines = rawLines[rawLines.length - 1] === "" ? rawLines.slice(0, -1) : rawLines;
+    if (!chunk.added && !chunk.removed) {
+      flushBlock();
+      oldLine += lines.length;
+      newLine += lines.length;
+      continue;
+    }
+    if (chunk.removed) {
+      if (currentAdded.length > 0)
+        flushBlock();
+      for (const line of lines) {
+        currentRemoved.push(oldLine++);
+        currentRemovedTexts.push(line);
+      }
+    } else if (chunk.added) {
+      for (const line of lines) {
+        currentAdded.push(newLine++);
+        currentAddedTexts.push(line);
+      }
     }
   }
-  flush();
-  return { added, modified, unchanged };
-}
-function approximateDiff(a, b) {
-  const aCount = /* @__PURE__ */ new Map();
-  for (const s of a)
-    aCount.set(s, (aCount.get(s) || 0) + 1);
+  flushBlock();
+  const paired = pairBlocks(blocks);
+  const modifiedOrAdded = /* @__PURE__ */ new Set([
+    ...paired.added,
+    ...paired.modified
+  ]);
+  const totalLines = currentContent.split("\n").length;
   const unchanged = [];
-  const modified = [];
-  for (let i = 0; i < b.length; i++) {
-    const c = aCount.get(b[i]) || 0;
-    if (c > 0) {
-      unchanged.push(i + 1);
-      aCount.set(b[i], c - 1);
-    } else {
-      modified.push(i + 1);
-    }
+  for (let i = 1; i <= totalLines; i++) {
+    if (!modifiedOrAdded.has(i))
+      unchanged.push(i);
   }
-  return { added: [], modified, unchanged };
-}
-function lcsMatrix(a, b) {
-  const m = a.length;
-  const n = b.length;
-  const dp = Array.from(
-    { length: m + 1 },
-    () => new Array(n + 1).fill(0)
-  );
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1])
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      else
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-  return dp;
+  return {
+    added: paired.added.sort((x, y) => x - y),
+    modified: paired.modified.sort((x, y) => x - y),
+    unchanged
+  };
 }
 function applyInlineDiffDecorations(editor, monaco, marks) {
   const decorations = [];
@@ -87559,8 +87966,9 @@ function applyInlineDiffDecorations(editor, monaco, marks) {
   if (!model)
     return () => {
     };
+  const lineCount = model.getLineCount();
   for (const line of marks.modified) {
-    if (line < 1 || line > model.getLineCount())
+    if (line < 1 || line > lineCount)
       continue;
     decorations.push({
       range: new monaco.Range(line, 1, line, 1),
@@ -87578,7 +87986,7 @@ function applyInlineDiffDecorations(editor, monaco, marks) {
     });
   }
   for (const line of marks.added) {
-    if (line < 1 || line > model.getLineCount())
+    if (line < 1 || line > lineCount)
       continue;
     decorations.push({
       range: new monaco.Range(line, 1, line, 1),
@@ -87598,9 +88006,12 @@ function applyInlineDiffDecorations(editor, monaco, marks) {
   const collection = editor.createDecorationsCollection(decorations);
   return () => collection.clear();
 }
+var SIMILARITY_THRESHOLD;
 var init_inline_diff = __esm({
   "src/web/lib/monaco/inline-diff.ts"() {
     "use strict";
+    init_libesm();
+    SIMILARITY_THRESHOLD = 0.4;
   }
 });
 
@@ -88340,10 +88751,29 @@ function YamlViewerModal() {
   const domainIssues = useMemo54(() => {
     if (!index || !effectiveDomainId)
       return [];
-    return index.lint.lintReport.issues.filter(
+    const raw = index.lint.lintReport.issues.filter(
       (i) => i.domainId === effectiveDomainId
     );
-  }, [index, effectiveDomainId]);
+    if (!lineMap || !idleContent)
+      return raw;
+    return raw.map((issue) => {
+      if (typeof issue.line === "number")
+        return issue;
+      if (issue.ruleId !== "view/filter-linked-entity-attribute-unknown" && !/linkedEntity\[/.test(String(issue.propertyPath || ""))) {
+        return issue;
+      }
+      const resolved = findLinkedEntityAttributeLine(
+        idleContent,
+        lineMap,
+        issue,
+        index,
+        effectiveDomainId
+      );
+      if (resolved == null)
+        return issue;
+      return { ...issue, __preResolvedLine: resolved };
+    });
+  }, [index, effectiveDomainId, lineMap, idleContent]);
   const counters = useMemo54(() => {
     if (!schema2)
       return null;
@@ -89334,6 +89764,14 @@ ${body}`;
             setCursorColumn(col);
           });
         }, 120);
+      });
+      editor.onMouseDown((e) => {
+        if (e.target.type === m.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && typeof e.target.position?.lineNumber === "number") {
+          const ln = e.target.position.lineNumber;
+          if (pinByLine.has(ln)) {
+            jumpTo(ln);
+          }
+        }
       });
       editor.onDidChangeCursorSelection((e) => {
         const sel = e.selection;
@@ -91051,19 +91489,36 @@ ${draftInfo.hint}` : "";
     document.addEventListener("dg:lint-fix-all", handler);
     return () => document.removeEventListener("dg:lint-fix-all", handler);
   }, [open, effectiveDomainId]);
+  const [diffMarks, setDiffMarks] = useState57(null);
   useEffect58(() => {
-    if (!editorCreated || !editorRef.current || !isDirty)
+    if (!isDirty || !checksEnabled) {
+      setDiffMarks(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      const saved = savedContentRef.current;
+      if (!saved)
+        return;
+      const marks = buildLineDiffMarks(saved, content);
+      setDiffMarks(marks);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [isDirty, savedContent, content, checksEnabled]);
+  useEffect58(() => {
+    if (!editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
     if (!m)
       return;
-    const saved = savedContentRef.current;
-    if (!saved)
-      return;
-    const marks = buildLineDiffMarks(saved, content);
-    const cleanup = applyInlineDiffDecorations(editorRef.current, m, marks);
-    return cleanup;
-  }, [editorCreated, isDirty, content, savedContent]);
+    if (!diffMarks) {
+      return applyInlineDiffDecorations(editorRef.current, m, {
+        added: [],
+        modified: [],
+        unchanged: []
+      });
+    }
+    return applyInlineDiffDecorations(editorRef.current, m, diffMarks);
+  }, [editorCreated, diffMarks]);
   useEffect58(() => {
     if (!open)
       return;
@@ -93422,7 +93877,10 @@ ${publishInfo.hint}` : "";
                           target: `line:${domainId}:${cursorLine}`,
                           domainId,
                           kind: "domain",
-                          label: `${domainId} :${cursorLine}`
+                          label: `${domainId} :${cursorLine}`,
+                          annotationsOverride: pinByLine.get(cursorLine) || [],
+                          onResolve: (id) => annotationsStore.update(id, { resolvedAt: Date.now() }),
+                          onDelete: (id) => annotationsStore.remove(id)
                         }
                       )
                     ] }) : /* @__PURE__ */ jsx84("span", { className: "yaml-viewer-breadcrumbs__item", children: "\u2014" }) }),
@@ -94690,7 +95148,7 @@ function ExternalRefsPanel({
                       onClick: () => toggleGroup(g.key),
                       title: isExpanded ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C",
                       children: [
-                        /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-chevron", children: isExpanded ? "\u25BE" : "\u25B8" }),
+                        /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-chevron" }),
                         g.labelIcon && /* @__PURE__ */ jsx84(
                           MIcon,
                           {
@@ -94714,8 +95172,7 @@ function ExternalRefsPanel({
                             title: isDomain ? `\u041E\u0442\u043A\u0440\u044B\u0442\u044C ${g.domain} \u043D\u0430 \u0433\u0440\u0430\u0444\u0435` : void 0,
                             children: g.label
                           }
-                        ),
-                        /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-count", children: g.sublabel || g.items.length })
+                        )
                       ]
                     }
                   ),
@@ -94752,7 +95209,8 @@ function ExternalRefsPanel({
                         )
                       }
                     )
-                  ] })
+                  ] }),
+                  /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-count", children: g.sublabel || g.items.length })
                 ] }),
                 isExpanded && /* @__PURE__ */ jsx84("div", { className: "yaml-issues__group-body", children: g.items.map((it, i) => {
                   const idx = startOffset + i;
@@ -95069,12 +95527,262 @@ function findNestedPathLine(lineMap, propertyPath) {
   }
   return line;
 }
-function findIssueLine(issue, lineMap) {
-  if (!lineMap)
+function extractLinkedEntityAttrName(issue) {
+  const msg = String(issue.message || "");
+  const m = msg.match(
+    /linkedEntity\.attribute\s+[«"']?([^\s«»"'#:]+)[»"']?/
+  );
+  if (m)
+    return m[1];
+  const aid = issue.attributeId;
+  if (typeof aid === "string" && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(aid)) {
+    return aid;
+  }
+  return null;
+}
+function extractLinkedEntityViewId(issue) {
+  const path = String(issue.propertyPath || "");
+  const fromPath = path.match(/views\[([^\]]+)\]/);
+  if (fromPath)
+    return fromPath[1];
+  const msg = String(issue.message || "");
+  const fromMsg = msg.match(/View\s+[«"']([^»"']+)[»"']/);
+  if (fromMsg)
+    return fromMsg[1];
+  return null;
+}
+function extractLinkedEntityTargetFqid(issue) {
+  const msg = String(issue.message || "");
+  const m = msg.match(/не\s+найден\s+в\s+[«"']([^»"']+)[»"']/);
+  return m ? m[1].toLowerCase() : null;
+}
+function findLinkageById(linkageId, currentDomainId, index) {
+  if (!index)
     return null;
+  const slash = linkageId.indexOf("/");
+  const domain = slash > 0 ? linkageId.slice(0, slash).toLowerCase() : currentDomainId.toLowerCase();
+  const id = slash > 0 ? linkageId.slice(slash + 1) : linkageId;
+  return index.entityLinkages.find(
+    (l) => l.domainId.toLowerCase() === domain && l.id === id
+  ) || null;
+}
+function resolveViewSourceFqid(viewId, index, currentDomainId) {
+  if (!index)
+    return null;
+  const schema2 = index.schemasByDomain[currentDomainId];
+  if (!schema2)
+    return null;
+  const view = (schema2.sections.views.items || []).find(
+    (v) => v.id === viewId
+  );
+  if (!view)
+    return null;
+  const src = view.sourceEntity || view.entity;
+  if (!src)
+    return null;
+  const s = String(src);
+  return s.includes("/") ? s.toLowerCase() : `${currentDomainId}/${s}`.toLowerCase();
+}
+function resolveLinkageTarget(linkage, sourceFqid) {
+  if (!linkage)
+    return null;
+  if (!sourceFqid)
+    return linkage.side2Fqid;
+  const src = sourceFqid.toLowerCase();
+  if (linkage.side1Fqid === src)
+    return linkage.side2Fqid;
+  if (linkage.side2Fqid === src)
+    return linkage.side1Fqid;
+  return linkage.side2Fqid;
+}
+function parseLinkedEntityUseBlocks(content, lineMap, viewId) {
+  const result = [];
+  const viewsSection = lineMap.sections.find((s) => s.key === "views");
+  if (!viewsSection)
+    return result;
+  const viewIdx = viewsSection.nodes.findIndex((n) => n.id === viewId);
+  if (viewIdx < 0)
+    return result;
+  const viewNode = viewsSection.nodes[viewIdx];
+  const nextNode = viewsSection.nodes[viewIdx + 1];
+  const startLine = viewNode.line;
+  const endLine = nextNode ? nextNode.line - 1 : viewsSection.line + viewsSection.linesCount - 1;
+  const lines = content.split("\n");
+  const lastLine = Math.min(endLine, lines.length);
+  let filterIdx = -1;
+  let filterIndent = -1;
+  for (let i = startLine - 1; i < lastLine; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const m = line.match(/^(\s*)(?:-\s+)?filter\s*:\s*(?:#.*)?$/);
+    if (m) {
+      filterIdx = i;
+      filterIndent = m[1].length;
+      break;
+    }
+  }
+  if (filterIdx < 0)
+    return result;
+  let linkagesIdx = -1;
+  let linkagesIndent = -1;
+  for (let i = filterIdx + 1; i < lastLine; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= filterIndent)
+      break;
+    const m = line.match(/^(\s*)(?:-\s+)?linkages\s*:\s*(?:#.*)?$/);
+    if (m) {
+      linkagesIdx = i;
+      linkagesIndent = m[1].length;
+      break;
+    }
+  }
+  if (linkagesIdx < 0)
+    return result;
+  let useIdx = -1;
+  let useIndent = -1;
+  for (let i = linkagesIdx + 1; i < lastLine; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= linkagesIndent)
+      break;
+    const m = line.match(/^(\s*)(?:-\s+)?use\s*:\s*(?:#.*)?$/);
+    if (m) {
+      useIdx = i;
+      useIndent = m[1].length;
+      break;
+    }
+  }
+  if (useIdx < 0)
+    return result;
+  let currentLinkageId = null;
+  let currentLinkageLine = -1;
+  let currentAttrs = [];
+  let inLinkedEntity = false;
+  let linkedEntityIndent = -1;
+  const flush = () => {
+    if (currentLinkageId) {
+      result.push({
+        linkageId: currentLinkageId,
+        linkageLine: currentLinkageLine,
+        attrs: currentAttrs
+      });
+    }
+    currentLinkageId = null;
+    currentLinkageLine = -1;
+    currentAttrs = [];
+    inLinkedEntity = false;
+    linkedEntityIndent = -1;
+  };
+  for (let i = useIdx + 1; i < lastLine; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= useIndent) {
+      flush();
+      break;
+    }
+    const useLinkageM = line.match(
+      /^(\s*)-\s+linkage\s*:\s*["']?([^\s"'#:]+)["']?/
+    );
+    if (useLinkageM) {
+      flush();
+      currentLinkageId = useLinkageM[2];
+      currentLinkageLine = i + 1;
+      continue;
+    }
+    if (!currentLinkageId)
+      continue;
+    const inlineM = line.match(
+      /^\s*(?:-\s+)?linkedEntity\s*:\s*\[([^\]]*)\]/
+    );
+    if (inlineM) {
+      const items = inlineM[1].split(",").map((s) => s.trim().replace(/^["']|["']$/g, ""));
+      for (const attr of items) {
+        currentAttrs.push({ attribute: attr, line: i + 1 });
+      }
+      continue;
+    }
+    const blockM = line.match(
+      /^(\s*)(?:-\s+)?linkedEntity\s*:\s*(?:#.*)?$/
+    );
+    if (blockM) {
+      inLinkedEntity = true;
+      linkedEntityIndent = blockM[1].length;
+      continue;
+    }
+    if (inLinkedEntity && ind > linkedEntityIndent) {
+      const attrM = line.match(
+        /^\s*-\s+attribute\s*:\s*["']?([^\s"'#:]+)["']?/
+      );
+      if (attrM) {
+        currentAttrs.push({ attribute: attrM[1], line: i + 1 });
+        continue;
+      }
+      const bareM = line.match(/^\s*-\s*["']?([^\s"'#\]]+)["']?\s*$/);
+      if (bareM) {
+        currentAttrs.push({ attribute: bareM[1], line: i + 1 });
+        continue;
+      }
+    }
+    if (inLinkedEntity && ind <= linkedEntityIndent) {
+      inLinkedEntity = false;
+      linkedEntityIndent = -1;
+    }
+  }
+  flush();
+  return result;
+}
+function findLinkedEntityAttributeLine(content, lineMap, issue, index, currentDomainId) {
+  const viewId = extractLinkedEntityViewId(issue);
+  const attrName = extractLinkedEntityAttrName(issue);
+  const targetFqid = extractLinkedEntityTargetFqid(issue);
+  if (!viewId || !attrName)
+    return null;
+  const useBlocks = parseLinkedEntityUseBlocks(content, lineMap, viewId);
+  if (useBlocks.length === 0)
+    return null;
+  const sourceFqid = resolveViewSourceFqid(viewId, index, currentDomainId);
+  if (targetFqid) {
+    for (const use of useBlocks) {
+      const linkage = findLinkageById(
+        use.linkageId,
+        currentDomainId,
+        index
+      );
+      const resolvedTarget = resolveLinkageTarget(linkage, sourceFqid);
+      if (!resolvedTarget)
+        continue;
+      if (resolvedTarget.toLowerCase() !== targetFqid)
+        continue;
+      const attr = use.attrs.find((a) => a.attribute === attrName);
+      if (attr)
+        return attr.line;
+    }
+  }
+  for (const use of useBlocks) {
+    const attr = use.attrs.find((a) => a.attribute === attrName);
+    if (attr)
+      return attr.line;
+  }
+  return null;
+}
+function findIssueLine(issue, lineMap) {
+  if (typeof issue.__preResolvedLine === "number" && issue.__preResolvedLine > 0) {
+    return issue.__preResolvedLine;
+  }
   if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0) {
     return issue.line;
   }
+  if (!lineMap)
+    return null;
   if (issue.propertyPath) {
     const path = issue.propertyPath;
     const entityMatch = path.match(/entities\[([^\]]+)\]/);
@@ -95200,9 +95908,8 @@ function IssuesGroup({
           onClick: onToggle,
           title: expanded ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C",
           children: [
-            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-chevron", children: expanded ? "\u25BE" : "\u25B8" }),
-            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-label", children: title }),
-            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-count", children: items.length })
+            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-chevron" }),
+            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-label", children: title })
           ]
         }
       ),
@@ -95253,7 +95960,8 @@ function IssuesGroup({
             children: /* @__PURE__ */ jsx84(MIcon, { name: "open_in_new", size: "sm" })
           }
         )
-      ] })
+      ] }),
+      /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-count", children: items.length })
     ] }),
     expanded && items.map((issue, i) => {
       const line = findIssueLine(issue, lineMap);
@@ -97607,7 +98315,7 @@ var init_YamlViewerModal = __esm({
                           className: "yaml-issues__group-toggle",
                           onClick: () => toggleGroup(g.key),
                           children: [
-                            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-chevron", children: isExpanded ? "\u25BE" : "\u25B8" }),
+                            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-chevron" }),
                             g.color && /* @__PURE__ */ jsx84(
                               "span",
                               {
@@ -97615,8 +98323,7 @@ var init_YamlViewerModal = __esm({
                                 style: { background: g.color }
                               }
                             ),
-                            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-label", children: g.label }),
-                            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-count", children: g.sublabel || g.items.length })
+                            /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-label", children: g.label })
                           ]
                         }
                       ),
@@ -97635,7 +98342,8 @@ var init_YamlViewerModal = __esm({
                             }
                           )
                         }
-                      ) })
+                      ) }),
+                      /* @__PURE__ */ jsx84("span", { className: "yaml-issues__group-count", children: g.sublabel || g.items.length })
                     ] }),
                     isExpanded && /* @__PURE__ */ jsx84("div", { className: "yaml-issues__group-body", children: g.items.map((it, i) => {
                       const bl = it.backlink;
@@ -111009,9 +111717,9 @@ function AutoRecommendationsCard({ index }) {
     grouped.get(sev).push(r);
   }
   const severityMeta2 = {
-    error: { label: "\u{1F534} \u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E", icon: "error", cls: "error" },
-    warning: { label: "\u{1F7E1} \u0412\u0430\u0436\u043D\u043E", icon: "warning", cls: "warning" },
-    info: { label: "\u{1F7E2} \u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438", icon: "info", cls: "info" }
+    error: { label: "\u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E", icon: "error", cls: "error" },
+    warning: { label: "\u0412\u0430\u0436\u043D\u043E", icon: "warning", cls: "warning" },
+    info: { label: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438", icon: "info", cls: "info" }
   };
   return /* @__PURE__ */ jsxs87("div", { className: "auto-recommendations", children: [
     /* @__PURE__ */ jsxs87("div", { className: "auto-recommendations__title", children: [
@@ -111028,10 +111736,14 @@ function AutoRecommendationsCard({ index }) {
         cls: "info"
       };
       return /* @__PURE__ */ jsxs87("div", { className: "auto-recommendations__group", children: [
-        /* @__PURE__ */ jsxs87("div", { className: "auto-recommendations__group-title", children: [
+        /* @__PURE__ */ jsxs87("div", { className: `auto-recommendations__group-title auto-recommendations__group__sev--${meta.cls}`, children: [
           /* @__PURE__ */ jsx90(MIcon, { name: meta.icon, size: "sm" }),
-          /* @__PURE__ */ jsx90("span", { children: meta.label }),
-          /* @__PURE__ */ jsx90("span", { className: "auto-recommendations__group-count", children: items.length })
+          /* @__PURE__ */ jsx90("span", { style: { margin: "0 4px" }, children: meta.label }),
+          /* @__PURE__ */ jsxs87("span", { className: "auto-recommendations__group-count", children: [
+            "(",
+            items.length,
+            ")"
+          ] })
         ] }),
         items.slice(0, 4).map((r) => /* @__PURE__ */ jsxs87(
           "button",

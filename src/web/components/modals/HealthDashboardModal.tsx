@@ -2328,9 +2328,9 @@ function AutoRecommendationsCard({ index }: { index: ModelIndex }) {
         string,
         { label: string; icon: string; cls: string }
     > = {
-        error: { label: "🔴 Критично", icon: "error", cls: "error" },
-        warning: { label: "🟡 Важно", icon: "warning", cls: "warning" },
-        info: { label: "🟢 Рекомендации", icon: "info", cls: "info" },
+        error: { label: "Критично", icon: "error", cls: "error" },
+        warning: { label: "Важно", icon: "warning", cls: "warning" },
+        info: { label: "Рекомендации", icon: "info", cls: "info" },
     };
 
     return (
@@ -2349,11 +2349,11 @@ function AutoRecommendationsCard({ index }: { index: ModelIndex }) {
                 };
                 return (
                     <div key={sev} className="auto-recommendations__group">
-                        <div className="auto-recommendations__group-title">
+                        <div className={`auto-recommendations__group-title auto-recommendations__group__sev--${meta.cls}`}>
                             <MIcon name={meta.icon} size="sm" />
-                            <span>{meta.label}</span>
+                            <span style={{margin: '0 4px'}}>{meta.label}</span>
                             <span className="auto-recommendations__group-count">
-                                {items.length}
+                                ({items.length})
                             </span>
                         </div>
                         {items.slice(0, 4).map((r) => (

@@ -9,7 +9,7 @@
   "bin": {
     "domna": "./dist/index.js"
   },
-   "files": [
+  "files": [
     "dist/",
     "USER_GUIDE.md",
     "README.md"
@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@types/dagre": "^0.7.54",
+    "@types/diff": "^8.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",

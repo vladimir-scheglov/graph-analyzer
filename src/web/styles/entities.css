@@ -4398,7 +4398,7 @@ tr.highlighted .entity-matrix-row-head {
   border-color: transparent transparent transparent currentColor;
   transition: transform 0.2s;
 }
-.yaml-issues__group[open] > summary .yaml-issues__group-chevron::before {
+.yaml-issues__group.open .yaml-issues__group-chevron::before {
   transform: rotate(90deg);
 }
 .yaml-issues__group-title:hover .yaml-issues__group-chevron {

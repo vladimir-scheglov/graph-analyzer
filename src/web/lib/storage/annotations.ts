@@ -57,11 +57,6 @@ export const annotationsStore = {
     return all.sort((a, b) => b.createdAt - a.createdAt);
   },
 
-  async listForTarget(target: string): Promise<Annotation[]> {
-    const all = await this.list();
-    return all.filter((a) => a.target === target && !a.resolvedAt);
-  },
-
   async byDomain(): Promise<Map<string, Annotation[]>> {
     const all = await this.list();
     const m = new Map<string, Annotation[]>();
@@ -105,4 +100,46 @@ export const annotationsStore = {
     await idbDelete(STORE, id);
     notify();
   },
+
+  async listForTarget(target: string): Promise<Annotation[]> {
+    const all = await this.list();
+    return all.filter((a) => a.target === target && !a.resolvedAt);
+  },
+
+  /** NEW: все незакрытые заметки для строки N (любой target с этим N). */
+  async listForLine(line: number): Promise<Annotation[]> {
+    const all = await this.list();
+    return all.filter(matchLineTarget(line));
+  },
+
+  /** NEW: удалить заметку полностью (не только resolvedAt). */
+  async remove(id: string): Promise<void> {
+    await idbDelete("annotations", id);
+    notify();
+  },
 };
+
+/**
+ * Матчит заметки для строки N в текущем файле/домене.
+ *
+ * Принимает любой target вида `line:*:N` — старый формат с filePath,
+ * новый с domainId, любой промежуточный. Единственный критерий —
+ * оканчивается на `:N` и начинается с `line:`.
+ */
+export function matchLineTarget(
+  line: number,
+): (a: Annotation) => boolean {
+  return (a) => {
+    if (a.resolvedAt) return false;
+    if (!a.target.startsWith("line:")) return false;
+    const m = a.target.match(/:(\d+)$/);
+    if (!m) return false;
+    return parseInt(m[1], 10) === line;
+  };
+}
+
+export function matchExactTarget(
+  target: string,
+): (a: Annotation) => boolean {
+  return (a) => !a.resolvedAt && a.target === target;
+}

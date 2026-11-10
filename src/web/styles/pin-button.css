@@ -67,6 +67,7 @@
 .pin-button__note {
   display: flex;
   align-items: flex-start;
+   justify-content: space-between;
   gap: 6px;
   padding: 6px 8px;
   border-radius: 5px;
@@ -94,8 +95,49 @@
   transition: color 0.15s;
 }
 
+.pin-button__note-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.pin-button__note-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.pin-button__note-actions button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-400);
+  transition: background 0.15s, color 0.15s;
+}
+
+.pin-button__note-actions button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-100);
+}
+
+.pin-button__note-delete:hover {
+  color: var(--danger);
+}
+
+
 .pin-button__note button:hover {
   color: var(--success, #10b981);
+}
+
+.pin-button__empty {
+  padding: 6px 8px;
+  color: var(--text-500);
+  font-size: 11px;
+  font-style: italic;
 }
 
 .pin-button__note--yellow { border-left-color: #f59e0b; }
