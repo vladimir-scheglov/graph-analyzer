@@ -10,6 +10,7 @@ import { scanRqlInText } from "./rql-check";
 import type {
   DomainSchemaAllViewItem,
   EntityLinkage,
+  EntityRecord,
   ViewElementRef,
 } from "../../../shared/model-types";
 import { SYSTEM_ATTRIBUTE_IDS } from "../../../core/analyzer/linter";
@@ -21,6 +22,7 @@ import {
 import {
   buildAttributeHoverMarkdown,
   buildEntityHoverMarkdown,
+  buildLinkageHoverMarkdown,
 } from "./hover-impact";
 import { classifyQuickFix } from "./quickfix-rules";
 
@@ -34,26 +36,84 @@ import { classifyQuickFix } from "./quickfix-rules";
  */
 export const KNOWN_VALUE_FIELDS: ReadonlySet<string> = new Set([
   // сущность
-  "inherits", "kind",
+  "inherits",
+  "kind",
   // связи
-  "side1", "side2", "entity",
+  "side1",
+  "side2",
+  "entity",
   // actions
-  "operation", "page", "target", "effect", "scenario", "attribute",
+  "operation",
+  "page",
+  "target",
+  "effect",
+  "scenario",
+  "attribute",
   // views
-  "modal", "panel", "view", "form", "tab", "list", "page",
-  "addLinksView", "fromView", "widget", "group", "column", "action",
-  "menuItem", "linkageAttribute", "preset",
+  "modal",
+  "panel",
+  "view",
+  "form",
+  "tab",
+  "list",
+  "page",
+  "addLinksView",
+  "fromView",
+  "widget",
+  "group",
+  "column",
+  "action",
+  "menuItem",
+  "linkageAttribute",
+  "preset",
   // dataTypes
-  "dataType", "initial", "from", "to", "direction", "mode", "placement",
-  "iconColor", "iconName",
+  "dataType",
+  "initial",
+  "from",
+  "to",
+  "direction",
+  "mode",
+  "placement",
+  "iconColor",
+  "iconName",
   // общее
-  "linkage", "block", "tree", "sequence", "counterColorPattern",
-  "segment", "type", "constraint",
+  "linkage",
+  "block",
+  "tree",
+  "sequence",
+  "counterColorPattern",
+  "segment",
+  "type",
+  "constraint",
   // boolean-поля
-  "readonly", "hidden", "searchable", "useForSearch", "undirected",
-  "enable", "enabled", "expandable", "scanTarget", "scanTargetGroup",
-  "isMixin", "useForChild", "createZeroRecord", "contextPin", "ordering",
-  "selection", "autodownload", "includeLinkToScenario",
+  "readonly",
+  "hidden",
+  "searchable",
+  "useForSearch",
+  "undirected",
+  "enable",
+  "enabled",
+  "expandable",
+  "scanTarget",
+  "scanTargetGroup",
+  "isMixin",
+  "useForChild",
+  "createZeroRecord",
+  "contextPin",
+  "ordering",
+  "selection",
+  "autodownload",
+  "includeLinkToScenario",
+  // exchangeSettings
+  "forExport",
+  "upsertWith",
+  "ignoreAttributes",
+  "exportSystemAttributes",
+  "Date",
+  "Time",
+  "Timestamp",
+  "TimestampRange",
+  "displayMode",
 ]);
 
 const SORT = {
@@ -505,6 +565,72 @@ interface AttributeCompletionContext {
 }
 
 /**
+ * Возвращает значение `type:` у action-блока, в котором находится
+ * строка `currentLineNumber` (1-based).
+ *
+ * Алгоритм:
+ *   1. Walk-up: найти ближайший `- <key>:` с indent < indent текущей строки.
+ *      Это стартовая строка action-блока. Если её нет — null
+ *      (или текущая строка вне actions[]).
+ *   2. Walk-down: искать `type:` до:
+ *        - следующего `- <key>:` с indent <= actionIndent (новый action),
+ *        - строки с indent === 0 (вышли из секции actions).
+ *   3. Если `type:` не найден — null.
+ *
+ * Работает через `model.getLineContent(i)`, без `getValue()`.
+ * На больших файлах — O(depth + длина блока), константа по размеру файла.
+ */
+function findActionTypeForModel(
+  model: any,
+  currentLineNumber: number,
+): string | null {
+  const lineCount = model.getLineCount();
+  if (currentLineNumber < 1 || currentLineNumber > lineCount) return null;
+
+  const currentLine = model.getLineContent(currentLineNumber);
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+
+  // ── 1. Walk-up: старт action-блока ──
+  let actionStart = -1;
+  let actionIndent = -1;
+  for (let i = currentLineNumber - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+
+    const m = line.match(/^(\s*)-\s+[a-zA-Z_][\w]*\s*:/);
+    if (m && m[1].length < currentIndent) {
+      actionStart = i;
+      actionIndent = m[1].length;
+      break;
+    }
+
+    // Вышли на top-level ключ, не встретив `- <key>:` → мы не в actions[]
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0 && !m) return null;
+  }
+  if (actionStart < 0) return null;
+
+  // ── 2. Walk-down: искать `type:` в пределах блока ──
+  for (let i = actionStart + 1; i <= lineCount; i++) {
+    const line = model.getLineContent(i);
+    if (!line || !line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+    // Следующий action — блок закончился
+    if (/^\s*-\s+[a-zA-Z_][\w]*\s*:/.test(line) && ind <= actionIndent) {
+      break;
+    }
+    // Вышли из секции actions
+    if (ind === 0) break;
+
+    const tm = line.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+    if (tm) return tm[1];
+  }
+
+  return null;
+}
+
+/**
  * Возвращает текущее значение `type:` у action-блока, в котором находится
  * строка `currentLineIdx` (1-based). Не важно, где именно `type:` —
  * выше или ниже `operation:`/`page:`.
@@ -937,6 +1063,7 @@ const BOOLEAN_FIELD_NAMES = new Set<string>([
   "selection",
   "autodownload",
   "includeLinkToScenario",
+  "noCmsSync",
 ]);
 
 // ============ Хелперы для value-completion ============
@@ -1470,37 +1597,315 @@ function getCachedValueContext(model: any, position: any): ValueCtx {
   return ctx;
 }
 
-function detectValueContext(model: any, position: any): ValueCtx {
-  // Единственная точка, где обращаемся к Monaco-модели.
-  // Дальше по стеку — только `lines: string[]`.
-  const lines = model.getValue().split("\n");
-  const lineText = lines[position.lineNumber - 1] || "";
-  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+interface TreeChildrenContext {
+  parentEntityFqid: string | null;
+  currentLinkageRef: string | null;
+  currentDomain: string;
+}
 
-  // ── section: walk-up до indent 0 ──
-  let section = "";
+function detectTreeChildrenContext(
+  model: any,
+  position: any,
+  currentDomain: string,
+  index: ModelIndex | null,
+): TreeChildrenContext | null {
+  if (!index) return null;
+
+  // 1. Секция trees?
+  let sectionName = "";
   for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const pl = lines[i - 1];
-    if (!pl || !pl.trim()) continue;
-    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-    if (pIndent === 0) {
-      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) sectionName = m[1];
+      break;
+    }
+  }
+  if (sectionName !== "trees") return null;
+
+  // 2. Наш dash-line (`- linkage:`, `- entity:` или `- ` — новый элемент)
+  const currentLine = model.getLineContent(position.lineNumber);
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+
+  let dashLine = -1;
+  let dashIndent = -1;
+  const currentDashM = currentLine.match(/^(\s*)-\s+\S?/);
+  if (currentDashM) {
+    dashLine = position.lineNumber;
+    dashIndent = currentDashM[1].length;
+  } else {
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const line = model.getLineContent(i);
+      if (!line.trim() || line.trim().startsWith("#")) continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind < currentIndent) {
+        const m = line.match(/^(\s*)-\s+\S/);
+        if (m) {
+          dashLine = i;
+          dashIndent = m[1].length;
+        }
+        break;
+      }
+    }
+  }
+  if (dashLine < 0) return null;
+
+  // 3. Убеждаемся, что мы внутри children[] (а не в верхнем hierarchy.entity)
+  let hierarchyIndent = -1;
+  for (let i = dashLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) break;
+    const hm = line.match(/^(\s*)hierarchy\s*:\s*$/);
+    if (hm) {
+      hierarchyIndent = hm[1].length;
+      break;
+    }
+  }
+  if (hierarchyIndent < 0) return null;
+  if (dashIndent < hierarchyIndent + 4) return null;
+
+  // 4. Parent entity — на уровне dashIndent - 2
+  let parentEntityId: string | null = null;
+  const targetIndent = dashIndent - 2;
+  for (let i = dashLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < targetIndent) break;
+    if (ind === targetIndent) {
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
       if (m) {
-        section = m[1];
+        parentEntityId = m[1].replace(/["']/g, "");
         break;
       }
     }
   }
 
-  // ── container ──
-  const dc = determineViewContainer(lines, position.lineNumber, currentIndent);
+  // 5. Текущий linkage — sibling в нашем `- ` блоке
+  let currentLinkageRef: string | null = null;
+  let blockEnd = model.getLineCount() + 1;
+  for (let i = dashLine + 1; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < dashIndent) {
+      blockEnd = i;
+      break;
+    }
+    const dm = line.match(/^(\s*)-\s+\S/);
+    if (dm && dm[1].length === dashIndent) {
+      blockEnd = i;
+      break;
+    }
+  }
+  for (let i = dashLine; i < blockEnd; i++) {
+    const line = model.getLineContent(i);
+    const m = line.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
+    if (m) {
+      currentLinkageRef = m[1].replace(/["']/g, "");
+      break;
+    }
+  }
 
-  // ── stack предков ──
+  return {
+    parentEntityFqid: parentEntityId
+      ? `${currentDomain}/${parentEntityId}`.toLowerCase()
+      : null,
+    currentLinkageRef,
+    currentDomain,
+  };
+}
+
+function relationOf(
+  entityFqid: string,
+  linkSideFqid: string,
+  index: ModelIndex,
+): "same" | "ancestor" | "descendant" | null {
+  if (!entityFqid || !linkSideFqid) return null;
+  const eL = entityFqid.toLowerCase();
+  const lL = linkSideFqid.toLowerCase();
+  if (eL === lL) return "same";
+
+  // linkSide — предок entity (entity наследует от linkSide)
+  let cur: string | undefined = eL;
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const e = index.entitiesByFqid[cur];
+    if (!e || !e.inherits) break;
+    if (e.inherits.toLowerCase() === lL) return "ancestor";
+    cur = e.inherits.toLowerCase();
+  }
+
+  // entity — предок linkSide
+  cur = lL;
+  const seen2 = new Set<string>();
+  while (cur && !seen2.has(cur)) {
+    seen2.add(cur);
+    const e = index.entitiesByFqid[cur];
+    if (!e || !e.inherits) break;
+    if (e.inherits.toLowerCase() === eL) return "descendant";
+    cur = e.inherits.toLowerCase();
+  }
+
+  return null;
+}
+
+function buildTreeLinkageCandidates(
+  parentFqid: string | null,
+  currentDomain: string,
+  Kind: any,
+): RefSuggestion[] {
+  const index = ctx.modelIndex;
+  if (!index) return [];
+
+  interface C {
+    l: any;
+    score: number;
+    detail: string;
+  }
+  const candidates: C[] = [];
+
+  for (const l of index.entityLinkages) {
+    if ((l.domainId || "").toLowerCase() !== currentDomain) continue;
+
+    const side1Rel = parentFqid
+      ? relationOf(parentFqid, l.side1Fqid, index)
+      : null;
+    const side2Rel = parentFqid
+      ? relationOf(parentFqid, l.side2Fqid, index)
+      : null;
+    const isSymmetric = l.side1Fqid === l.side2Fqid;
+    const isUndirected = l.type === "n_n" && l.undirected === true;
+    const peer = l.side2Fqid.split("/").pop() || l.side2Fqid;
+
+    let score = 10;
+    let detail = `${l.type}`;
+
+    if (l.type === "1_n") {
+      if (side1Rel === "same") {
+        score = 1000;
+        detail = `1_n · parent → ${peer}`;
+      } else if (side1Rel === "ancestor") {
+        score = 900;
+        detail = `1_n · parent наследует side1 · → ${peer}`;
+      } else if (side2Rel === "same") {
+        score = 300;
+        detail = `1_n · inverted (parent на стороне many)`;
+      } else {
+        score = 100;
+        detail = `1_n · не связан с parent`;
+      }
+    } else if (l.type === "n_n") {
+      if (isUndirected) {
+        score = 100;
+        detail = `n_n undirected`;
+      } else if (side1Rel === "same" || side2Rel === "same") {
+        score = 500;
+        detail = `n_n · ${l.side1Fqid.split("/").pop()} ↔ ${l.side2Fqid.split("/").pop()}`;
+      } else {
+        score = 200;
+        detail = `n_n · не связан с parent`;
+      }
+    } else if (l.type === "1_1") {
+      score = 30;
+      detail = `1_1 · не подходит для иерархии`;
+    } else {
+      detail = `${l.type}`;
+    }
+
+    candidates.push({ l, score, detail });
+  }
+
+  candidates.sort((a, b) =>
+    b.score !== a.score ? b.score - a.score : a.l.id.localeCompare(b.l.id),
+  );
+
+  return candidates.map(({ l, score, detail }) => ({
+    label: l.id,
+    insertText: " " + l.id,
+    kind: Kind.Reference,
+    sortText: (2000 - score).toString().padStart(4, "0") + "_" + l.id,
+    detail,
+    documentation: `${l.type} · ${l.side1Fqid} → ${l.side2Fqid}`,
+  }));
+}
+
+function buildTreeEntityCandidates(
+  treeCtx: TreeChildrenContext,
+  Kind: any,
+): RefSuggestion[] {
+  const index = ctx.modelIndex;
+  if (!index) return [];
+  const cur = treeCtx.currentDomain;
+
+  // Разрешаем target из linkage + parent
+  let targetFqid: string | null = null;
+  if (treeCtx.parentEntityFqid && treeCtx.currentLinkageRef) {
+    targetFqid = resolveLinkageTargetEntityFqid(
+      treeCtx.currentLinkageRef,
+      treeCtx.parentEntityFqid,
+      cur,
+      index,
+    );
+  }
+
+  const seen = new Set<string>();
+  const items: RefSuggestion[] = [];
+
+  const push = (e: any, score: number, detail: string) => {
+    if (!e || seen.has(e.entityId)) return;
+    seen.add(e.entityId);
+    items.push({
+      label: e.entityId,
+      insertText: " " + e.entityId,
+      kind: Kind.Class,
+      sortText: (2000 - score).toString().padStart(4, "0") + "_" + e.entityId,
+      detail,
+      documentation: e.description || undefined,
+    });
+  };
+
+  if (targetFqid) {
+    const target = index.entitiesByFqid[targetFqid];
+    if (target) push(target, 1000, `target of ${treeCtx.currentLinkageRef}`);
+
+    // Descendants target-entity
+    const walkDesc = (fqid: string, depth: number) => {
+      const ds = index.entityChildrenByFqid[fqid] || [];
+      for (const df of ds) {
+        const d = index.entitiesByFqid[df];
+        if (d) push(d, 900 - depth * 20, `descendant (${depth + 1})`);
+        walkDesc(df, depth + 1);
+      }
+    };
+    walkDesc(targetFqid, 0);
+  }
+
+  // Все сущности домена — fallback в самом низу
+  for (const e of index.entities) {
+    if ((e.domainId || "").toLowerCase() !== cur) continue;
+    push(e, 100, "entity");
+  }
+
+  return items;
+}
+
+function detectValueContext(model: any, position: any): ValueCtx {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  const dc = determineViewContainer(model, position.lineNumber, currentIndent);
+
   const stack: Array<{ indent: number; key: string }> = [];
   if (dc.containerLine >= 0) {
     let boundary = dc.containerIndent;
     for (let i = dc.containerLine - 1; i >= 1; i--) {
-      const pl = lines[i - 1];
+      const pl = model.getLineContent(i);
       if (!pl || !pl.trim() || pl.trim().startsWith("#")) continue;
       const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
       if (pIndent >= boundary) continue;
@@ -1518,8 +1923,22 @@ function detectValueContext(model: any, position: any): ValueCtx {
     }
   }
 
+  let section = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl || !pl.trim()) continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === 0) {
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        section = m[1];
+        break;
+      }
+    }
+  }
+
   const itemType = computeItemTypeFast(
-    lines,
+    model,
     section,
     dc.container,
     dc.containerLine,
@@ -1531,12 +1950,12 @@ function detectValueContext(model: any, position: any): ValueCtx {
 }
 
 function determineViewContainer(
-  lines: string[],
+  model: any,
   currentLineIdx: number, // 1-based
   currentIndent: number,
 ): { container: string; containerLine: number; containerIndent: number } {
   for (let i = currentLineIdx - 1; i >= 1; i--) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim() || l.trim().startsWith("#")) continue;
     const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
     if (lIndent >= currentIndent) continue;
@@ -1554,7 +1973,7 @@ function determineViewContainer(
 
       let valueIndent = -1;
       for (let j = i + 1; j < currentLineIdx; j++) {
-        const nl = lines[j - 1];
+        const nl = model.getLineContent(j);
         if (!nl || !nl.trim() || nl.trim().startsWith("#")) continue;
         const nInd = (nl.match(/^(\s*)/) || ["", ""])[1].length;
         if (nInd > lIndent) {
@@ -1571,7 +1990,7 @@ function determineViewContainer(
 }
 
 function computeItemTypeFast(
-  lines: string[],
+  model: any,
   section: string,
   container: string,
   containerLine: number,
@@ -1646,7 +2065,7 @@ function computeItemTypeFast(
       }
       if (ancestors.has("columns")) return "viewTableColumnControl";
       if (ancestors.has("widgets")) {
-        const widgetType = findWidgetTypeForControl(lines, containerLine);
+        const widgetType = findWidgetTypeForControl(model, containerLine);
         if (widgetType === "action") return "viewWidgetActionControl";
         if (widgetType === "linkage") return "viewWidgetLinkageControl";
         if (widgetType === "linked_objects_groups") {
@@ -1661,7 +2080,7 @@ function computeItemTypeFast(
       let itemLine = -1;
       let itemIndent = -1;
       for (let i = containerLine - 1; i >= 1; i--) {
-        const l = lines[i - 1];
+        const l = model.getLineContent(i);
         if (!l || !l.trim() || l.trim().startsWith("#")) continue;
         const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
         if (ind >= containerIndent) continue;
@@ -1675,7 +2094,7 @@ function computeItemTypeFast(
       }
       if (itemLine !== -1) {
         for (let i = itemLine + 1; i < containerLine; i++) {
-          const l = lines[i - 1];
+          const l = model.getLineContent(i);
           if (!l || !l.trim()) continue;
           const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
           if (ind <= itemIndent) break;
@@ -1692,7 +2111,7 @@ function computeItemTypeFast(
     if (container === "views") {
       let isNested = false;
       for (let i = containerLine - 1; i >= 1; i--) {
-        const l = lines[i - 1];
+        const l = model.getLineContent(i);
         if (!l || !l.trim() || l.trim().startsWith("#")) continue;
         const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
         if (lIndent >= containerIndent) continue;
@@ -1729,7 +2148,7 @@ function computeItemTypeFast(
   if (section === "actions") {
     if (container === "attributes") {
       return isInsideBulkSettings(
-        (n) => lines[n - 1] || "",
+        (n) => model.getLineContent(n) || "",
         containerLine,
         containerIndent,
       )
@@ -1738,7 +2157,7 @@ function computeItemTypeFast(
     }
     if (container === "linkages") {
       return isInsideBulkSettings(
-        (n) => lines[n - 1] || "",
+        (n) => model.getLineContent(n) || "",
         containerLine,
         containerIndent,
       )
@@ -1782,12 +2201,9 @@ function computeItemTypeFast(
   return "";
 }
 
-function findWidgetTypeForControl(
-  lines: string[],
-  controlLine: number,
-): string {
-  if (controlLine < 1 || controlLine > lines.length) return "";
-  const controlText = lines[controlLine - 1];
+function findWidgetTypeForControl(model: any, controlLine: number): string {
+  if (controlLine < 1 || controlLine > model.getLineCount()) return "";
+  const controlText = model.getLineContent(controlLine);
   if (!controlText) return "";
 
   const controlIndent = (controlText.match(/^(\s*)/) || ["", ""])[1].length;
@@ -1800,7 +2216,7 @@ function findWidgetTypeForControl(
   let blockStart = controlLine;
   if (!isControlOpener) {
     for (let i = controlLine - 1; i >= 1; i--) {
-      const l = lines[i - 1];
+      const l = model.getLineContent(i);
       if (!l || !l.trim() || l.trim().startsWith("#")) continue;
       const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
       const m = l.match(/^(\s*)-\s+\S/);
@@ -1812,10 +2228,10 @@ function findWidgetTypeForControl(
     }
   }
 
-  const lineCount = lines.length;
+  const lineCount = model.getLineCount();
   let blockEnd = lineCount + 1;
   for (let i = blockStart + 1; i <= lineCount; i++) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim()) continue;
     const m = l.match(/^(\s*)-\s+\S/);
     if (m && m[1].length <= widgetItemIndent) {
@@ -1826,7 +2242,7 @@ function findWidgetTypeForControl(
 
   let blockScalarIndent = -1;
   for (let i = blockStart; i < blockEnd; i++) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim()) continue;
     const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
 
@@ -9818,6 +10234,47 @@ function buildRqlSuggestions(
   return out;
 }
 
+function buildListValueCompletion(
+  model: any,
+  position: any,
+  fieldNames: string[],
+  values: RefSuggestion[],
+  Kind: any,
+): { suggestions: any[] } | null {
+  const beforeCursor = model
+    .getLineContent(position.lineNumber)
+    .slice(0, position.column - 1);
+  const fieldAlt = fieldNames
+    .map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  if (
+    !new RegExp(`^\\s*(?:-\\s+)?(?:${fieldAlt})\\s*:\\s*["']?`).test(
+      beforeCursor,
+    )
+  ) {
+    return null;
+  }
+  const wordAtPos = model.getWordUntilPosition(position);
+  const range = {
+    startLineNumber: position.lineNumber,
+    startColumn: wordAtPos.startColumn,
+    endLineNumber: position.lineNumber,
+    endColumn: wordAtPos.endColumn,
+  };
+  return {
+    suggestions: values.map((v) => ({
+      label: v.label,
+      kind: v.kind ?? Kind.Value,
+      insertText: v.insertText.replace(/^ /, ""), // без ведущего пробела
+      filterText: v.label,
+      sortText: v.sortText,
+      detail: v.detail,
+      documentation: mdDoc(v.documentation),
+      range,
+    })),
+  };
+}
+
 export function registerMonacoProviders(monaco: any): void {
   if (providersRegistered) return;
   providersRegistered = true;
@@ -9879,6 +10336,27 @@ export function registerMonacoProviders(monaco: any): void {
           endLineNumber: position.lineNumber,
           endColumn: lineText.length + 1,
         });
+
+        // ========== linkage — до entity/dataType, потому что id linkage
+        // может совпасть с id entity (case-insensitive) ==========
+        if (hit.field === "linkage") {
+          const targetDomain =
+            hit.domainPrefix || (ctx.currentDomainId || "").toLowerCase();
+          const linkage = (ctx.modelIndex?.entityLinkages || []).find(
+            (l) =>
+              (l.domainId || "").toLowerCase() === targetDomain &&
+              l.id.toLowerCase() === hit.value.toLowerCase(),
+          );
+          if (linkage) {
+            return {
+              range: buildRange(),
+              contents: [
+                { value: buildLinkageHoverMarkdown(linkage, ctx.modelIndex!) },
+              ],
+            };
+          }
+          return null; // linkage не найдена — не падать в entity-hover
+        }
 
         // ========== dataType — превью типа данных ==========
         if (hit.type === "ref-datatype") {
@@ -10320,7 +10798,8 @@ export function registerMonacoProviders(monaco: any): void {
 
         // === 1. Проверяем, value ли это (`field: value`) ===
         const fieldMatch = beforeCursor.match(
-          /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/,
+          /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[^"'\n]*["']?$/,
+          // /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/,
         );
 
         // === 2. Если НЕ value — field-name / root / snippets ===
@@ -10384,6 +10863,48 @@ export function registerMonacoProviders(monaco: any): void {
             };
           }
 
+          // === exchangeSettings.entities → <EntityId>: (ключ = id сущности домена) ===
+          // `entities:` — карта, а не массив. Пока пользователь не набрал `:`,
+          // подсказываем id сущностей текущего домена.
+          {
+            const path = findContainerPath(model, position);
+            if (
+              path.length === 2 &&
+              path[0] === "exchangeSettings" &&
+              path[1] === "entities"
+            ) {
+              const cur = (ctx.currentDomainId || "").toLowerCase();
+              const seen = new Set<string>();
+              const suggestions: any[] = [];
+              const wordAtPos = model.getWordUntilPosition(position);
+              const range = {
+                startLineNumber: position.lineNumber,
+                startColumn: wordAtPos.startColumn,
+                endLineNumber: position.lineNumber,
+                endColumn: wordAtPos.endColumn,
+              };
+              ctx.modelIndex?.entities?.forEach((e: any) => {
+                if ((e.domainId || "").toLowerCase() !== cur) return;
+                if (seen.has(e.entityId)) return;
+                seen.add(e.entityId);
+                const parts: string[] = [];
+                if (e.name && e.name !== e.entityId) parts.push(e.name);
+                parts.push(`${e.attributes.length} атр.`);
+                suggestions.push({
+                  label: e.entityId,
+                  kind: Kind.Class,
+                  insertText: e.entityId + ":",
+                  filterText: e.entityId,
+                  sortText: "0_" + e.entityId,
+                  detail: parts.join(" · "),
+                  documentation: mdDoc(e.description),
+                  range,
+                });
+              });
+              if (suggestions.length > 0) return { suggestions };
+            }
+          }
+
           const context = detectContextAtPosition(
             model,
             position,
@@ -10428,12 +10949,22 @@ export function registerMonacoProviders(monaco: any): void {
               suggestions.push(buildFieldSuggestion(monaco, f, range)),
             );
           }
-          return suggestions.length > 0 ? { suggestions } : null; 
+          return suggestions.length > 0 ? { suggestions } : null;
         }
 
         // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
-        // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
         const fieldName = fieldMatch[2];
+
+        // Guard: value-completion поддерживается только для полей из KNOWN_VALUE_FIELDS
+        // и BOOLEAN_FIELD_NAMES. Для `name:`, `description:`, `label:` и прочих
+        // свободных полей сразу выходим — не запускаем O(N) разбор контекста.
+        if (
+          !BOOLEAN_FIELD_NAMES.has(fieldName) &&
+          !KNOWN_VALUE_FIELDS.has(fieldName)
+        ) {
+          return null;
+        }
+
         const vctxRaw = getCachedValueContext(model, position);
         const pathItemType = computeItemTypeFromPath(model, position);
 
@@ -10455,17 +10986,15 @@ export function registerMonacoProviders(monaco: any): void {
         const r = buildValueCompletion; // сокращение
         // ============ Boolean-поля: только true / false ============
         if (BOOLEAN_FIELD_NAMES.has(fieldName)) {
-          return (
-            r(
-              model,
-              position,
-              [fieldName],
-              mkSimple(["true", "false"], Kind.Value, {
-                true: "логическое true",
-                false: "логическое false",
-              }),
-              Kind,
-            ) 
+          return r(
+            model,
+            position,
+            [fieldName],
+            mkSimple(["true", "false"], Kind.Value, {
+              true: "логическое true",
+              false: "логическое false",
+            }),
+            Kind,
           );
         }
 
@@ -10515,39 +11044,35 @@ export function registerMonacoProviders(monaco: any): void {
               "Play",
               "Pause",
             ]);
-            return (
-              r(
-                model,
-                position,
-                ["iconName"],
-                COMMON_ICON_NAMES.map(([name, desc]) => ({
-                  label: name,
-                  insertText: " " + name,
-                  kind: Kind.Value,
-                  sortText: (POPULAR.has(name) ? "0_" : "1_") + name,
-                  documentation: desc,
-                })),
-                Kind,
-              ) 
+            return r(
+              model,
+              position,
+              ["iconName"],
+              COMMON_ICON_NAMES.map(([name, desc]) => ({
+                label: name,
+                insertText: " " + name,
+                kind: Kind.Value,
+                sortText: (POPULAR.has(name) ? "0_" : "1_") + name,
+                documentation: desc,
+              })),
+              Kind,
             );
           }
           case "initial": {
             if (vctx.section !== "dataTypes") return null;
             const statuses = getDataTypeStatuses(model, position);
             if (statuses.length === 0) return null;
-            return (
-              r(
-                model,
-                position,
-                ["initial"],
-                mkSimple(statuses, Kind.EnumMember, {
-                  ...statuses.reduce(
-                    (acc, s) => ({ ...acc, [s]: `Статус workflow` }),
-                    {},
-                  ),
-                }),
-                Kind,
-              ) 
+            return r(
+              model,
+              position,
+              ["initial"],
+              mkSimple(statuses, Kind.EnumMember, {
+                ...statuses.reduce(
+                  (acc, s) => ({ ...acc, [s]: `Статус workflow` }),
+                  {},
+                ),
+              }),
+              Kind,
             );
           }
           case "from":
@@ -10557,51 +11082,44 @@ export function registerMonacoProviders(monaco: any): void {
             if (vctx.container !== "transitions") return null;
             const statuses = getDataTypeStatuses(model, position);
             const items = ["*", ...statuses];
-            return (
-              r(
-                model,
-                position,
-                ["from", "to"],
-                mkSimple(items, Kind.Value, {
-                  "*": "Любой статус",
-                }),
-                Kind,
-              )
+            return r(
+              model,
+              position,
+              ["from", "to"],
+              mkSimple(items, Kind.Value, {
+                "*": "Любой статус",
+              }),
+              Kind,
             );
           }
           // ---------- dataType ----------
           case "dataType": {
             // NEW: drag_drop_area.context.dataType
             if (vctx.itemType === "viewWidgetDragDropContext") {
-              return (
-                r(
-                  model,
-                  position,
-                  ["dataType"],
-                  mkSimple(["Array", "Attachment", "Table"], Kind.Value, {
-                    Array: "Массив вложений",
-                    Attachment: "Одно вложение",
-                    Table: "Таблица вложений",
-                  }),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["dataType"],
+                mkSimple(["Array", "Attachment", "Table"], Kind.Value, {
+                  Array: "Массив вложений",
+                  Attachment: "Одно вложение",
+                  Table: "Таблица вложений",
+                }),
+                Kind,
               );
             }
 
             if (vctx.section === "dataTypes" && vctx.itemType === "dataType") {
-              return (
-                r(
-                  model,
-                  position,
-                  ["dataType"],
-                  mkSimple(["Enum", "Table", "Workflow"], Kind.Value, {
-                    Enum: "Перечисление — фиксированный список значений",
-                    Table:
-                      "Таблица — структурированные данные (строки/колонки)",
-                    Workflow: "Рабочий процесс — статусы и переходы",
-                  }),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["dataType"],
+                mkSimple(["Enum", "Table", "Workflow"], Kind.Value, {
+                  Enum: "Перечисление — фиксированный список значений",
+                  Table: "Таблица — структурированные данные (строки/колонки)",
+                  Workflow: "Рабочий процесс — статусы и переходы",
+                }),
+                Kind,
               );
             }
             const base: RefSuggestion[] = BASE_DATA_TYPES_COMPLETION.map(
@@ -10865,51 +11383,44 @@ export function registerMonacoProviders(monaco: any): void {
                 )
               : null;
           case "placement":
-            return (
-              r(
-                model,
-                position,
-                ["placement"],
-                mkSimple(["top", "settings"], Kind.Value, {
-                  top: "Главное меню",
-                  settings: "Раздел Настройки",
-                }),
-                Kind,
-              )
+            return r(
+              model,
+              position,
+              ["placement"],
+              mkSimple(["top", "settings"], Kind.Value, {
+                top: "Главное меню",
+                settings: "Раздел Настройки",
+              }),
+              Kind,
             );
           case "defaultViewMode": {
-            return (
-              r(
-                model,
-                position,
-                ["defaultViewMode"],
-                mkSimple(["cola", "horizontal", "vertical"], Kind.Value, {
-                  cola: "Центральное упорядочивание",
-                  horizontal: "Горизонтально",
-                  vertical: "Вертикально",
-                }),
-                Kind,
-              )
+            return r(
+              model,
+              position,
+              ["defaultViewMode"],
+              mkSimple(["cola", "horizontal", "vertical"], Kind.Value, {
+                cola: "Центральное упорядочивание",
+                horizontal: "Горизонтально",
+                vertical: "Вертикально",
+              }),
+              Kind,
             );
           }
           case "defaultGroupMode": {
-            return (
-              r(
-                model,
-                position,
-                ["defaultGroupMode"],
-                mkSimple(["cluster", "byEntity"], Kind.Value, {
-                  cluster: "Кластерная группировка",
-                  byEntity: "Группировка по сущности",
-                }),
-                Kind,
-              )
+            return r(
+              model,
+              position,
+              ["defaultGroupMode"],
+              mkSimple(["cluster", "byEntity"], Kind.Value, {
+                cluster: "Кластерная группировка",
+                byEntity: "Группировка по сущности",
+              }),
+              Kind,
             );
           }
           case "operation": {
-            const allLines = model.getLinesContent() as string[];
-            const actionType = findActionTypeForLine(
-              allLines,
+            const actionType = findActionTypeForModel(
+              model,
               position.lineNumber,
             );
             const opMap: Record<string, string[]> = {
@@ -10938,40 +11449,35 @@ export function registerMonacoProviders(monaco: any): void {
               : null;
           }
           case "page": {
-            const allLines = model.getLinesContent() as string[];
-            const actionType = findActionTypeForLine(
-              allLines,
+            const actionType = findActionTypeForModel(
+              model,
               position.lineNumber,
             );
             const allowed = ["open_list", "open_tree", "open_view"];
             if (actionType && allowed.includes(actionType)) {
-              return (
-                r(
-                  model,
-                  position,
-                  ["page"],
-                  mkSimple(["blank", "current"], Kind.Value, {
-                    blank: "Отобразить в отдельном окне",
-                    current: "Отобразить в текущем окне",
-                  }),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["page"],
+                mkSimple(["blank", "current"], Kind.Value, {
+                  blank: "Отобразить в отдельном окне",
+                  current: "Отобразить в текущем окне",
+                }),
+                Kind,
               );
             }
             return null;
           }
           case "side": {
-            return (
-              r(
-                model,
-                position,
-                ["side"],
-                mkSimple(["1", "2"], Kind.Value, {
-                  "1": "Первая сторона",
-                  "2": "Вторая сторона",
-                }),
-                Kind,
-              )
+            return r(
+              model,
+              position,
+              ["side"],
+              mkSimple(["1", "2"], Kind.Value, {
+                "1": "Первая сторона",
+                "2": "Вторая сторона",
+              }),
+              Kind,
             );
           }
 
@@ -10981,33 +11487,48 @@ export function registerMonacoProviders(monaco: any): void {
               vctx.container === "graphView" ||
               (vctx.section === "linkages" && vctx.container === "view")
             ) {
-              return (
-                r(
-                  model,
-                  position,
-                  ["iconColor"],
-                  mkSimple(
-                    GRAPH_VIEW_COLORS.map(([c]) => c),
-                    Kind.EnumMember,
-                    GRAPH_VIEW_COLOR_LABELS,
-                  ),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["iconColor"],
+                mkSimple(
+                  GRAPH_VIEW_COLORS.map(([c]) => c),
+                  Kind.EnumMember,
+                  GRAPH_VIEW_COLOR_LABELS,
+                ),
+                Kind,
               );
             }
             return null;
           }
-          case "inherits":
           case "entity":
+          case "inherits":
           case "side1":
           case "side2": {
-            // В nameFrom поля side1/side2 — свободный текст, не ссылки на сущности.
-            // Отдаём пустой список, чтобы не подсказывать «не то».
             if (
               (fieldName === "side1" || fieldName === "side2") &&
               vctx.container === "nameFrom"
             ) {
               return null;
+            }
+
+            // Trees children — контекстная подсказка entity
+            if (fieldName === "entity") {
+              const treeCtx = detectTreeChildrenContext(
+                model,
+                position,
+                cur,
+                ctx.modelIndex,
+              );
+              if (treeCtx) {
+                return r(
+                  model,
+                  position,
+                  ["entity"],
+                  buildTreeEntityCandidates(treeCtx, Kind),
+                  Kind,
+                );
+              }
             }
 
             const refs = collectRefsForField(
@@ -11017,167 +11538,172 @@ export function registerMonacoProviders(monaco: any): void {
                 shortKind: Kind.Class,
               },
             );
-            return (
-              r(
-                model,
-                position,
-                ["inherits", "entity", "side1", "side2"],
-                refs,
-                Kind,
-              ) 
+            return r(
+              model,
+              position,
+              ["inherits", "entity", "side1", "side2"],
+              refs,
+              Kind,
             );
           }
 
           // ---------- простые ref-поля ----------
-          case "linkage":
-            return (
-              r(
+          case "linkage": {
+            // Trees (уже есть)
+            const treeCtx = detectTreeChildrenContext(
+              model,
+              position,
+              cur,
+              ctx.modelIndex,
+            );
+            if (treeCtx) {
+              return r(
                 model,
                 position,
                 ["linkage"],
-                collectRefsForField(cachedLinkages(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
+                buildTreeLinkageCandidates(treeCtx.parentEntityFqid, cur, Kind),
                 Kind,
-              ) 
+              );
+            }
+            // Transitive (новое)
+            const transCtx = detectTransitiveJoinContext(
+              model,
+              position,
+              cur,
+              ctx.modelIndex,
             );
-          case "widget":
-            return (
-              r(
+            if (transCtx) {
+              return r(
                 model,
                 position,
-                ["widget"],
-                collectRefsForField(cachedWidgets(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              )
-            );
-          case "group":
-            return (
-              r(
-                model,
-                position,
-                ["group"],
-                collectRefsForField(cachedGroups(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              )
-            );
-          case "column":
-            return (
-              r(
-                model,
-                position,
-                ["column"],
-                collectRefsForField(cachedColumns(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              )
-            );
-          case "action":
-            return (
-              r(
-                model,
-                position,
-                ["action"],
-                collectRefsForField(cachedActions(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              )
-            );
-          case "sequence":
-            return (
-              r(
-                model,
-                position,
-                ["sequence"],
-                collectRefsForField(cachedSequences(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              )
-            );
-          case "counterColorPattern":
-            return (
-              r(
-                model,
-                position,
-                ["counterColorPattern"],
-                collectRefsForField(
-                  cachedCounterColors(),
-                  ctx.currentDomainId,
-                  {
-                    shortKind: Kind.Reference,
-                  },
+                ["linkage"],
+                buildTransitiveLinkageCandidates(
+                  transCtx.parentEntityFqid,
+                  cur,
+                  Kind,
                 ),
                 Kind,
-              )
+              );
+            }
+            return r(
+              model,
+              position,
+              ["linkage"],
+              collectRefsForField(cachedLinkages(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
+            );
+          }
+          case "widget":
+            return r(
+              model,
+              position,
+              ["widget"],
+              collectRefsForField(cachedWidgets(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
+            );
+          case "group":
+            return r(
+              model,
+              position,
+              ["group"],
+              collectRefsForField(cachedGroups(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
+            );
+          case "column":
+            return r(
+              model,
+              position,
+              ["column"],
+              collectRefsForField(cachedColumns(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
+            );
+          case "action":
+            return r(
+              model,
+              position,
+              ["action"],
+              collectRefsForField(cachedActions(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
+            );
+          case "sequence":
+            return r(
+              model,
+              position,
+              ["sequence"],
+              collectRefsForField(cachedSequences(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
+            );
+          case "counterColorPattern":
+            return r(
+              model,
+              position,
+              ["counterColorPattern"],
+              collectRefsForField(cachedCounterColors(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
             );
           case "menuItem":
-            return (
-              r(
-                model,
-                position,
-                ["menuItem"],
-                collectRefsForField(cachedMenus(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              ) 
+            return r(
+              model,
+              position,
+              ["menuItem"],
+              collectRefsForField(cachedMenus(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
             );
           case "preset":
-            return (
-              r(
-                model,
-                position,
-                ["preset"],
-                collectRefsForField(cachedUiPresets(), ctx.currentDomainId, {
-                  shortKind: Kind.EnumMember,
-                }),
-                Kind,
-              ) 
+            return r(
+              model,
+              position,
+              ["preset"],
+              collectRefsForField(cachedUiPresets(), ctx.currentDomainId, {
+                shortKind: Kind.EnumMember,
+              }),
+              Kind,
             );
 
           case "segment": {
             // segment — массив литералов (можно с @, можно без).
             // Monaco в YAML-режиме в массив-элементах выдаёт value-suggestions через
             // тот же механизм, что и для `- attr:`.
-            return (
-              r(
-                model,
-                position,
-                ["segment"],
-                mkSimple(
-                  ["@prefix", "@YYYY", "@YY", "@MM", "@DD"],
-                  Kind.Value,
-                  {
-                    "@prefix":
-                      "Настраиваемый префикс (правила подстановки или defaultPrefix)",
-                    "@YYYY": "Текущий год, 4 цифры",
-                    "@YY": "Текущий год, 2 цифры",
-                    "@MM": "Текущий месяц, 01–12",
-                    "@DD": "Текущий день месяца, 01–31",
-                  },
-                ),
-                Kind,
-              )
+            return r(
+              model,
+              position,
+              ["segment"],
+              mkSimple(["@prefix", "@YYYY", "@YY", "@MM", "@DD"], Kind.Value, {
+                "@prefix":
+                  "Настраиваемый префикс (правила подстановки или defaultPrefix)",
+                "@YYYY": "Текущий год, 4 цифры",
+                "@YY": "Текущий год, 2 цифры",
+                "@MM": "Текущий месяц, 01–12",
+                "@DD": "Текущий день месяца, 01–31",
+              }),
+              Kind,
             );
           }
           case "tree":
-            return (
-              r(
-                model,
-                position,
-                ["tree"],
-                collectRefsForField(cachedTrees(), ctx.currentDomainId, {
-                  shortKind: Kind.Reference,
-                }),
-                Kind,
-              ) 
+            return r(
+              model,
+              position,
+              ["tree"],
+              collectRefsForField(cachedTrees(), ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              }),
+              Kind,
             );
 
           // ---------- attribute / scenario ----------
@@ -11207,9 +11733,7 @@ export function registerMonacoProviders(monaco: any): void {
               shortKind: Kind.Reference,
               typeFilter: "modal",
             });
-            return (
-              r(model, position, ["modal"], refs, Kind)
-            );
+            return r(model, position, ["modal"], refs, Kind);
           }
           case "panel": {
             const views = cachedViews();
@@ -11217,9 +11741,7 @@ export function registerMonacoProviders(monaco: any): void {
               shortKind: Kind.Reference,
               typeFilter: "panel",
             });
-            return (
-              r(model, position, ["panel"], refs, Kind)
-            );
+            return r(model, position, ["panel"], refs, Kind);
           }
           case "addLinksView": {
             const views = cachedViews().filter(
@@ -11239,9 +11761,7 @@ export function registerMonacoProviders(monaco: any): void {
             const refs = collectRefsForField(groups, ctx.currentDomainId, {
               shortKind: Kind.Reference,
             });
-            return (
-              r(model, position, ["form"], refs, Kind)
-            );
+            return r(model, position, ["form"], refs, Kind);
           }
           case "view": {
             let items = cachedViews();
@@ -11263,74 +11783,66 @@ export function registerMonacoProviders(monaco: any): void {
             const refs = collectRefsForField(items, ctx.currentDomainId, {
               shortKind: Kind.Reference,
             });
-            return (
-              r(model, position, ["view"], refs, Kind)
-            );
+            return r(model, position, ["view"], refs, Kind);
           }
           case "kind": {
             if (vctx.container === "constraints") {
-              return (
-                r(
-                  model,
-                  position,
-                  ["kind"],
-                  mkSimple(
-                    [
-                      "required",
-                      "range",
-                      "length",
-                      "regexp",
-                      "size",
-                      "mime_types",
-                      "unique",
-                    ],
-                    Kind.Value,
-                    {
-                      required: "Значение не должно быть пустым",
-                      range: "Число в диапазоне min..max",
-                      length: "Длина строки от min до max",
-                      regexp: "Строка соответствует регулярному выражению",
-                      size: "Размер файла от min до max",
-                      mime_types: "Допустимые MIME-типы вложения",
-                      unique:
-                        "Уникальное значение (String/Integer/Uuid/Reference/Array/Table)",
-                    },
-                  ),
-                  Kind,
-                ) 
+              return r(
+                model,
+                position,
+                ["kind"],
+                mkSimple(
+                  [
+                    "required",
+                    "range",
+                    "length",
+                    "regexp",
+                    "size",
+                    "mime_types",
+                    "unique",
+                  ],
+                  Kind.Value,
+                  {
+                    required: "Значение не должно быть пустым",
+                    range: "Число в диапазоне min..max",
+                    length: "Длина строки от min до max",
+                    regexp: "Строка соответствует регулярному выражению",
+                    size: "Размер файла от min до max",
+                    mime_types: "Допустимые MIME-типы вложения",
+                    unique:
+                      "Уникальное значение (String/Integer/Uuid/Reference/Array/Table)",
+                  },
+                ),
+                Kind,
               );
             }
             // NEW: entities[].kind
             if (vctx.section === "entities" && vctx.itemType === "entity") {
-              return (
-                r(
-                  model,
-                  position,
-                  ["kind"],
-                  mkSimple(["abstract", "regular", "static"], Kind.Value, {
-                    abstract: "Абстрактная сущность (только наследование)",
-                    regular: "Стандартная сущность (по умолчанию)",
-                    static: "Статическая сущность (без создания экземпляров)",
-                  }),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["kind"],
+                mkSimple(["abstract", "regular", "static"], Kind.Value, {
+                  abstract: "Абстрактная сущность (только наследование)",
+                  regular: "Стандартная сущность (по умолчанию)",
+                  static: "Статическая сущность (без создания экземпляров)",
+                }),
+                Kind,
               );
             }
 
             // NEW: accessRules scope item
             if (vctx.itemType === "accessRuleItem") {
-              return (
-                r(
-                  model,
-                  position,
-                  ["kind"],
-                  mkSimple(["permission", "pass", "condition"], Kind.Value, {
-                    permission: "Разрешить всё для обработки (с исключениями)",
-                    pass: "Пропустить всё для обработки (с исключениями)",
-                    condition: "Разрешить обработку при выполнении RQL-условия",
-                  }),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["kind"],
+                mkSimple(["permission", "pass", "condition"], Kind.Value, {
+                  permission: "Разрешить всё для обработки (с исключениями)",
+                  pass: "Пропустить всё для обработки (с исключениями)",
+                  condition: "Разрешить обработку при выполнении RQL-условия",
+                }),
+                Kind,
               );
             }
 
@@ -11338,18 +11850,16 @@ export function registerMonacoProviders(monaco: any): void {
           }
           case "displayMode": {
             if (vctx.section === "views" && vctx.container === "control") {
-              return (
-                r(
-                  model,
-                  position,
-                  ["displayMode"],
-                  mkSimple(["flat", "grouped"], Kind.Value, {
-                    flat: "Плоская таблица (для транзитивных связей)",
-                    grouped:
-                      "Группировка по первому звену цепочки (для транзитивных связей)",
-                  }),
-                  Kind,
-                )
+              return r(
+                model,
+                position,
+                ["displayMode"],
+                mkSimple(["flat", "grouped"], Kind.Value, {
+                  flat: "Плоская таблица (для транзитивных связей)",
+                  grouped:
+                    "Группировка по первому звену цепочки (для транзитивных связей)",
+                }),
+                Kind,
               );
             }
             return null;
@@ -11391,6 +11901,265 @@ export function registerMonacoProviders(monaco: any): void {
               }
             );
           }
+
+          case "forExport": {
+            const path = findContainerPath(model, position);
+            if (
+              path.length !== 3 ||
+              path[0] !== "exchangeSettings" ||
+              path[1] !== "entities"
+            ) {
+              return null;
+            }
+            const entityId = path[2];
+            const cur = (ctx.currentDomainId || "").toLowerCase();
+            const entity =
+              ctx.modelIndex?.entitiesByFqid[
+                `${cur}/${entityId}`.toLowerCase()
+              ];
+            if (!entity) return null;
+
+            const seen = new Set<string>();
+            const items: RefSuggestion[] = [];
+
+            // Системные атрибуты (per docs — label по умолчанию)
+            for (const sys of [
+              "label",
+              "id",
+              "createdAt",
+              "updatedAt",
+              "createdBy",
+              "updatedBy",
+              "organizationId",
+              "tenantId",
+              "version",
+            ]) {
+              if (seen.has(sys)) continue;
+              seen.add(sys);
+              items.push({
+                label: sys,
+                insertText: " " + sys,
+                kind: Kind.Field,
+                sortText: "0_" + sys,
+                detail: "системный",
+              });
+            }
+
+            // Атрибуты через цепочку наследования
+            let curEntity: any = entity;
+            const visited = new Set<string>();
+            while (curEntity && !visited.has(curEntity.fqid)) {
+              visited.add(curEntity.fqid);
+              for (const a of curEntity.attributes) {
+                if (seen.has(a.id)) continue;
+                seen.add(a.id);
+                items.push({
+                  label: a.id,
+                  insertText: " " + a.id,
+                  kind: Kind.Field,
+                  sortText: "1_" + a.id,
+                  detail: `${a.dataType} · ${curEntity.entityId}`,
+                  documentation: a.description || undefined,
+                });
+              }
+              curEntity = curEntity.inherits
+                ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits]
+                : undefined;
+            }
+
+            return r(model, position, ["forExport"], items, Kind);
+          }
+
+          case "upsertWith":
+          case "ignoreAttributes": {
+            const path = findContainerPath(model, position);
+            if (
+              path.length !== 3 ||
+              path[0] !== "exchangeSettings" ||
+              path[1] !== "entities"
+            ) {
+              return null;
+            }
+            const entityId = path[2];
+            const cur = (ctx.currentDomainId || "").toLowerCase();
+            const entityFqid = `${cur}/${entityId}`.toLowerCase();
+            const entity = ctx.modelIndex?.entitiesByFqid[entityFqid];
+            if (!entity) return null;
+
+            const seen = new Set<string>();
+            const items: RefSuggestion[] = [];
+
+            // Атрибуты (унаследованные тоже)
+            let curEntity: any = entity;
+            const visited = new Set<string>();
+            while (curEntity && !visited.has(curEntity.fqid)) {
+              visited.add(curEntity.fqid);
+              for (const a of curEntity.attributes) {
+                if (seen.has(a.id)) continue;
+                seen.add(a.id);
+                items.push({
+                  label: a.id,
+                  insertText: a.id,
+                  kind: Kind.Field,
+                  sortText: "0_" + a.id,
+                  detail: `${a.dataType} · ${curEntity.entityId}`,
+                });
+              }
+              curEntity = curEntity.inherits
+                ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits]
+                : undefined;
+            }
+
+            // Связи сущности
+            for (const l of ctx.modelIndex?.entityLinkages || []) {
+              if (
+                (l.side1Fqid === entityFqid || l.side2Fqid === entityFqid) &&
+                !seen.has(l.id)
+              ) {
+                seen.add(l.id);
+                items.push({
+                  label: l.id,
+                  insertText: l.id,
+                  kind: Kind.Reference,
+                  sortText: "2_" + l.id,
+                  detail: `связь · ${l.type}`,
+                });
+              }
+            }
+
+            // Системные
+            for (const sys of [
+              "id",
+              "label",
+              "createdAt",
+              "updatedAt",
+              "createdBy",
+              "updatedBy",
+              "organizationId",
+              "tenantId",
+              "version",
+            ]) {
+              if (seen.has(sys)) continue;
+              seen.add(sys);
+              items.push({
+                label: sys,
+                insertText: sys,
+                kind: Kind.Field,
+                sortText: "3_" + sys,
+                detail: "системный",
+              });
+            }
+
+            return buildListValueCompletion(
+              model,
+              position,
+              ["upsertWith", "ignoreAttributes"],
+              items,
+              Kind,
+            );
+          }
+
+          case "exportSystemAttributes": {
+            const path = findContainerPath(model, position);
+            if (
+              path.length !== 3 ||
+              path[0] !== "exchangeSettings" ||
+              path[1] !== "entities"
+            ) {
+              return null;
+            }
+            const items: RefSuggestion[] = [
+              {
+                label: "all",
+                insertText: "all",
+                kind: Kind.Value,
+                sortText: "0_all",
+                documentation: "Экспортировать все системные атрибуты",
+              },
+            ];
+            for (const sys of [
+              "id",
+              "label",
+              "createdAt",
+              "updatedAt",
+              "createdBy",
+              "updatedBy",
+              "organizationId",
+              "tenantId",
+              "domainId",
+              "entityId",
+              "entityName",
+              "version",
+            ]) {
+              items.push({
+                label: sys,
+                insertText: sys,
+                kind: Kind.Field,
+                sortText: "1_" + sys,
+                detail: "системный",
+              });
+            }
+            return buildListValueCompletion(
+              model,
+              position,
+              ["exportSystemAttributes"],
+              items,
+              Kind,
+            );
+          }
+
+          case "Date":
+          case "Time":
+          case "Timestamp":
+          case "TimestampRange": {
+            const path = findContainerPath(model, position);
+            if (
+              path.length !== 2 ||
+              path[0] !== "exchangeSettings" ||
+              path[1] !== "attributeFormats"
+            ) {
+              return null;
+            }
+
+            const DATE_FORMATS = [
+              ["DD-MM-YYYY", "День-Месяц-Год (RU)"],
+              ["YYYY-MM-DD", "Год-Месяц-День (ISO)"],
+              ["DD/MM/YYYY", "День/Месяц/Год"],
+              ["MM/DD/YYYY", "Месяц/День/Год (US)"],
+              ["DD.MM.YYYY", "День.Месяц.Год"],
+            ];
+            const TIME_FORMATS = [
+              ["HH:mm:ss", "Время 24ч с секундами"],
+              ["HH:mm", "Время 24ч"],
+              ["hh:mm A", "Время 12ч (AM/PM)"],
+            ];
+            const TS_FORMATS = [
+              ["DD-MM-YYYYTHH:mm:ss", "Дата-время с T"],
+              ["DD-MM-YYYY HH:mm:ss", "Дата-время с пробелом"],
+              ["YYYY-MM-DDTHH:mm:ssZ", "ISO 8601 с таймзоной"],
+              ["DD.MM.YYYY HH:mm:ss", "RU с точками"],
+            ];
+
+            let formats: string[][];
+            if (fieldName === "Date") formats = DATE_FORMATS;
+            else if (fieldName === "Time") formats = TIME_FORMATS;
+            else if (fieldName === "Timestamp") formats = TS_FORMATS;
+            else formats = TS_FORMATS; // TimestampRange
+
+            return r(
+              model,
+              position,
+              [fieldName],
+              formats.map(([value, desc]) => ({
+                label: value,
+                insertText: " " + value,
+                kind: Kind.Value,
+                sortText: value,
+                documentation: desc,
+              })),
+              Kind,
+            );
+          }
         }
 
         return null;
@@ -11399,7 +12168,12 @@ export function registerMonacoProviders(monaco: any): void {
       const wordAtPosition = model.getWordUntilPosition(position);
       const prefix = wordAtPosition.word || "";
 
-      if (raw && raw.suggestions.length > 0 && !hasPrefixMatch(raw.suggestions, prefix)) return null; 
+      if (
+        raw &&
+        raw.suggestions.length > 0 &&
+        !hasPrefixMatch(raw.suggestions, prefix)
+      )
+        return null;
 
       return raw && raw.suggestions.length > 0 ? raw : null;
     },
@@ -11413,7 +12187,11 @@ function lineCtxRef(_model: any, position: any, type: string): string | null {
   return crumb?.id || null;
 }
 
-export function applyRqlMarkers(monaco: any, model: any): void {
+export function applyRqlMarkers(
+  monaco: any,
+  model: any,
+  lines: string[],
+): void {
   try {
     const text = model.getValue();
     const lineContexts = ctx.lineMap?.lineContexts || new Map();
@@ -11541,6 +12319,392 @@ const ACTION_CONTAINER_FIELDS = new Set([
   "widgetParams",
   "openBoardsFromGraph",
 ]);
+
+export function applyTreeMarkers(
+  monaco: any,
+  model: any,
+  lines: string[],
+  index: ModelIndex | null,
+  currentDomainId: string,
+): void {
+  if (!index) {
+    monaco.editor.setModelMarkers(model, "tree-validator", []);
+    return;
+  }
+
+  const markers: any[] = [];
+  const curDomain = currentDomainId.toLowerCase();
+
+  // 1. Найти trees:
+  let treesStart = -1;
+  let treesEnd = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        if (m[1] === "trees") treesStart = i;
+        else if (treesStart >= 0) {
+          treesEnd = i;
+          break;
+        }
+      }
+    }
+  }
+  if (treesStart < 0) {
+    monaco.editor.setModelMarkers(model, "tree-validator", []);
+    return;
+  }
+
+  let treeIndent = -1;
+  for (let i = treesStart + 1; i < treesEnd; i++) {
+    const m = lines[i].match(/^(\s*)-\s+id\s*:/);
+    if (m) {
+      treeIndent = m[1].length;
+      break;
+    }
+  }
+  if (treeIndent < 0) {
+    monaco.editor.setModelMarkers(model, "tree-validator", []);
+    return;
+  }
+
+  const entityLookup = (entityId: string | null): any => {
+    if (!entityId) return null;
+    if (entityId.includes("/"))
+      return index.entitiesByFqid[entityId.toLowerCase()] || null;
+    return (
+      index.entitiesByFqid[`${curDomain}/${entityId}`.toLowerCase()] || null
+    );
+  };
+
+  const isSameOrAncestor = (
+    ancestorFqid: string,
+    descFqid: string,
+  ): boolean => {
+    if (!ancestorFqid || !descFqid) return false;
+    const ancL = ancestorFqid.toLowerCase();
+    let cur: string | undefined = descFqid.toLowerCase();
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      if (cur === ancL) return true;
+      const e = index.entitiesByFqid[cur];
+      if (!e || !e.inherits) return false;
+      cur = e.inherits.toLowerCase();
+    }
+    return false;
+  };
+
+  const emitMarker = (
+    line: number,
+    col: number,
+    len: number,
+    severity: any,
+    message: string,
+    code: string,
+  ) => {
+    markers.push({
+      severity,
+      message,
+      startLineNumber: line,
+      startColumn: col,
+      endLineNumber: line,
+      endColumn: col + len,
+      source: "tree-validator",
+      code,
+    });
+  };
+
+  for (let i = treesStart + 1; i < treesEnd; i++) {
+    const treeIdM = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (!treeIdM || treeIdM[1].length !== treeIndent) continue;
+
+    const treeBlockEnd = (() => {
+      for (let j = i + 1; j < treesEnd; j++) {
+        if (!lines[j].trim()) continue;
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind < treeIndent) return j;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length === treeIndent) return j;
+      }
+      return treesEnd;
+    })();
+
+    // hierarchy:
+    let hierarchyLine = -1;
+    let hierarchyIndent = -1;
+    for (let j = i + 1; j < treeBlockEnd; j++) {
+      const m = lines[j].match(/^(\s*)hierarchy\s*:\s*$/);
+      if (m) {
+        hierarchyLine = j;
+        hierarchyIndent = m[1].length;
+        break;
+      }
+    }
+    if (hierarchyLine < 0) continue;
+
+    // hierarchy.entity:
+    let rootEntityId: string | null = null;
+    for (let j = hierarchyLine + 1; j < treeBlockEnd; j++) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind <= hierarchyIndent) break;
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        rootEntityId = m[1].replace(/["']/g, "");
+        break;
+      }
+    }
+    const rootEntity = entityLookup(rootEntityId);
+    const rootFqid = rootEntity
+      ? rootEntity.fqid
+      : rootEntityId
+        ? `${curDomain}/${rootEntityId}`.toLowerCase()
+        : null;
+    if (!rootFqid) continue;
+
+    // hierarchy.children:
+    let childrenLine = -1;
+    let childrenIndent = -1;
+    for (let j = hierarchyLine + 1; j < treeBlockEnd; j++) {
+      const m = lines[j].match(/^(\s*)children\s*:\s*$/);
+      if (m && m[1].length > hierarchyIndent) {
+        childrenLine = j;
+        childrenIndent = m[1].length;
+        break;
+      }
+    }
+    if (childrenLine < 0) continue;
+
+    const walk = (
+      parentFqid: string,
+      containerLine: number,
+      containerIndent: number,
+      containerEnd: number,
+    ) => {
+      let childIndent = -1;
+      for (let j = containerLine + 1; j < containerEnd; j++) {
+        if (!lines[j].trim()) continue;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length > containerIndent) {
+          childIndent = d[1].length;
+          break;
+        }
+      }
+      if (childIndent < 0) return;
+
+      let j = containerLine + 1;
+      while (j < containerEnd) {
+        if (!lines[j].trim()) {
+          j++;
+          continue;
+        }
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= containerIndent) break;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (!d || d[1].length !== childIndent) {
+          j++;
+          continue;
+        }
+
+        const childStart = j;
+        let childEnd = containerEnd;
+        for (let k = j + 1; k < containerEnd; k++) {
+          if (!lines[k].trim()) continue;
+          const kInd = (lines[k].match(/^(\s*)/) || ["", ""])[1].length;
+          if (kInd < childIndent) {
+            childEnd = k;
+            break;
+          }
+          const kd = lines[k].match(/^(\s*)-\s+\S/);
+          if (kd && kd[1].length === childIndent) {
+            childEnd = k;
+            break;
+          }
+        }
+
+        // Читаем linkage: и entity:
+        let linkageId: string | null = null;
+        let linkageLine = -1;
+        let linkageCol = 1;
+        let entityId: string | null = null;
+        let entityLine = -1;
+        let entityCol = 1;
+
+        for (let k = childStart; k < childEnd; k++) {
+          const l = lines[k];
+          if (!l.trim()) continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          // Принимаем `- linkage:` (indent = childIndent) и
+          // sibling-поля `entity:` / `children:` (indent = childIndent + 2)
+          if (lInd !== childIndent && lInd !== childIndent + 2) continue;
+
+          if (linkageId === null) {
+            const m = l.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
+            if (m) {
+              linkageId = m[1].replace(/["']/g, "");
+              linkageLine = k;
+              linkageCol = l.indexOf(linkageId) + 1;
+            }
+          }
+          if (entityId === null) {
+            const m = l.match(/^\s*(?:-\s+)?entity\s*:\s*([^\s#]+)/);
+            if (m) {
+              entityId = m[1].replace(/["']/g, "");
+              entityLine = k;
+              entityCol = l.indexOf(entityId) + 1;
+            }
+          }
+        }
+
+        const linkageRec = linkageId
+          ? resolveLinkageForMonaco(linkageId, curDomain, index)
+          : null;
+        const childEntityRec = entityLookup(entityId);
+
+        // entity не найдена
+        if (entityId && !childEntityRec && entityLine >= 0) {
+          emitMarker(
+            entityLine + 1,
+            entityCol,
+            entityId.length,
+            monaco.MarkerSeverity.Error,
+            `Сущность «${entityId}» не найдена в домене ${curDomain}`,
+            "tree/children-entity-unknown",
+          );
+        }
+
+        // linkage не найдена
+        if (linkageId && !linkageRec && linkageLine >= 0) {
+          const missingDomain = isForeignDomainNotLoaded(linkageId, index);
+          if (missingDomain) {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Info,
+              `Связь «${linkageId}» — домен «${missingDomain}» не загружен в кэш`,
+              "tree/children-linkage-domain-not-loaded",
+            );
+          } else {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `Связь «${linkageId}» не найдена в домене ${curDomain}`,
+              "tree/children-linkage-unknown",
+            );
+          }
+        }
+
+        // Проверки стороны / типа
+        if (linkageRec && parentFqid && childEntityRec && linkageLine >= 0) {
+          const parentLower = parentFqid.toLowerCase();
+          const childLower = childEntityRec.fqid.toLowerCase();
+          const isSymmetric = linkageRec.side1Fqid === linkageRec.side2Fqid;
+
+          if (linkageRec.type !== "1_n" && linkageRec.type !== "n_n") {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId!.length,
+              monaco.MarkerSeverity.Error,
+              `linkage "${linkageId}": type "${linkageRec.type}" недопустим для дерева — нужен 1_n или n_n`,
+              "tree/children-linkage-type-invalid",
+            );
+          } else if (linkageRec.type === "n_n" && linkageRec.undirected) {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId!.length,
+              monaco.MarkerSeverity.Error,
+              `linkage "${linkageId}": n_n undirected недопустим в дереве`,
+              "tree/children-undirected-nn",
+            );
+          } else if (!isSymmetric) {
+            const parentMatchesSide1 = isSameOrAncestor(
+              linkageRec.side1Fqid,
+              parentLower,
+            );
+            const childMatchesSide2 = isSameOrAncestor(
+              linkageRec.side2Fqid,
+              childLower,
+            );
+            const parentMatchesSide2 = isSameOrAncestor(
+              linkageRec.side2Fqid,
+              parentLower,
+            );
+            const childMatchesSide1 = isSameOrAncestor(
+              linkageRec.side1Fqid,
+              childLower,
+            );
+
+            const connectsForward = parentMatchesSide1 && childMatchesSide2;
+            const connectsBackward = parentMatchesSide2 && childMatchesSide1;
+            const parentShort = parentFqid.split("/").pop();
+
+            if (!connectsForward && !connectsBackward) {
+              emitMarker(
+                linkageLine + 1,
+                linkageCol,
+                linkageId!.length,
+                monaco.MarkerSeverity.Error,
+                `linkage "${linkageId}" (${linkageRec.side1Fqid.split("/").pop()} → ${linkageRec.side2Fqid.split("/").pop()}) не связывает parent «${parentShort}» и child «${entityId}»`,
+                "tree/children-side-mismatch",
+              );
+            } else if (linkageRec.type === "1_n" && connectsBackward) {
+              emitMarker(
+                linkageLine + 1,
+                linkageCol,
+                linkageId!.length,
+                monaco.MarkerSeverity.Warning,
+                `1_n: parent «${parentShort}» должен быть на стороне 1 (one), а linkage его ставит на сторону 2 (many)`,
+                "tree/children-inverted-1n",
+              );
+            }
+          }
+        }
+
+        // Рекурсия в nested children:
+        const childParentFqid = childEntityRec
+          ? childEntityRec.fqid
+          : entityId
+            ? `${curDomain}/${entityId}`.toLowerCase()
+            : parentFqid;
+        let grandChildrenLine = -1;
+        let grandChildrenIndent = -1;
+        for (let k = childStart + 1; k < childEnd; k++) {
+          const m = lines[k].match(/^(\s*)children\s*:\s*$/);
+          if (m) {
+            grandChildrenLine = k;
+            grandChildrenIndent = m[1].length;
+            break;
+          }
+        }
+        if (grandChildrenLine >= 0) {
+          walk(
+            childParentFqid,
+            grandChildrenLine,
+            grandChildrenIndent,
+            childEnd,
+          );
+        }
+
+        j = childEnd;
+      }
+    };
+
+    walk(rootFqid, childrenLine, childrenIndent, treeBlockEnd);
+    i = treeBlockEnd - 1;
+  }
+
+  monaco.editor.setModelMarkers(model, "tree-validator", markers);
+}
 
 export function applyActionRequiredFieldsMarkers(
   monaco: any,
@@ -11701,9 +12865,12 @@ function resolveAttributeRefInEntities(
  * Не зависит от `ctx.modelIndex` — резолвит по текущему содержимому YAML
  * (два прохода: собрать entities → проверить ссылки).
  */
-export function applyAttributeRefMarkers(monaco: any, model: any): void {
+export function applyAttributeRefMarkers(
+  monaco: any,
+  model: any,
+  lines: string[],
+): void {
   try {
-    const lines = model.getValue().split("\n");
     const entities = new Map<string, LocalEntityInfo>();
     const markers: AttrRefMarker[] = [];
 
@@ -12148,19 +13315,21 @@ const OPERATION_ENUM_BY_ACTION_TYPE: Record<string, string[]> = {
   tree_bulk: ["edit", "remove"],
 };
 
-export function applyEnumFieldMarkers(monaco: any, model: any): void {
+export function applyEnumFieldMarkers(
+  monaco: any,
+  model: any,
+  lines: string[],
+): void {
   try {
-    const lines = model.getValue().split("\n");
-
     // ============ Pre-pass: line → ValueCtx (один forward проход) ============
-    const ctxByLine: Array<ValueCtx | null> = new Array(lines.length + 1).fill(
-      null,
-    );
+    const ctxByLine: Array<ValueCtx | null> = new Array(
+      model.getLineCount() + 1,
+    ).fill(null);
     let curSection = "";
     const stack: Array<{ indent: number; key: string; line: number }> = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (let i = 0; i < model.getLineCount(); i++) {
+      const line = model.getLineContent(i + 1);
       if (!line.trim() || line.trim().startsWith("#")) {
         ctxByLine[i + 1] = i > 0 ? ctxByLine[i] : null;
         continue;
@@ -12202,7 +13371,7 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
       let containerLine = -1;
 
       if (curSection === "views") {
-        const dc = determineViewContainer(lines, i + 1, indent);
+        const dc = determineViewContainer(model, i + 1, indent);
         container = dc.container;
         containerLine = dc.containerLine;
         containerIndent = dc.containerIndent;
@@ -12219,7 +13388,7 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
       }
 
       const itemType = computeItemTypeFast(
-        lines,
+        model,
         curSection,
         container,
         containerLine, // без + 1
@@ -12234,8 +13403,8 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
     // ============ Scan: O(N) маркеров ============
     const markers: any[] = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (let i = 0; i < model.getLineCount(); i++) {
+      const line = model.getLineContent(i + 1);
       const fm = line.match(
         /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?([\w.-]+)["']?\s*(?:#.*)?$/,
       );
@@ -12297,13 +13466,13 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
         expected = ["top", "settings"];
         label = "расположение";
       } else if (fieldName === "operation") {
-        const actionType = findActionTypeForLine(lines, i + 1);
+        const actionType = findActionTypeForModel(model, i + 1);
         if (actionType && OPERATION_ENUM_BY_ACTION_TYPE[actionType]) {
           expected = OPERATION_ENUM_BY_ACTION_TYPE[actionType];
           label = `operation для type: ${actionType}`;
         }
       } else if (fieldName === "page") {
-        const actionType = findActionTypeForLine(lines, i + 1);
+        const actionType = findActionTypeForModel(model, i + 1);
         if (
           actionType &&
           ["open_list", "open_tree", "open_view"].includes(actionType)
@@ -12340,10 +13509,13 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
   }
 }
 
-export function applyWorkflowStatusRefMarkers(monaco: any, model: any): void {
+export function applyWorkflowStatusRefMarkers(
+  monaco: any,
+  model: any,
+  lines: string[],
+): void {
   try {
     const text = model.getValue();
-    const lines = text.split("\n");
     const markers: any[] = [];
     const parsed = parseDataTypesFromText(text);
 
@@ -12510,12 +13682,12 @@ export function applyWorkflowStatusRefMarkers(monaco: any, model: any): void {
 export function applyDataTypeMarkers(
   monaco: any,
   model: any,
+  lines: string[],
   index: any,
   currentDomainId: string,
 ): void {
   try {
     const text = model.getValue();
-    const lines = text.split("\n");
     const markers: any[] = [];
 
     // Кастомные типы домена — для кросс-доменных ссылок можно дополнить
@@ -12678,12 +13850,11 @@ function getParentContainerKey(lines: string[], lineIdx0: number): string {
 export function applyFqidMarkers(
   monaco: any,
   model: any,
+  lines: string[],
   index: any,
   currentDomainId: string,
 ): void {
   try {
-    const text = model.getValue();
-    const lines = text.split("\n");
     const markers: any[] = [];
 
     const domainIds = new Set<string>();
@@ -13358,12 +14529,11 @@ function getSectionAtLine(lines: string[], lineIdx0: number): string {
 export function applyViewRefMarkers(
   monaco: any,
   model: any,
+  lines: string[],
   index: any,
   currentDomainId: string,
 ): void {
   try {
-    const text = model.getValue();
-    const lines = text.split("\n");
     const markers: any[] = [];
 
     const localDomain = (currentDomainId || "").toLowerCase();
@@ -13567,9 +14737,12 @@ export function applyViewRefMarkers(
 
 // ============ Attribute-markers: уникальность id + системные имена ============
 
-export function applyAttributeMarkers(monaco: any, model: any): void {
+export function applyAttributeMarkers(
+  monaco: any,
+  model: any,
+  lines: string[],
+): void {
   try {
-    const lines = model.getValue().split("\n");
     const markers: any[] = [];
 
     // ============ Проходим только секцию entities ============
@@ -14060,12 +15233,11 @@ function scanEntities(
 export function applyUiRuleRefMarkers(
   monaco: any,
   model: any,
+  lines: string[],
   index: any,
   currentDomainId: string,
 ): void {
   try {
-    const text = model.getValue();
-    const lines = text.split("\n");
     const markers: any[] = [];
 
     const knownWidgets = new Set<string>();
@@ -14334,11 +15506,6 @@ export function buildQuickFix(marker: any, model: any): QuickFix | null {
     // Ищем именно `id:` (не `- id:` не имеет значения — `- ` уже в начале строки)
     const idMatch = lineText.match(/\bid\s*:\s*([a-zA-Z0-9_\-]+)/);
     if (!idMatch || !idMatch[1]) {
-      console.log("[buildQuickFix] camelcase: id not found", {
-        code,
-        msg,
-        lineText,
-      });
       return null;
     }
 
@@ -14355,11 +15522,6 @@ export function buildQuickFix(marker: any, model: any): QuickFix | null {
       : pascal;
 
     if (newId === oldId) {
-      console.log("[buildQuickFix] camelcase: id already valid", {
-        code,
-        oldId,
-        newId,
-      });
       return null;
     }
 
@@ -14480,4 +15642,729 @@ function hasPrefixMatch(suggestions: any[], prefix: string): boolean {
     if (pi === p.length) return true;
   }
   return false;
+}
+
+interface TransitiveJoinContext {
+  parentEntityFqid: string | null;
+  currentDomain: string;
+}
+
+/**
+ * Возвращает контекст join-блока внутри transitiveLinkages[].joins[].
+ * parent — target предыдущего sibling-join или entity корня transitiveLinkage.
+ */
+function detectTransitiveJoinContext(
+  model: any,
+  position: any,
+  currentDomain: string,
+  index: ModelIndex | null,
+): TransitiveJoinContext | null {
+  if (!index) return null;
+
+  // 1. Секция?
+  let sectionName = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) sectionName = m[1];
+      break;
+    }
+  }
+  if (sectionName !== "transitiveLinkages") return null;
+
+  // 2. Наш dash-line
+  const currentLine = model.getLineContent(position.lineNumber);
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+
+  let dashLine = -1;
+  let dashIndent = -1;
+  const curDashM = currentLine.match(/^(\s*)-\s+\S?/);
+  if (curDashM) {
+    dashLine = position.lineNumber;
+    dashIndent = curDashM[1].length;
+  } else {
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const line = model.getLineContent(i);
+      if (!line.trim() || line.trim().startsWith("#")) continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind < currentIndent) {
+        const m = line.match(/^(\s*)-\s+\S/);
+        if (m) {
+          dashLine = i;
+          dashIndent = m[1].length;
+        }
+        break;
+      }
+    }
+  }
+  if (dashLine < 0) return null;
+
+  // 3. Убеждаемся, что мы внутри joins[] (а не в корне)
+  let joinsAboveLine = -1;
+  let joinsAboveIndent = -1;
+  for (let i = dashLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) break;
+    const jm = line.match(/^(\s*)joins\s*:\s*$/);
+    if (jm && jm[1].length < dashIndent) {
+      joinsAboveLine = i;
+      joinsAboveIndent = jm[1].length;
+      break;
+    }
+  }
+  if (joinsAboveLine < 0) return null;
+
+  // 4. Корень transitiveLinkages — `- id:` с меньшим indent, чем joinsAboveIndent
+  let tlStart = -1;
+  let tlIndent = -1;
+  for (let i = joinsAboveLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) break;
+    const m = line.match(/^(\s*)-\s+id\s*:/);
+    if (m) {
+      tlStart = i;
+      tlIndent = m[1].length;
+      break;
+    }
+  }
+  if (tlStart < 0) return null;
+
+  // 5. entity: корня
+  let rootEntityId: string | null = null;
+  for (let i = tlStart + 1; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= tlIndent) break;
+    if (ind === tlIndent + 2) {
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        rootEntityId = m[1].replace(/["']/g, "");
+        break;
+      }
+    }
+  }
+  if (!rootEntityId) {
+    return { parentEntityFqid: null, currentDomain };
+  }
+
+  // 6. Пройти по sibling-join выше текущего, последовательно резолвя target
+  //    Начинаем от targetJoinsLine (это joinsAboveLine) и идём до dashLine.
+  const targetJoinsLine = joinsAboveLine;
+  const targetJoinsIndent = joinsAboveIndent;
+
+  let joinItemIndent = -1;
+  for (let i = targetJoinsLine + 1; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= targetJoinsIndent) break;
+    const dm = line.match(/^(\s*)-\s+\S/);
+    if (dm) {
+      joinItemIndent = dm[1].length;
+      break;
+    }
+  }
+  if (joinItemIndent < 0) {
+    return { parentEntityFqid: null, currentDomain };
+  }
+
+  let currentParent = `${currentDomain}/${rootEntityId}`.toLowerCase();
+
+  let cur = targetJoinsLine + 1;
+  while (cur < dashLine) {
+    const line = model.getLineContent(cur);
+    if (!line.trim()) {
+      cur++;
+      continue;
+    }
+    const dm = line.match(/^(\s*)-\s+\S/);
+    if (!dm || dm[1].length !== joinItemIndent) {
+      cur++;
+      continue;
+    }
+
+    let joinEnd = dashLine;
+    for (let k = cur + 1; k < dashLine; k++) {
+      const lk = model.getLineContent(k);
+      if (!lk.trim()) continue;
+      const ik = (lk.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ik < joinItemIndent) {
+        joinEnd = k;
+        break;
+      }
+      const dk = lk.match(/^(\s*)-\s+\S/);
+      if (dk && dk[1].length === joinItemIndent) {
+        joinEnd = k;
+        break;
+      }
+    }
+
+    let linkageRef: string | null = null;
+    let side: 1 | 2 | undefined;
+    for (let k = cur; k < joinEnd; k++) {
+      const l = model.getLineContent(k);
+      const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lInd !== joinItemIndent && lInd !== joinItemIndent + 2) continue;
+      if (!linkageRef) {
+        const lm = l.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
+        if (lm) linkageRef = lm[1].replace(/["']/g, "");
+      }
+      if (side === undefined) {
+        const sm = l.match(/^\s*side\s*:\s*([12])/);
+        if (sm) side = parseInt(sm[1], 10) as 1 | 2;
+      }
+    }
+
+    if (linkageRef && currentParent) {
+      const linkage = resolveLinkageForMonaco(linkageRef, currentDomain, index);
+      if (linkage) {
+        const parentLower = currentParent.toLowerCase();
+        const isSymmetric = linkage.side1Fqid === linkage.side2Fqid;
+        let target: string | null = null;
+        if (isSymmetric) {
+          target = linkage.side1Fqid === parentLower ? linkage.side2Fqid : null;
+        } else {
+          const eff = side === 2 ? 2 : 1;
+          const parentSide = eff === 1 ? linkage.side1Fqid : linkage.side2Fqid;
+          const childSide = eff === 1 ? linkage.side2Fqid : linkage.side1Fqid;
+          if (parentSide === parentLower) target = childSide;
+          else if (linkage.side1Fqid === parentLower)
+            target = linkage.side2Fqid;
+          else if (linkage.side2Fqid === parentLower)
+            target = linkage.side1Fqid;
+        }
+        if (target) currentParent = target;
+      }
+    }
+    cur = joinEnd;
+  }
+
+  return { parentEntityFqid: currentParent, currentDomain };
+}
+
+function buildTransitiveLinkageCandidates(
+  parentFqid: string | null,
+  currentDomain: string,
+  Kind: any,
+): RefSuggestion[] {
+  const index = ctx.modelIndex;
+  if (!index) return [];
+
+  interface C {
+    l: any;
+    score: number;
+    detail: string;
+  }
+  const candidates: C[] = [];
+
+  for (const l of index.entityLinkages) {
+    if ((l.domainId || "").toLowerCase() !== currentDomain) continue;
+
+    const side1Rel = parentFqid
+      ? relationOf(parentFqid, l.side1Fqid, index)
+      : null;
+    const side2Rel = parentFqid
+      ? relationOf(parentFqid, l.side2Fqid, index)
+      : null;
+    const isUndirected = l.type === "n_n" && l.undirected === true;
+    const peer1 = l.side1Fqid.split("/").pop() || l.side1Fqid;
+    const peer2 = l.side2Fqid.split("/").pop() || l.side2Fqid;
+
+    let score = 10;
+    let detail = l.type;
+
+    if (l.type === "1_n") {
+      if (side1Rel === "same") {
+        score = 1000;
+        detail = `1_n · parent → ${peer2}`;
+      } else if (side1Rel === "ancestor") {
+        score = 900;
+        detail = `1_n · parent наследует side1 · → ${peer2}`;
+      } else if (side2Rel === "same") {
+        score = 300;
+        detail = `1_n · inverted (parent на many-стороне)`;
+      } else {
+        score = 100;
+        detail = `1_n · не связан с parent`;
+      }
+    } else if (l.type === "n_n") {
+      if (isUndirected) {
+        score = 200;
+        detail = `n_n undirected`;
+      } else if (side1Rel === "same" || side2Rel === "same") {
+        score = 500;
+        detail = `n_n · ${peer1} ↔ ${peer2}`;
+      } else {
+        score = 200;
+        detail = `n_n · не связан с parent`;
+      }
+    } else if (l.type === "1_1") {
+      score = 30;
+      detail = `1_1 · не подходит для цепочки`;
+    } else {
+      detail = l.type;
+    }
+
+    candidates.push({ l, score, detail });
+  }
+
+  candidates.sort((a, b) =>
+    b.score !== a.score ? b.score - a.score : a.l.id.localeCompare(b.l.id),
+  );
+
+  return candidates.map(({ l, score, detail }) => ({
+    label: l.id,
+    insertText: " " + l.id,
+    kind: Kind.Reference,
+    sortText: (2000 - score).toString().padStart(4, "0") + "_" + l.id,
+    detail,
+    documentation: `${l.type} · ${l.side1Fqid} → ${l.side2Fqid}`,
+  }));
+}
+export function applyTransitiveMarkers(
+    monaco: any,
+    model: any,
+    lines: string[],
+    index: ModelIndex | null,
+    currentDomainId: string,
+): void {
+    if (!index) {
+        monaco.editor.setModelMarkers(model, "transitive-validator", []);
+        return;
+    }
+
+    const markers: any[] = [];
+    const cur = currentDomainId.toLowerCase();
+
+    // ── Секция transitiveLinkages ──
+    let sectionStart = -1;
+    let sectionEnd = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+            const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            if (m) {
+                if (m[1] === "transitiveLinkages") sectionStart = i;
+                else if (sectionStart >= 0) {
+                    sectionEnd = i;
+                    break;
+                }
+            }
+        }
+    }
+    if (sectionStart < 0) {
+        monaco.editor.setModelMarkers(model, "transitive-validator", []);
+        return;
+    }
+
+    let itemIndent = -1;
+    for (let i = sectionStart + 1; i < sectionEnd; i++) {
+        const m = lines[i].match(/^(\s*)-\s+id\s*:/);
+        if (m) {
+            itemIndent = m[1].length;
+            break;
+        }
+    }
+    if (itemIndent < 0) {
+        monaco.editor.setModelMarkers(model, "transitive-validator", []);
+        return;
+    }
+
+    const entityLookup = (entityId: string | null): EntityRecord | null => {
+        if (!entityId) return null;
+        if (entityId.includes("/"))
+            return index.entitiesByFqid[entityId.toLowerCase()] || null;
+        return index.entitiesByFqid[`${cur}/${entityId}`.toLowerCase()] || null;
+    };
+
+    // Inheritance-aware: ancestorFqid — сам descFqid или его предок
+    const isSameOrAncestor = (
+        ancestorFqid: string,
+        descFqid: string,
+    ): boolean => {
+        if (!ancestorFqid || !descFqid) return false;
+        const ancL = ancestorFqid.toLowerCase();
+        let walkCur: string | undefined = descFqid.toLowerCase();
+        const seen = new Set<string>();
+        while (walkCur && !seen.has(walkCur)) {
+            seen.add(walkCur);
+            if (walkCur === ancL) return true;
+            const e = index.entitiesByFqid[walkCur];
+            if (!e || !e.inherits) return false;
+            walkCur = e.inherits.toLowerCase();
+        }
+        return false;
+    };
+
+    const emit = (
+        line: number,
+        col: number,
+        len: number,
+        sev: any,
+        msg: string,
+        code: string,
+    ) => {
+        markers.push({
+            severity: sev,
+            message: msg,
+            startLineNumber: line,
+            startColumn: col,
+            endLineNumber: line,
+            endColumn: col + len,
+            source: "transitive-validator",
+            code,
+        });
+    };
+
+    for (let i = sectionStart + 1; i < sectionEnd; i++) {
+        const idM = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (!idM || idM[1].length !== itemIndent) continue;
+
+        const tlEnd = (() => {
+            for (let j = i + 1; j < sectionEnd; j++) {
+                if (!lines[j].trim()) continue;
+                const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+                if (ind < itemIndent) return j;
+                const d = lines[j].match(/^(\s*)-\s+\S/);
+                if (d && d[1].length === itemIndent) return j;
+            }
+            return sectionEnd;
+        })();
+
+        // ── entity: корня ──
+        let rootEntityId: string | null = null;
+        let rootEntityLine = -1;
+        let rootEntityCol = 1;
+        for (let j = i + 1; j < tlEnd; j++) {
+            const line = lines[j];
+            if (!line.trim()) continue;
+            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+            if (ind !== itemIndent + 2) continue;
+            const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+            if (m) {
+                rootEntityId = m[1].replace(/["']/g, "");
+                rootEntityLine = j;
+                rootEntityCol = line.indexOf(rootEntityId) + 1;
+                break;
+            }
+        }
+
+        const rootEntity = entityLookup(rootEntityId);
+        if (rootEntityId && !rootEntity && rootEntityLine >= 0) {
+            const missingDomain = isForeignDomainNotLoaded(
+                rootEntityId,
+                index,
+            );
+            if (missingDomain) {
+                emit(
+                    rootEntityLine + 1,
+                    rootEntityCol,
+                    rootEntityId.length,
+                    monaco.MarkerSeverity.Info,
+                    `Сущность «${rootEntityId}» — домен «${missingDomain}» не загружен в кэш`,
+                    "transitiveLinkage/entity-domain-not-loaded",
+                );
+            } else {
+                emit(
+                    rootEntityLine + 1,
+                    rootEntityCol,
+                    rootEntityId.length,
+                    monaco.MarkerSeverity.Error,
+                    `Сущность «${rootEntityId}» не найдена в домене ${cur}`,
+                    "transitiveLinkage/entity-unknown",
+                );
+            }
+        }
+
+        let currentParent: string | null = rootEntity
+            ? rootEntity.fqid.toLowerCase()
+            : rootEntityId
+              ? `${cur}/${rootEntityId}`.toLowerCase()
+              : null;
+
+        // ── joins: ──
+        let joinsLine = -1;
+        let joinsIndent = -1;
+        for (let j = i + 1; j < tlEnd; j++) {
+            const m = lines[j].match(/^(\s*)joins\s*:\s*$/);
+            if (m) {
+                joinsLine = j;
+                joinsIndent = m[1].length;
+                break;
+            }
+        }
+        if (joinsLine < 0) continue;
+
+        const walk = (
+            parentFqid: string | null,
+            containerLine: number,
+            containerIndent: number,
+            containerEnd: number,
+        ): string | null => {
+            let joinIndent = -1;
+            for (let j = containerLine + 1; j < containerEnd; j++) {
+                if (!lines[j].trim()) continue;
+                const d = lines[j].match(/^(\s*)-\s+\S/);
+                if (d && d[1].length > containerIndent) {
+                    joinIndent = d[1].length;
+                    break;
+                }
+            }
+            if (joinIndent < 0) return parentFqid;
+
+            let currentParentLocal = parentFqid;
+            let j = containerLine + 1;
+            while (j < containerEnd) {
+                if (!lines[j].trim()) {
+                    j++;
+                    continue;
+                }
+                const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+                if (ind <= containerIndent) break;
+                const d = lines[j].match(/^(\s*)-\s+\S/);
+                if (!d || d[1].length !== joinIndent) {
+                    j++;
+                    continue;
+                }
+
+                const childStart = j;
+                let childEnd = containerEnd;
+                for (let k = j + 1; k < containerEnd; k++) {
+                    if (!lines[k].trim()) continue;
+                    const kInd = (lines[k].match(/^(\s*)/) || ["", ""])[1]
+                        .length;
+                    if (kInd < joinIndent) {
+                        childEnd = k;
+                        break;
+                    }
+                    const kd = lines[k].match(/^(\s*)-\s+\S/);
+                    if (kd && kd[1].length === joinIndent) {
+                        childEnd = k;
+                        break;
+                    }
+                }
+
+                let linkageId: string | null = null;
+                let linkageLine = -1;
+                let linkageCol = 1;
+                let side: 1 | 2 | undefined;
+
+                for (let k = childStart; k < childEnd; k++) {
+                    const l = lines[k];
+                    if (!l.trim()) continue;
+                    const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+                    if (lInd !== joinIndent && lInd !== joinIndent + 2)
+                        continue;
+
+                    if (linkageId === null) {
+                        const m = l.match(
+                            /^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/,
+                        );
+                        if (m) {
+                            linkageId = m[1].replace(/["']/g, "");
+                            linkageLine = k;
+                            linkageCol = l.indexOf(linkageId) + 1;
+                        }
+                    }
+                    if (side === undefined) {
+                        const m = l.match(/^\s*side\s*:\s*([12])/);
+                        if (m) side = parseInt(m[1], 10) as 1 | 2;
+                    }
+                }
+
+                // ── Резолв linkage (FQID-aware) ──
+                const linkageRec = linkageId
+                    ? resolveLinkageForMonaco(linkageId, cur, index)
+                    : null;
+
+                if (linkageId && !linkageRec && linkageLine >= 0) {
+                    const missingDomain = isForeignDomainNotLoaded(
+                        linkageId,
+                        index,
+                    );
+                    if (missingDomain) {
+                        emit(
+                            linkageLine + 1,
+                            linkageCol,
+                            linkageId.length,
+                            monaco.MarkerSeverity.Info,
+                            `Связь «${linkageId}» — домен «${missingDomain}» не загружен в кэш`,
+                            "transitiveLinkage/linkage-domain-not-loaded",
+                        );
+                    } else {
+                        emit(
+                            linkageLine + 1,
+                            linkageCol,
+                            linkageId.length,
+                            monaco.MarkerSeverity.Error,
+                            `Связь «${linkageId}» не найдена в домене ${cur}`,
+                            "transitiveLinkage/linkage-unknown",
+                        );
+                    }
+                }
+
+                if (linkageRec && currentParentLocal && linkageLine >= 0) {
+                    const isSymmetric =
+                        linkageRec.side1Fqid === linkageRec.side2Fqid;
+                    const isDirected = !(
+                        linkageRec.type === "n_n" && linkageRec.undirected
+                    );
+
+                    if (isSymmetric && isDirected && !side) {
+                        emit(
+                            linkageLine + 1,
+                            linkageCol,
+                            linkageId!.length,
+                            monaco.MarkerSeverity.Warning,
+                            `Связь "${linkageId}" симметричная направленная — укажите side: 1 или 2`,
+                            "transitiveLinkage/side-required",
+                        );
+                    }
+
+                    const parentLower = currentParentLocal.toLowerCase();
+
+                    // ── Inheritance-aware достижимость ──
+                    const reachableForward = isSameOrAncestor(
+                        linkageRec.side1Fqid,
+                        parentLower,
+                    );
+                    const reachableBackward = isSameOrAncestor(
+                        linkageRec.side2Fqid,
+                        parentLower,
+                    );
+
+                    if (!reachableForward && !reachableBackward) {
+                        emit(
+                            linkageLine + 1,
+                            linkageCol,
+                            linkageId!.length,
+                            monaco.MarkerSeverity.Error,
+                            `linkage "${linkageId}" (${linkageRec.side1Fqid.split("/").pop()} → ${linkageRec.side2Fqid.split("/").pop()}) не соединяет parent «${currentParentLocal.split("/").pop()}»`,
+                            "transitiveLinkage/not-reachable",
+                        );
+                    }
+                    // inverted-1n удалён — для транзитивной цепочки
+                    // ориентация 1_n не критична, хопы могут идти в любом
+                    // направлении.
+
+                    // ── Резолв target для следующего хопа ──
+                    let target: string | null = null;
+                    if (isSymmetric) {
+                        if (reachableForward) target = linkageRec.side2Fqid;
+                    } else {
+                        const eff = side === 2 ? 2 : 1;
+                        const parentSide =
+                            eff === 1
+                                ? linkageRec.side1Fqid
+                                : linkageRec.side2Fqid;
+                        const childSide =
+                            eff === 1
+                                ? linkageRec.side2Fqid
+                                : linkageRec.side1Fqid;
+
+                        if (isSameOrAncestor(parentSide, parentLower)) {
+                            target = childSide;
+                        } else if (reachableForward) {
+                            target = linkageRec.side2Fqid;
+                        } else if (reachableBackward) {
+                            target = linkageRec.side1Fqid;
+                        }
+                    }
+                    if (target) currentParentLocal = target;
+                }
+
+                // ── Вложенные joins ──
+                let nestedJoinsLine = -1;
+                let nestedJoinsIndent = -1;
+                for (let k = childStart + 1; k < childEnd; k++) {
+                    const m = lines[k].match(/^(\s*)joins\s*:\s*$/);
+                    if (m) {
+                        nestedJoinsLine = k;
+                        nestedJoinsIndent = m[1].length;
+                        break;
+                    }
+                }
+                if (nestedJoinsLine >= 0) {
+                    walk(
+                        currentParentLocal,
+                        nestedJoinsLine,
+                        nestedJoinsIndent,
+                        childEnd,
+                    );
+                }
+
+                j = childEnd;
+            }
+
+            return currentParentLocal;
+        };
+
+        walk(currentParent, joinsLine, joinsIndent, tlEnd);
+        i = tlEnd - 1;
+    }
+
+    monaco.editor.setModelMarkers(model, "transitive-validator", markers);
+}
+
+/**
+ * Резолвит ссылку на linkage с учётом FQID.
+ *   - `id`                          → текущий домен
+ *   - `<domain>/<id>`               → указанный домен
+ * Ведёт себя как линтер в `checkTransitiveLinkages`, т.е. работает
+ * с linkages из всех доменов кэша, а не только из текущего.
+ */
+function resolveLinkageForMonaco(
+    ref: string | null | undefined,
+    currentDomain: string,
+    index: ModelIndex | null,
+): EntityLinkage | null {
+    if (!index || !ref) return null;
+    const trimmed = String(ref).trim();
+    if (!trimmed) return null;
+
+    const slash = trimmed.indexOf("/");
+    const targetDomain =
+        slash > 0
+            ? trimmed.slice(0, slash).toLowerCase()
+            : currentDomain.toLowerCase();
+    const id = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+    const idLower = id.toLowerCase();
+
+    return (
+        (index.entityLinkages || []).find(
+            (l) =>
+                (l.domainId || "").toLowerCase() === targetDomain &&
+                l.id.toLowerCase() === idLower,
+        ) || null
+    );
+}
+
+/**
+ * true, если `refFqid` — это FQID <domain>/<Entity>, где домен
+ * отсутствует в текущем кэше. Используется, чтобы отличать
+ * «связь не найдена» (Error) от «домен не загружен» (Info).
+ */
+function isForeignDomainNotLoaded(
+    ref: string,
+    index: ModelIndex | null,
+): string | null {
+    if (!index || !ref) return null;
+    const slash = ref.indexOf("/");
+    if (slash <= 0) return null;
+    const domain = ref.slice(0, slash).toLowerCase();
+    if (!domain) return null;
+    const loaded = (index.domains || []).some(
+        (d) => String(d.id).toLowerCase() === domain,
+    );
+    return loaded ? null : domain;
 }

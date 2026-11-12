@@ -387,6 +387,63 @@ export function buildLineMap(
       return;
     }
 
+    // ============ Специальная обработка: exchangeSettings (объект, не массив) ============
+    if (key === "exchangeSettings") {
+      const headerLine = start + 1; // 1-based
+
+      // Определяем indent прямых ключей (первый непустой `key:` после заголовка)
+      let keyIndent = -1;
+      for (let i = start + 1; i < end; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const m = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:/);
+        if (m) {
+          keyIndent = m[1].length;
+          break;
+        }
+      }
+
+      // Дети — прямые ключи секции: enable, description, label,
+      // noCmsSync, attributeFormats, entities.
+      const children: NavNode[] = [];
+      if (keyIndent >= 0) {
+        for (let i = start + 1; i < end; i++) {
+          const line = lines[i];
+          if (!line.trim() || line.trim().startsWith("#")) continue;
+          const m = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:/);
+          if (!m) continue;
+          if (m[1].length !== keyIndent) continue;
+          children.push({
+            id: m[2],
+            label: m[2],
+            line: i + 1,
+            type: "exchangeSettingsField",
+          });
+        }
+      }
+
+      // `(root)` — синтетический id, согласован с blockId `exchangeSettings:(root)`
+      // в block-resolver.ts и preflight.ts.
+      const rootNode: NavNode = {
+        id: "Настройки",
+        label: "exchangeSettings",
+        line: headerLine,
+        type: "exchangeSettings",
+        children: children.length > 0 ? children : undefined,
+      };
+
+      sections.push({
+        key,
+        label: SECTION_LABELS[key] || key,
+        line: headerLine,
+        count: 1,
+        linesCount: end - start,
+        nodes: [rootNode],
+      });
+      itemLines.set(`exchangeSettings#Настройки`, headerLine);
+      return;
+    }
+
     // ============ Специальная обработка: transitiveLinkages ============
     if (key === "transitiveLinkages") {
       const nodes = parseTransitiveSection(lines, start, end);

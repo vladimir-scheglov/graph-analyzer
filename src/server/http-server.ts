@@ -614,7 +614,7 @@ export function startServer(opts: StartServerOptions): http.Server {
           () => {
             // Файл уже записан на диск. Отвечаем клиенту сразу,
             // rebuild — в фоне (debounce 150ms, skip-if-unchanged).
-            scheduleRebuild(analyzer, rootDir);
+            scheduleRebuild(analyzer, rootDir, { force: true });
           },
         );
       } catch (err: any) {

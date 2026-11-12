@@ -4221,13 +4221,13 @@ function checkSpecialViews(ctx: LintContext): void {
               domainId,
               propertyPath: `views[${viewId}].tabs`,
             });
-          } else if (t !== "list") {
+          } else if (t !== "list" && t !== "tree") {
             emit(ctx, {
               ruleId: "view/tabs-list-view-type",
               severity: "warning",
               category: "semantic",
               rule: "tabs_list.tabs[].view — list",
-              message: `View «${viewId}»: tabs[].view «${tabId}» имеет тип «${t}», ожидается list`,
+              message: `View «${viewId}»: tabs[].view «${tabId}» имеет тип «${t}», ожидается list | tree`,
               domainId,
               propertyPath: `views[${viewId}].tabs`,
             });
@@ -7036,6 +7036,20 @@ function checkTreeHierarchy(
         continue;
       }
 
+      // ============ linkage.type: 1_n или n_n ============
+      if (linkage.type !== "1_n" && linkage.type !== "n_n") {
+        emit(ctx, {
+          ruleId: "tree/children-linkage-type-invalid",
+          severity: "error",
+          category: "semantic",
+          rule: "linkage.type в дереве — 1_n или n_n",
+          message: `дерево «${tree.id}», ${path}: linkage "${child.linkage}" имеет type "${linkage.type}"`,
+          hint: "1_1 не создаёт иерархию — используйте 1_n или n_n",
+          domainId: tree.domainId,
+          propertyPath: path + ".linkage",
+        });
+      }
+
       // ============ undirected n_n ============
       if (linkage.type === "n_n" && linkage.undirected) {
         emit(ctx, {
@@ -7086,8 +7100,13 @@ function checkTreeHierarchy(
             severity: "error",
             category: "semantic",
             rule: "linkage соединяет parent и child",
-            message: `дерево «${tree.id}», ${path}: linkage "${child.linkage}" (side1=${linkage.side1Fqid}, side2=${linkage.side2Fqid}) не связывает parent="${parentEntityFqid}" и child="${child.entity}"`,
-            hint: "parent/child должны совпадать со сторонами связи или быть их наследниками (более узкий класс). Предок стороны связи — ошибка.",
+            message:
+              `дерево «${tree.id}», ${path}: linkage "${child.linkage}" ` +
+              `(side1=${linkage.side1Fqid}, side2=${linkage.side2Fqid}) ` +
+              `не связывает parent="${parentEntityFqid}" и child="${child.entity}"`,
+            hint:
+              "linkage должен иметь parent и child хотя бы с одной стороны " +
+              "(с учётом наследования: сторона linkage может быть предком, но не потомком)",
             domainId: tree.domainId,
             propertyPath: path + ".linkage",
           });
@@ -7107,6 +7126,22 @@ function checkTreeHierarchy(
               propertyPath: path + ".side",
             });
           }
+        }
+
+        // ============ inverted 1_n: parent на many-стороне ============
+        if (linkage.type === "1_n" && parentMatchesSide2 && childMatchesSide1) {
+          emit(ctx, {
+            ruleId: "tree/children-inverted-1n",
+            severity: "warning",
+            category: "semantic",
+            rule: "1_n: parent на стороне 1 (one), child на стороне 2 (many)",
+            message:
+              `дерево «${tree.id}», ${path}: linkage "${child.linkage}" ` +
+              `имеет parent «${parentEntityFqid}» на стороне 2 (many) и child «${child.entity}» на стороне 1 (one)`,
+            hint: "Для иерархии 1_n parent должен быть на стороне 1",
+            domainId: tree.domainId,
+            propertyPath: path + ".linkage",
+          });
         }
       }
 

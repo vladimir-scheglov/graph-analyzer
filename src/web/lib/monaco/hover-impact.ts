@@ -1,5 +1,6 @@
 import type {
   AttributeRecord,
+  EntityLinkage,
   EntityRecord,
   ModelIndex,
 } from "../../../shared/model-types";
@@ -136,3 +137,109 @@ export function buildAttributeHoverMarkdown(
   lines.push("_Ctrl+Click → перейти к определению_");
   return lines.join("\n");
 }
+
+export function buildLinkageHoverMarkdown(
+  linkage: EntityLinkage,
+  index: ModelIndex,
+): string {
+  const lines: string[] = [];
+  lines.push(
+    `**${linkage.id}**${linkage.name && linkage.name !== linkage.id ? ` — ${linkage.name}` : ""}`,
+  );
+  lines.push("");
+  const dir = linkage.undirected ? "↔" : "→";
+  lines.push(
+    `\`${linkage.type}\` · \`${linkage.side1Fqid.split("/").pop()}\` ${dir} \`${linkage.side2Fqid.split("/").pop()}\``,
+  );
+
+  if (linkage.nameFrom?.side1 || linkage.nameFrom?.side2) {
+    lines.push("");
+    if (linkage.nameFrom.side1)
+      lines.push(`- 1 → 2: «${linkage.nameFrom.side1}»`);
+    if (linkage.nameFrom.side2)
+      lines.push(`- 2 → 1: «${linkage.nameFrom.side2}»`);
+  }
+
+  if (linkage.attributes && linkage.attributes.length > 0) {
+    lines.push("");
+    lines.push(`**Атрибуты связи (${linkage.attributes.length})**:`);
+    for (const a of linkage.attributes.slice(0, 8)) {
+      lines.push(
+        `- \`${a.id}\` — ${a.dataType}${a.description ? ` · ${a.description}` : ""}`,
+      );
+    }
+    if (linkage.attributes.length > 8)
+      lines.push(`- …ещё ${linkage.attributes.length - 8}`);
+  }
+
+  // Где используется — все источники, где эта связь упомянута
+  const refs: string[] = [];
+  const shortId = linkage.id.toLowerCase();
+
+  const matchesRef = (raw: string | undefined | null): boolean => {
+    if (!raw) return false;
+    const r = raw.toLowerCase();
+    const id = r.includes("/") ? r.split("/").pop()! : r;
+    return id === shortId;
+  };
+
+  for (const w of index.viewWidgets || []) {
+    if (w.domainId === linkage.domainId && w.type === "linkage") {
+      if (matchesRef(w.linkage))
+        refs.push(`виджет \`${w.id}\` во \`${w.parentViewId}\``);
+    }
+  }
+  for (const t of index.trees || []) {
+    if (t.domainId !== linkage.domainId) continue;
+    const walk = (children: any[] | undefined): boolean => {
+      if (!children) return false;
+      for (const c of children) {
+        if (matchesRef(c.linkage)) return true;
+        if (walk(c.children)) return true;
+      }
+      return false;
+    };
+    if (walk(t.hierarchy.children)) refs.push(`дерево \`${t.id}\``);
+  }
+  for (const tl of index.transitiveLinkages || []) {
+    if (tl.domainId !== linkage.domainId) continue;
+    const walk = (joins: any[] | undefined): boolean => {
+      if (!joins) return false;
+      for (const j of joins) {
+        if (matchesRef(j.linkage)) return true;
+        if (walk(j.joins)) return true;
+      }
+      return false;
+    };
+    if (walk(tl.joins)) refs.push(`транзитивная связь \`${tl.id}\``);
+  }
+  for (const a of index.actions || []) {
+    if (a.domainId === linkage.domainId && matchesRef(a.linkage))
+      refs.push(`действие \`${a.id}\``);
+  }
+  for (const m of index.mixins || []) {
+    if (m.domainId === linkage.domainId && matchesRef(m.linkageFqid))
+      refs.push(`примесь \`${m.id}\``);
+  }
+  for (const r of index.dataRules || []) {
+    if (r.domainId === linkage.domainId && matchesRef(r.linkage))
+      refs.push(`правило \`${r.id}\``);
+  }
+  for (const f of index.viewTableFilters || []) {
+    if (f.domainId !== linkage.domainId) continue;
+    if (f.linkages.some((fl) => fl.linkage && matchesRef(fl.linkage))) {
+      refs.push(`фильтр view \`${f.viewId}\``);
+    }
+  }
+
+  if (refs.length > 0) {
+    lines.push("");
+    lines.push(`**Используется (${refs.length})**:`);
+    for (const r of refs.slice(0, 8)) lines.push(`- ${r}`);
+    if (refs.length > 8) lines.push(`- …ещё ${refs.length - 8}`);
+  }
+
+  lines.push("");
+  lines.push("_Ctrl+Click → перейти к определению_");
+  return lines.join("\n");
+} 

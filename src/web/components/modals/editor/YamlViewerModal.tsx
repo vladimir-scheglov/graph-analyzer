@@ -22,6 +22,8 @@ import {
     buildQuickFix,
     applyWorkflowStatusRefMarkers,
     KNOWN_VALUE_FIELDS,
+    applyTreeMarkers,
+    applyTransitiveMarkers,
 } from '../../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../../lib/yaml/external-refs';
@@ -97,6 +99,8 @@ const INLINE_SOURCES = [
     "action-required-validator",
     "rql-check",
     "workflow-status-validator",
+    "tree-validator",
+    "transitive-validator",
 ];
 
 /**
@@ -597,7 +601,7 @@ export function YamlViewerModal() {
                 useGraphStore.getState().showSnackbar("Файл автоматически разблокирован для применения изменений");
             }
 
-            window.setTimeout(closeEmptySuggestWidget, 40);
+            //window.setTimeout(closeEmptySuggestWidget, 40);
             lastEditAtRef.current = Date.now();
             clearTimeout(liveDebounce.current);
             liveDebounce.current = setTimeout(() => {
@@ -628,7 +632,7 @@ export function YamlViewerModal() {
                         void yamlBackups.delete(filePath);
                     }
                 }
-            }, 1000);
+            }, 5000);
         };
 
         const sub = editorRef.current.onDidChangeModelContent(handler);
@@ -836,6 +840,12 @@ export function YamlViewerModal() {
         if (!focusTarget && hideDimmed) setHideDimmed(false);
     }, [focusTarget, hideDimmed]);
 
+    // Добавить где-то рядом с другими useMemo
+    const contentLines = useMemo(
+        () => (idleContent ? idleContent.split("\n") : []),
+        [idleContent],
+    );
+
     const domainIssues = useMemo(() => {
         if (!index || !effectiveDomainId) return [];
         const raw = index.lint.lintReport.issues.filter(
@@ -844,24 +854,17 @@ export function YamlViewerModal() {
         if (!lineMap || !idleContent) return raw;
 
         return raw.map((issue) => {
-            if (typeof (issue as any).line === "number") return issue;
-            if (
-                issue.ruleId !== "view/filter-linked-entity-attribute-unknown" &&
-                !/linkedEntity\[/.test(String(issue.propertyPath || ""))
-            ) {
-                return issue;
-            }
-            const resolved = findLinkedEntityAttributeLine(
-                idleContent,
-                lineMap,
+            // Вычисляем строку ОДИН раз при изменении idleContent
+            const resolved = resolveIssueLine(
                 issue,
+                lineMap,
+                contentLines,
                 index,
                 effectiveDomainId,
             );
-            if (resolved == null) return issue;
-            return { ...issue, __preResolvedLine: resolved };
+            return { ...issue, __resolvedLine: resolved };
         });
-    }, [index, effectiveDomainId, lineMap, idleContent]);
+    }, [index, effectiveDomainId, lineMap, contentLines]);
 
     // ============ Счётчики для шапки ============
     const counters = useMemo(() => {
@@ -977,24 +980,19 @@ export function YamlViewerModal() {
     }, [domainIssues, lineMap, idleContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
 
     const recheckModel = useMemo(
-        () => buildRecheckModel(idleContent || ""),
-        [idleContent],
+        () => (checksEnabled ? buildRecheckModel(idleContent || "") : null),
+        [idleContent, checksEnabled],
     );
 
     const effectiveIssues = useMemo(() => {
         if (!checksEnabled) return allIssues;
-        if (!isDirty || !lineMap) return allIssues;
-        if (idleContent === savedContent) return allIssues;
+        if (!lineMap || !idleContent || !recheckModel) return allIssues;
 
         const out: any[] = [];
         for (const issue of allIssues) {
             const state = classifyIssue(issue, idleContent, recheckModel, index);
             if (state === "resolved") continue;
 
-            // Правило покрывается inline-валидатором → доверяем inline.
-            // Если inline сейчас не даёт маркер с этим (ruleId, line) —
-            // проблема решена (или скрыта фильтром severity, что для панели
-            // означает то же самое: показывать её не надо).
             if (
                 INLINE_COVERED_RULE_IDS.has(issue.ruleId) &&
                 inlineMarkersRef.current !== null
@@ -1014,10 +1012,8 @@ export function YamlViewerModal() {
         return out;
     }, [
         allIssues,
-        isDirty,
-        idleContent,
         lineMap,
-        savedContent,
+        idleContent, 
         recheckModel,
         index,
         inlineMarkersVersion,
@@ -1204,6 +1200,7 @@ export function YamlViewerModal() {
     // сразу, без необходимости сохранять.
     const unusedAnalysis = useMemo(() => {
         if (!yamlHighlightUnused) return null;
+        if (leftCollapsed !== false) return null; 
         if (!lineMap || !idleContent) return null;
         try {
             return computeUnusedInYaml(idleContent, lineMap);
@@ -1853,6 +1850,7 @@ export function YamlViewerModal() {
                 overviewRulerLanes: 0,
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false,
+                stickyScroll: { enabled: false },
                 folding: true,
                 foldingStrategy: 'indentation',
                 breadcrumbs: { enabled: true },
@@ -1865,6 +1863,7 @@ export function YamlViewerModal() {
                 renderValidationDecorations: 'on',
                 lightbulb: { enabled: 'on' },
                 wordBasedSuggestions: "off",
+                inlineSuggest: { enabled: false },
                 suggest: {
                     showWords: false,
                     showSnippets: true,
@@ -1875,6 +1874,7 @@ export function YamlViewerModal() {
                     showDetails: true,
                     showInlineDetails: true,
                     showStatusBar: false,
+                    delay: 500, 
                 } as any,
 
                 quickSuggestions: false,
@@ -2015,7 +2015,7 @@ export function YamlViewerModal() {
                         setCursorLine(line);
                         setCursorColumn(col);
                     });
-                }, 120);
+                }, 500);
             });
 
             editor.onMouseDown((e: any) => {
@@ -2070,13 +2070,14 @@ export function YamlViewerModal() {
             // Guard `.suggest-widget.visible` — если виджет уже открыт,
             // Monaco сам фильтрует по введённому символу.
 
+            let suggestWidgetEl: HTMLElement | null = null;
             const isSuggestOpen = (): boolean => {
-                const el = document.querySelector(".suggest-widget") as HTMLElement | null;
-                if (!el) return false;
-                if (!el.classList.contains("visible")) return false;
-                // ВАЖНО: НЕ проверять el.offsetParent — для position: fixed он всегда null,
-                // и тогда функция всегда возвращает false, ломая логику триггеров.
-                return el.querySelectorAll(".monaco-list-row").length > 0;
+                if (!suggestWidgetEl || !suggestWidgetEl.isConnected) {
+                    suggestWidgetEl = document.querySelector(".suggest-widget") as HTMLElement | null;
+                    if (!suggestWidgetEl) return false;
+                }
+                if (!suggestWidgetEl.classList.contains("visible")) return false;
+                return suggestWidgetEl.querySelectorAll(".monaco-list-row").length > 0;
             };
 
             // ============ Auto-suggest: ТОЛЬКО на "field:" / "field: " ============
@@ -2628,15 +2629,19 @@ export function YamlViewerModal() {
             if (runKey === lastRunKey) return;
             lastRunKey = runKey;
 
-            try { applyFqidMarkers(m, model, index, domainId); } catch { /* ignore */ }
-            try { applyDataTypeMarkers(m, model, index, domainId); } catch { /* ignore */ }
-            try { applyEnumFieldMarkers(m, model); } catch { /* ignore */ }
-            try { applyViewRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
-            try { applyAttributeMarkers(m, model); } catch { /* ignore */ }
-            try { applyUiRuleRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
-            try { applyAttributeRefMarkers(m, model); } catch { /* ignore */ }
-            try { applyWorkflowStatusRefMarkers(m, model); } catch { /* ignore */ }
-            try { applyRqlMarkers(m, model); } catch { /* ignore */ }
+            const lines = currentText.split("\n");
+
+            try { applyFqidMarkers(m, model, lines, index, domainId); } catch { /* ignore */ }
+            try { applyDataTypeMarkers(m, model, lines, index, domainId); } catch { /* ignore */ }
+            try { applyEnumFieldMarkers(m, model, lines); } catch { /* ignore */ }
+            try { applyViewRefMarkers(m, model, lines, index, domainId); } catch { /* ignore */ }
+            try { applyAttributeMarkers(m, model, lines); } catch { /* ignore */ }
+            try { applyUiRuleRefMarkers(m, model, lines, index, domainId); } catch { /* ignore */ }
+            try { applyAttributeRefMarkers(m, model, lines); } catch { /* ignore */ }
+            try { applyWorkflowStatusRefMarkers(m, model, lines); } catch { /* ignore */ }
+            try { applyRqlMarkers(m, model, lines); } catch { /* ignore */ }
+            try { applyTreeMarkers(m, model, lines, index, domainId); } catch { } 
+            try { applyTransitiveMarkers(m, model, lines, index, domainId); } catch { }
 
             // Post-filter по severityFilter: inline-валидаторы не знают про
             // панельный фильтр, поэтому их маркеры оставались даже при
@@ -2691,7 +2696,7 @@ export function YamlViewerModal() {
             if (timer) clearTimeout(timer);
             // 800ms — комфортно для пользователя: маркеры обновляются
             // только когда он остановился и читает ошибку, а не во время печати.
-            timer = setTimeout(runAll, 600);
+            timer = setTimeout(runAll, 800);
         };
 
         const disposable = editorRef.current.onDidChangeModelContent(schedule);
@@ -2793,7 +2798,7 @@ export function YamlViewerModal() {
             .filter((issue) => !INLINE_COVERED_RULE_IDS.has(issue.ruleId))
             .filter((issue) => !isIgnored(issue, ignored))
             .map((issue) => {
-                const state = isDirty
+                const state = isDirty && recheckModel
                     ? classifyIssue(issue, currentText, recheckModel, index)
                     : "still";
                 if (state === "resolved") return null;
@@ -2852,7 +2857,7 @@ export function YamlViewerModal() {
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
         };
-    }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
+    }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent, idleContent]);
 
     // ============ Jump ============
     const jumpTo = useCallback(
@@ -3262,6 +3267,7 @@ export function YamlViewerModal() {
         lineMap,
         jumpTo,
         setPendingIssue,
+        idleContent
     ]);
 
     useEffect(() => {
@@ -5340,23 +5346,24 @@ export function YamlViewerModal() {
 
     // Отступ текущей строки — критично в YAML
     const currentIndent = useMemo(() => {
-        if (!idleContent) return null;
-        const lines = idleContent.split("\n");
-        const line = lines[cursorLine - 1];
-        if (line === undefined) return null;
+        const ed = editorRef.current;
+        if (!ed) return null;
+        const model = ed.getModel();
+        if (!model) return null;
+        if (cursorLine < 1 || cursorLine > model.getLineCount()) return null;
+        const line = model.getLineContent(cursorLine);
+        if (!line) return { spaces: 0, tabs: 0, total: 0 };
         const m = line.match(/^(\s*)/);
-        if (!m) return null;
-        const indent = m[1];
-        if (!indent) return { spaces: 0, tabs: 0, total: 0 };
+        const indent = m ? m[1] : "";
         const spaces = (indent.match(/ /g) || []).length;
         const tabs = (indent.match(/\t/g) || []).length;
         return { spaces, tabs, total: spaces + tabs };
-    }, [idleContent, cursorLine]);
+    }, [cursorLine, editorCreated]);
 
-    const totalLines = useMemo(
-        () => (content ? content.split("\n").length : 0),
-        [content],
-    );
+    const totalLines = useMemo(() => {
+        const model = editorRef.current?.getModel();
+        return model ? model.getLineCount() : 0;
+    }, [liveVersion, editorCreated]);
 
     const lintBreakdown = useMemo(() => {
         const errs = filteredIssues.filter((i) => i.severity === "error").length;
@@ -8880,7 +8887,7 @@ function resolveLinkageTarget(
  * Возвращает [{ linkageId, linkageLine, attrs: [{ attribute, line }] }].
  */
 function parseLinkedEntityUseBlocks(
-    content: string,
+    lines: string[],
     lineMap: LineMap,
     viewId: string,
 ): UseEntry[] {
@@ -8898,7 +8905,6 @@ function parseLinkedEntityUseBlocks(
         ? nextNode.line - 1
         : viewsSection.line + viewsSection.linesCount - 1;
 
-    const lines = content.split("\n");
     const lastLine = Math.min(endLine, lines.length);
 
     // ── Шаг 1: `filter:` ── (первый в пределах view, не важно под table: или нет)
@@ -9055,7 +9061,7 @@ function parseLinkedEntityUseBlocks(
  * fallback на «первый use с этим attr» (старое поведение).
  */
 function findLinkedEntityAttributeLine(
-    content: string,
+    lines: string[],
     lineMap: LineMap,
     issue: any,
     index: ModelIndex | null,
@@ -9066,7 +9072,7 @@ function findLinkedEntityAttributeLine(
     const targetFqid = extractLinkedEntityTargetFqid(issue);
     if (!viewId || !attrName) return null;
 
-    const useBlocks = parseLinkedEntityUseBlocks(content, lineMap, viewId);
+    const useBlocks = parseLinkedEntityUseBlocks(lines, lineMap, viewId);
     if (useBlocks.length === 0) return null;
 
     const sourceFqid = resolveViewSourceFqid(viewId, index, currentDomainId);
@@ -9096,54 +9102,45 @@ function findLinkedEntityAttributeLine(
     return null;
 }
 
-function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
-    // 0. Явная pre-resolution от content-aware резолверов (linkedEntity и т.п.)
-    if (
-        typeof issue.__preResolvedLine === "number" &&
-        issue.__preResolvedLine > 0
-    ) {
-        return issue.__preResolvedLine;
-    }
+function findFieldInItemBlock(
+    lines: string[],
+    itemLine: number,
+    field: string,
+): number | null {
+    const startIdx = itemLine - 1;
+    const startLine = lines[startIdx];
+    if (!startLine) return null;
+    const dashIndent = (startLine.match(/^(\s*)/) || ["", ""])[1].length;
 
-    // 1. Клиентские ошибки RQL / YAML — они сами проставляют line
-    if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0) {
-        return issue.line;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+        const l = lines[i];
+        if (!l || !l.trim() || l.trim().startsWith("#")) continue;
+        const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind < dashIndent) break;             // вышли из item
+        if (/^\s*-\s+\S/.test(l) && ind === dashIndent) break; // следующий item
+        const m = l.match(new RegExp(`^\\s*(?:-\\s+)?${field}\\s*:`));
+        if (m) return i + 1;
     }
+    return null;
+}
+
+function findIssueLine(
+    issue: any,
+    lineMap: LineMap | null,
+): number | null {
+    // 1. Если уже резолвили (в domainIssues) — отдаем готовое
+    if (typeof issue.__resolvedLine === "number" && issue.__resolvedLine > 0)
+        return issue.__resolvedLine;
+    if (typeof issue.__preResolvedLine === "number" && issue.__preResolvedLine > 0)
+        return issue.__preResolvedLine;
+    if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0)
+        return issue.line;
 
     if (!lineMap) return null;
 
-    // 2. Поиск по propertyPath (если есть)
+    // 2. Быстрый фоллбэк для случаев, когда issue не проходил через domainIssues
     if (issue.propertyPath) {
-        const path = issue.propertyPath;
-
-        // 2a. entities — единый резолвер (entity + attr с camelCase-фоллбэком)
-        const entityMatch = path.match(/entities\[([^\]]+)\]/);
-        if (entityMatch) {
-            const entityId = entityMatch[1];
-            const attrMatch = path.match(/attributes\[([^\]]+)\]/);
-            const line = resolveEntityOrAttributeLine(
-                lineMap,
-                entityId,
-                attrMatch ? attrMatch[1] : null,
-            );
-            if (line != null) return line;
-
-            // если атрибут не нашли — не падаем на строку сущности:
-            // лучше не рисовать маркер, чем рисовать его не там.
-            if (attrMatch) return null;
-
-            // fallback на itemLines (регистр как в YAML)
-            const fallback = lineMap.itemLines.get(`entities#${entityId}`);
-            if (fallback != null) return fallback;
-        }
-
-        // 2b. Вложенные пути: views[x].widgets[y], views[x].table.columns[c],
-        //     linkages[x].attributes[a] и т.п.
-        const nested = findNestedPathLine(lineMap, path);
-        if (nested != null) return nested;
-
-        // 2c. Fallback: top-level <section>[id]
-        const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
+        const sectionItemMatch = issue.propertyPath.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
         if (sectionItemMatch) {
             const line = lineMap.itemLines.get(
                 `${sectionItemMatch[1]}#${sectionItemMatch[2]}`,
@@ -9152,36 +9149,20 @@ function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
         }
     }
 
-    // 3. Поиск по entityFqid — единый резолвер с camelCase-фоллбэком
     if (issue.entityFqid) {
         const entityId = issue.entityFqid.split("/")[1];
-        if (!entityId) return null;
-
-        const line = resolveEntityOrAttributeLine(
-            lineMap,
-            entityId,
-            issue.attributeId ?? null,
-        );
-        if (line != null) return line;
-
-        // Если атрибут задан, но не найден — null (не «уезжаем» на сущность).
-        // Если атрибута нет — вернули бы line сущности из helper'а выше.
-        if (issue.attributeId) return null;
+        if (entityId) {
+            const line = resolveEntityOrAttributeLine(
+                lineMap, entityId, issue.attributeId ?? null,
+            );
+            if (line != null) return line;
+        }
     }
 
-    // 4. Фоллбэк по секции
-    const sectionMatch = (issue.propertyPath || '').match(/^([a-zA-Z]+)/);
-    if (sectionMatch) {
-        const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
-        if (sec) return sec.line;
-    }
     return null;
 }
 
-// ============ Issues ============
-
 // ============ Issues panel helpers ============
-
 function getIssueSource(issue: any): {
     id: "yaml" | "rql" | "lint";
     label: string;
@@ -12209,3 +12190,810 @@ const BacklinksPanel = React.memo(function BacklinksPanel({
         </div>
     );
 });
+/**
+ * Извлекает имя атрибута, на который жалуется issue:
+ *   `attributes[].attribute = "artifactsOfAttack" не найден…`
+ *   `attribute «category»`
+ *   `attribute: category`
+ * Сначала пробуем attributeId (если линтер его проставляет),
+ * иначе — regex по message.
+ */
+function extractDataRuleTargetAttribute(issue: any): string | null {
+    if (typeof issue.attributeId === "string" && issue.attributeId) {
+        return issue.attributeId;
+    }
+    const msg = String(issue.message || "");
+    const patterns: RegExp[] = [
+        /attributes(?:\[[^\]]*\])?\.attribute\s*=\s*["']([^"']+)["']/i,
+        /attribute\s*=\s*["']([^"']+)["']/i,
+        /attribute\s+[«"']([^«»"'`]+)[»"']/i,
+        /attribute\s*:\s*["']?([^\s"'`,#]+)/i,
+    ];
+    for (const p of patterns) {
+        const m = msg.match(p);
+        if (m && m[1]) return m[1];
+    }
+    return null;
+}
+
+function extractDataRuleTargetLinkage(issue: any): string | null {
+    // Message — самый надёжный источник: линтер пишет
+    // `linkages[].linkage = "…"` явно, в т.ч. с FQID.
+    const msg = String(issue.message || "");
+    const patterns: RegExp[] = [
+        /linkages(?:\[[^\]]*\])?\.linkage\s*=\s*["']([^"']+)["']/i,
+        /linkage\s*=\s*["']([^"']+)["']/i,
+        /linkage\s+[«"']([^«»"'`]+)[»"']/i,
+    ];
+    for (const p of patterns) {
+        const m = msg.match(p);
+        if (m && m[1]) return m[1];
+    }
+    if (typeof issue.attributeId === "string" && issue.attributeId) {
+        return issue.attributeId;
+    }
+    return null;
+}
+
+/**
+ * Резолвит строку конкретного `- attribute: X` внутри
+ * `dataRules[X].rule.attributes[]`.
+ *
+ * Стратегия: от `- id: dataRuleId` идём до `rule:` (первый),
+ * в нём — до `attributes:` (первый), в нём — по items.
+ * Приоритет выбора: attrName из message > index из propertyPath.
+ * Если ни то, ни другое — null (лучше не рисовать, чем рисовать не там).
+ */
+function findDataRuleRuleAttributeLine(
+    content: string,
+    lineMap: LineMap,
+    dataRuleId: string,
+    attrName: string | null,
+    index: number,
+): number | null {
+    const section = lineMap.sections.find((s) => s.key === "dataRules");
+    if (!section) return null;
+
+    const nodeIdx = section.nodes.findIndex((n) => n.id === dataRuleId);
+    if (nodeIdx < 0) return null;
+
+    const node = section.nodes[nodeIdx];
+    const nextNode = section.nodes[nodeIdx + 1];
+    const endLine = nextNode
+        ? nextNode.line - 1
+        : section.line + section.linesCount - 1;
+
+    const lines = content.split("\n");
+    const lastLine = Math.min(endLine, lines.length);
+    const startIdx = node.line - 1; // 0-based
+
+    // 1. `rule:` — первый после `- id:`
+    let ruleLine = -1;
+    let ruleIndent = -1;
+    for (let i = startIdx + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line || !line.trim()) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        const m = line.match(/^(\s*)rule\s*:\s*(?:#.*)?$/);
+        if (m) {
+            ruleLine = i;
+            ruleIndent = m[1].length;
+            break;
+        }
+    }
+    if (ruleLine < 0) return null;
+
+    // 2. `attributes:` внутри `rule:` (первый на indent > ruleIndent)
+    let attrLine = -1;
+    let attrIndent = -1;
+    for (let i = ruleLine + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line || !line.trim()) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= ruleIndent) break;
+        const m = line.match(/^(\s*)attributes\s*:\s*(?:#.*)?$/);
+        if (m) {
+            attrLine = i;
+            attrIndent = m[1].length;
+            break;
+        }
+    }
+    if (attrLine < 0) return null;
+
+    // 3. Собираем items вида `- attribute: X`
+    const items: Array<{ startLine: number; attrValue: string | null }> = [];
+    let itemIndent = -1;
+    for (let i = attrLine + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line || !line.trim()) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= attrIndent) break;
+
+        const dashM = line.match(/^(\s*)-\s+\S/);
+        if (!dashM) continue;
+        if (itemIndent < 0) itemIndent = dashM[1].length;
+        if (dashM[1].length !== itemIndent) continue;
+
+        // Извлекаем attribute: <value> внутри этого item
+        let attrValue: string | null = null;
+        for (let j = i; j < lastLine; j++) {
+            const jLine = lines[j];
+            if (!jLine || !jLine.trim()) continue;
+            const jInd = (jLine.match(/^(\s*)/) || ["", ""])[1].length;
+            if (j > i && jInd <= attrIndent) break;
+            if (j > i && jInd < itemIndent) break;
+            const am = jLine.match(
+                /^\s*(?:-\s+)?attribute\s*:\s*["']?([^\s"'#]+)["']?/,
+            );
+            if (am) {
+                attrValue = am[1];
+                break;
+            }
+        }
+        items.push({ startLine: i + 1, attrValue });
+    }
+
+    // 4. Приоритет: attrName (из message) > index (из path)
+    if (attrName) {
+        const found = items.find((it) => it.attrValue === attrName);
+        if (found) return found.startLine;
+    }
+    if (index >= 0 && index < items.length) {
+        return items[index].startLine;
+    }
+    return null;
+}
+/** Локальная часть FQID (или самого значения), lowercase. Для сравнения ref'ов. */
+function normalizeRefName(s: unknown): string {
+    const t = String(s ?? "").trim();
+    if (!t) return "";
+    const slash = t.lastIndexOf("/");
+    return (slash >= 0 ? t.slice(slash + 1) : t).toLowerCase();
+}
+
+/**
+ * Резолвит строку конкретного `- <childKey>: X` внутри
+ * `dataRules[X].rule.<containerName>[]`.
+ *
+ * lineMap не содержит такие items (это не `- id:`-ноды), поэтому
+ * findNestedPathLine / sectionItemMatch возвращают строку dataRule —
+ * все issues правила получают маркер на его id. Резолвим по содержимому.
+ *
+ * Приоритет: targetValue (по нормализованному локальному id) > index.
+ */
+function findDataRuleRuleChildLine(
+    lines: string[],
+    lineMap: LineMap,
+    dataRuleId: string,
+    containerName: "attributes" | "linkages",
+    childKey: "attribute" | "linkage",
+    targetValue: string | null,
+    index: number,
+): number | null {
+    const section = lineMap.sections.find((s) => s.key === "dataRules");
+    if (!section) return null;
+
+    const nodeIdx = section.nodes.findIndex((n) => n.id === dataRuleId);
+    if (nodeIdx < 0) return null;
+
+    const node = section.nodes[nodeIdx];
+    const nextNode = section.nodes[nodeIdx + 1];
+    const endLine = nextNode
+        ? nextNode.line - 1
+        : section.line + section.linesCount - 1;
+
+    const lastLine = Math.min(endLine, lines.length);
+    const startIdx = node.line - 1;
+
+    // 1. `rule:` — первый после `- id:`
+    let ruleLine = -1;
+    let ruleIndent = -1;
+    for (let i = startIdx + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        const m = line.match(/^(\s*)rule\s*:\s*(?:#.*)?$/);
+        if (m) {
+            ruleLine = i;
+            ruleIndent = m[1].length;
+            break;
+        }
+    }
+    if (ruleLine < 0) return null;
+
+    // 2. `<containerName>:` внутри `rule:`
+    let containerLine = -1;
+    let containerIndent = -1;
+    const containerRe = new RegExp(
+        `^(\\s*)${containerName}\\s*:\\s*(?:#.*)?$`,
+    );
+    for (let i = ruleLine + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= ruleIndent) break;
+        const m = line.match(containerRe);
+        if (m) {
+            containerLine = i;
+            containerIndent = m[1].length;
+            break;
+        }
+    }
+    if (containerLine < 0) return null;
+
+    // 3. items `- <childKey>: X` (пропускаем `#- ...`)
+    const items: Array<{ startLine: number; value: string | null }> = [];
+    const valueRe = new RegExp(
+        `^\\s*(?:-\\s+)?${childKey}\\s*:\\s*["']?([^\\s"'#]+)["']?`,
+    );
+    let itemIndent = -1;
+
+    for (let i = containerLine + 1; i < lastLine; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= containerIndent) break;
+
+        const dashM = line.match(/^(\s*)-\s+\S/);
+        if (!dashM) continue;
+        if (itemIndent < 0) itemIndent = dashM[1].length;
+        if (dashM[1].length !== itemIndent) continue;
+
+        let value: string | null = null;
+        for (let j = i; j < lastLine; j++) {
+            const jLine = lines[j];
+            if (!jLine || !jLine.trim()) continue;
+            if (j > i && jLine.trim().startsWith("#")) continue;
+            const jInd = (jLine.match(/^(\s*)/) || ["", ""])[1].length;
+            if (j > i && jInd <= containerIndent) break;
+            if (j > i && jInd < itemIndent) break;
+            const am = jLine.match(valueRe);
+            if (am) {
+                value = am[1];
+                break;
+            }
+        }
+        items.push({ startLine: i + 1, value });
+    }
+
+    // 4. Приоритет: targetValue (нормализованно) > index
+    if (targetValue) {
+        const needle = normalizeRefName(targetValue);
+        if (needle) {
+            const found = items.find(
+                (it) => it.value && normalizeRefName(it.value) === needle,
+            );
+            if (found) return found.startLine;
+        }
+    }
+    if (index >= 0 && index < items.length) {
+        return items[index].startLine;
+    }
+    return null;
+}
+
+/**
+ * Резолвит строку поля внутри `exchangeSettings`:
+ *   exchangeSettings.<field>                       → top-level
+ *   exchangeSettings.entities[<Id>].<field>        → в блоке сущности
+ *   exchangeSettings.entities.<Id>.<field>         → тоже (dot-нотация)
+ *
+ * lineMap не разбирает entities[Id], поэтому идём по тексту: от
+ * заголовка exchangeSettings → entities → <Id> → <field>.
+ * Уровни отступов считаем от заголовка — работает и если секция
+ * окажется вложенной.
+ */
+function findExchangeSettingsFieldLine(
+    lines: string[],
+    lineMap: LineMap,
+    propertyPath: string,
+): number | null {
+    const section = lineMap.sections.find((s) => s.key === "exchangeSettings");
+    if (!section) return null;
+
+    const endIdx = Math.min(
+        section.line + section.linesCount - 1,
+        lines.length,
+    );
+    const startIdx = section.line - 1;
+
+    const headerLine = lines[startIdx] || "";
+    const headerIndent = (headerLine.match(/^(\s*)/) || ["", ""])[1].length;
+    const lvl1 = headerIndent + 2; // enable, entities
+    const lvl2 = headerIndent + 4; // <EntityId>:
+    const lvl3 = headerIndent + 6; // ignoreAttributes: …
+
+    // `entities[Incident]` или `entities.Incident`
+    const entityMatch = propertyPath.match(/entities[\.\[]([^\]\.]+)\]?/);
+    const entityId = entityMatch ? entityMatch[1] : null;
+
+    // `<field>` — последний сегмент
+    const lastDot = propertyPath.lastIndexOf(".");
+    const field = lastDot >= 0 ? propertyPath.slice(lastDot + 1) : "";
+    if (!field) return null;
+    const fieldRe = new RegExp(`^\\s*${field}\\s*:`);
+
+    // ── Top-level (без entities) ──
+    if (!entityId) {
+        for (let i = startIdx + 1; i < endIdx; i++) {
+            const line = lines[i];
+            if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+            if (ind !== lvl1) continue;
+            if (fieldRe.test(line)) return i + 1;
+        }
+        return null;
+    }
+
+    // ── entities: на lvl1 ──
+    let entitiesLine = -1;
+    for (let i = startIdx + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind !== lvl1) continue;
+        if (/^\s*entities\s*:\s*(?:#.*)?$/.test(line)) {
+            entitiesLine = i;
+            break;
+        }
+    }
+    if (entitiesLine < 0) return null;
+
+    // ── <EntityId>: на lvl2 (не dash-item, а map-key) ──
+    let entityLine = -1;
+    for (let i = entitiesLine + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= lvl1) break; // вышли из entities
+        if (ind !== lvl2) continue;
+        const m = line.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
+        if (!m) continue;
+        if (m[1].toLowerCase() === entityId.toLowerCase()) {
+            entityLine = i;
+            break;
+        }
+    }
+    if (entityLine < 0) return null;
+
+    // ── <field>: на lvl3 внутри <EntityId> ──
+    for (let i = entityLine + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= lvl2) break;
+        if (ind !== lvl3) continue;
+        if (fieldRe.test(line)) return i + 1;
+    }
+    return null;
+}
+type WidgetSelector =
+    | { kind: "field" }
+    | { kind: "columnByIndex"; index: number }
+    | { kind: "columnById"; id: string }
+    | { kind: "columnByAttribute"; attribute: string };
+
+interface ParsedWidgetPath {
+    viewId: string;
+    widgetId: string;
+    selector: WidgetSelector;
+    fieldName: string;
+}
+
+function parseWidgetIssuePath(path: string): ParsedWidgetPath | null {
+    const vw = path.match(/^views\[([^\]]+)\]\.widgets\[([^\]]+)\](.*)$/);
+    if (!vw) return null;
+    const viewId = vw[1];
+    const widgetId = vw[2];
+    const tail = vw[3];
+
+    // (A) .control.columns[N|id|].<field>
+    const colWithField = tail.match(
+        /\.control\.columns(?:\[([^\]]*)\])?\.([a-zA-Z_]\w*)$/,
+    );
+    if (colWithField) {
+        const inner = colWithField[1]; // undefined | "" | "2" | "typeID"
+        const fieldName = colWithField[2];
+        const sel = resolveColSelector(inner);
+        return { viewId, widgetId, selector: sel, fieldName };
+    }
+
+    // (B) .control.columns[N|id|] — target сам столбец, без trailing .attribute
+    const colOnly = tail.match(/\.control\.columns(?:\[([^\]]*)\])?$/);
+    if (colOnly) {
+        const inner = colOnly[1];
+        const sel = resolveColSelector(inner);
+        return { viewId, widgetId, selector: sel, fieldName: "" };
+    }
+
+    // (C) прямое поле widget (.side, .type, ...)
+    const fM = tail.match(/^\.([a-zA-Z_]\w*)$/);
+    if (fM) {
+        return { viewId, widgetId, selector: { kind: "field" }, fieldName: fM[1] };
+    }
+    return null;
+}
+
+function resolveColSelector(inner: string | undefined): WidgetSelector {
+    if (inner === undefined || inner === "") {
+        // пустые скобки (columns[]) или колонки без индекса — резолвим по message
+        return { kind: "columnByAttribute", attribute: "" };
+    }
+    if (/^\d+$/.test(inner)) {
+        return { kind: "columnByIndex", index: parseInt(inner, 10) };
+    }
+    return { kind: "columnById", id: inner };
+}
+
+function extractWidgetColumnAttributeName(issue: any): string | null {
+    const msg = String(issue.message || "");
+    const patterns: RegExp[] = [
+        /attribute\s+[«"']([^«»"'`]+)[»"']/i,
+        /attribute\s*=\s*["']([^"']+)["']/i,
+        /attribute\s*:\s*["']?([^\s"'`,#]+)/i,
+    ];
+    for (const p of patterns) {
+        const m = msg.match(p);
+        if (m && m[1]) return m[1];
+    }
+    return null;
+}
+
+/**
+ * Резолвит строку внутри widget-блока:
+ *   selector.kind = "field"              → fieldName: прямое поле widget (side/type/linkage/...)
+ *   columnByIndex / columnById           → columns[N|colId].<fieldName>
+ *   columnByAttribute                    → конкретный columns[?].attribute, где attribute == value
+ *
+ * findNestedPathLine возвращает строку widget для всех этих случаев — здесь
+ * доходим до конкретного поля/колонки.
+ */
+function findWidgetFieldLine(
+    lines: string[],
+    lineMap: LineMap,
+    viewId: string,
+    widgetId: string,
+    selector: WidgetSelector,
+    fieldName: string,
+): number | null {
+    const section = lineMap.sections.find((s) => s.key === "views");
+    if (!section) return null;
+
+    const viewNode = findViewNodeDeep(section, viewId);
+    if (!viewNode) return null;
+    const widgetNode = findWidgetDeep(viewNode, widgetId);
+    if (!widgetNode) return null;
+
+    const startIdx = widgetNode.line - 1;
+    const startLine = lines[startIdx];
+    if (!startLine) return null;
+
+    const dashIndent = (startLine.match(/^(\s*)/) || ["", ""])[1].length;
+    const fieldIndent = dashIndent + 2;
+
+    let endIdx = lines.length;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind < dashIndent) { endIdx = i; break; }
+        const dash = line.match(/^(\s*)-\s+\S/);
+        if (dash && dash[1].length === dashIndent) { endIdx = i; break; }
+    }
+
+    // ── (A) Прямое поле widget ─────────────────────────────────────
+    if (selector.kind === "field") {
+        const re = new RegExp(`^\\s*${fieldName}\\s*:`);
+        for (let i = startIdx + 1; i < endIdx; i++) {
+            const line = lines[i];
+            if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+            if (ind !== fieldIndent) continue;
+            if (re.test(line)) return i + 1;
+        }
+        return null;
+    }
+
+    // ── (B) control.columns[…]… ───────────────────────────────────
+    // 1. control:
+    let controlLine = -1;
+    for (let i = startIdx + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind !== fieldIndent) continue;
+        if (/^\s*control\s*:\s*(?:#.*)?$/.test(line)) {
+            controlLine = i;
+            break;
+        }
+    }
+    if (controlLine < 0) return null;
+
+    // 2. columns: внутри control
+    let columnsLine = -1;
+    let columnsIndent = -1;
+    for (let i = controlLine + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= fieldIndent) break;
+        if (/^\s*columns\s*:\s*(?:#.*)?$/.test(line)) {
+            columnsLine = i;
+            columnsIndent = ind;
+            break;
+        }
+    }
+    if (columnsLine < 0) return null;
+
+    // 3. items `- id: X` под columns
+    interface ColItem { startLine: number; id: string | null; attribute: string | null; attributeLine: number | null }
+    const items: ColItem[] = [];
+    let itemIndent = -1;
+
+    for (let i = columnsLine + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= columnsIndent) break;
+        const dash = line.match(/^(\s*)-\s+\S/);
+        if (!dash) continue;
+        if (itemIndent < 0) itemIndent = dash[1].length;
+        if (dash[1].length !== itemIndent) continue;
+
+        const colFieldIndent = itemIndent + 2;
+        let id: string | null = null;
+        let attribute: string | null = null;
+        let attributeLine: number | null = null;
+
+        for (let j = i; j < endIdx; j++) {
+            const jLine = lines[j];
+            if (!jLine || !jLine.trim()) continue;
+            if (j > i && jLine.trim().startsWith("#")) continue;
+            const jInd = (jLine.match(/^(\s*)/) || ["", ""])[1].length;
+            if (j > i && jInd <= columnsIndent) break;
+            if (j > i && jInd < itemIndent) break;
+            // первый id: и первый attribute: внутри колонки (на любом indent > columnsIndent)
+            if (id === null) {
+                const im = jLine.match(/^\s*(?:-\s+)?id\s*:\s*["']?([^\s"'#]+)["']?/);
+                // `id` бывает двух форм:
+                //   - id: <X>          (колонка начинается с id — itemIndent + 2)
+                //   - - id: <X>        (колонка начинается с другого поля, id ниже)
+                //                     но часто пишут как `- id: X` — dash-строка, indent = itemIndent
+                if (im && (jInd === itemIndent || jInd >= colFieldIndent)) id = im[1];
+            }
+            if (attribute === null) {
+                const am = jLine.match(/^\s*(?:-\s+)?attribute\s*:\s*["']?([^\s"'#]+)["']?/);
+                if (am && jInd >= colFieldIndent) {
+                    attribute = am[1];
+                    attributeLine = j + 1;
+                }
+            }
+        }
+        items.push({ startLine: i + 1, id, attribute, attributeLine });
+    }
+
+    // 4. Выбор колонки
+    let chosen: ColItem | null = null;
+    if (selector.kind === "columnByIndex") {
+        if (selector.index >= 0 && selector.index < items.length) chosen = items[selector.index];
+    } else if (selector.kind === "columnById") {
+        const needle = selector.id.toLowerCase();
+        chosen = items.find((it) => it.id && it.id.toLowerCase() === needle) || null;
+    } else { // columnByAttribute
+        const needle = normalizeRefName(selector.attribute);
+        if (needle) {
+            chosen = items.find((it) => it.attribute && normalizeRefName(it.attribute) === needle) || null;
+        }
+    }
+    
+    if (!chosen) return null;
+
+    if (fieldName === "") {
+        return chosen.startLine;
+    }
+
+    if (fieldName === "attribute") {
+        return chosen.attributeLine ?? chosen.startLine;
+    }
+
+    // 5. Если это attr-issue — нужна именно строка attribute: (даже если
+    //    fieldName = "attribute"). Для byAttribute — сразу готово.
+    if (fieldName === "attribute" && chosen.attributeLine != null) {
+        return chosen.attributeLine;
+    }
+
+    if (fieldName === "") return chosen.startLine;
+
+    // 6. Иначе — искать <fieldName>: внутри выбранной колонки
+    const colStartIdx = chosen.startLine - 1;
+    let colEnd = endIdx;
+    for (let i = colStartIdx + 1; i < endIdx; i++) {
+        const line = lines[i];
+        if (!line || !line.trim()) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= columnsIndent) { colEnd = i; break; }
+        const dash = line.match(/^(\s*)-\s+\S/);
+        if (dash && dash[1].length === itemIndent) { colEnd = i; break; }
+    }
+
+    const colFieldIndent = itemIndent + 2;
+    const re = new RegExp(`^\\s*${fieldName}\\s*:`);
+    for (let i = colStartIdx + 1; i < colEnd; i++) {
+        const line = lines[i];
+        if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind !== colFieldIndent) continue;
+        if (re.test(line)) return i + 1;
+    }
+    return null;
+}
+
+function findViewNodeDeep(section: SectionBlock, viewId: string): NavNode | null {
+    const stack: NavNode[] = [...section.nodes];
+    while (stack.length > 0) {
+        const n = stack.pop()!;
+        if (n.id === viewId) return n;
+        if (n.children) stack.push(...n.children);
+    }
+    return null;
+}
+
+function findWidgetDeep(viewNode: NavNode, widgetId: string): NavNode | null {
+    const stack: NavNode[] = [...(viewNode.children || [])];
+    while (stack.length > 0) {
+        const n = stack.pop()!;
+        if (n.id === widgetId && n.type === "widget") return n;
+        if (n.children) stack.push(...n.children);
+    }
+    return null;
+}
+
+function resolveIssueLine(
+    issue: any,
+    lineMap: LineMap,
+    lines: string[],
+    index: ModelIndex | null,
+    domainId: string,
+): number | null {
+    if (typeof issue.__preResolvedLine === "number" && issue.__preResolvedLine > 0)
+        return issue.__preResolvedLine;
+    if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0)
+        return issue.line;
+
+    const path = issue.propertyPath || "";
+
+    // 1. view/filter-linked-entity-attribute-unknown
+    if (
+        issue.ruleId === "view/filter-linked-entity-attribute-unknown" ||
+        /linkedEntity\[/.test(path)
+    ) {
+        const line = findLinkedEntityAttributeLine(lines, lineMap, issue, index, domainId);
+        if (line != null) return line;
+    }
+
+    // 2. dataRules[X].(rule.)?<container>[N].<childKey>
+    if (path && !path.includes(".nested.")) {
+        const drMatch = path.match(/^dataRules\[([^\]]+)\]/);
+        if (drMatch) {
+            const drId = drMatch[1];
+            const isAttr =
+                issue.ruleId === "dataRule/attribute-action-unknown" ||
+                /^dataRules\[[^\]]+\]\.(?:rule\.)?attributes\b/.test(path);
+
+            const isLnk =
+                issue.ruleId === "dataRule/linkage-side-required" ||
+                /^dataRules\[[^\]]+\]\.(?:rule\.)?linkages\b/.test(path);
+
+            if (isAttr) {
+                const idxM = path.match(/\.attributes\[(\d+)\]/);
+                const idx = idxM ? parseInt(idxM[1], 10) : -1;
+                const line = findDataRuleRuleChildLine(
+                    lines, lineMap, drId, "attributes", "attribute",
+                    extractDataRuleTargetAttribute(issue), idx,
+                );
+                if (line != null) return line;
+            }
+
+            if (isLnk) {
+                const idxM = path.match(/\.linkages\[(\d+)\]/);
+                const idx = idxM ? parseInt(idxM[1], 10) : -1;
+                const line = findDataRuleRuleChildLine(
+                    lines, lineMap, drId, "linkages", "linkage",
+                    extractDataRuleTargetLinkage(issue), idx,
+                );
+                if (line != null) return line;
+            }
+        }
+    }
+
+    // 3. exchangeSettings.*
+    if (path && /^exchangeSettings\./.test(path)) {
+        const line = findExchangeSettingsFieldLine(lines, lineMap, path);
+        if (line != null) return line;
+    }
+
+    // 4. views[V].widgets[W].<field> | .control.columns[…].<field>
+    if (path) {
+        const parsed = parseWidgetIssuePath(path);
+        if (parsed) {
+            let selector = parsed.selector;
+            if (selector.kind === "columnByAttribute" && selector.attribute === "") {
+                const val = extractWidgetColumnAttributeName(issue);
+                selector = val
+                    ? { kind: "columnByAttribute", attribute: val }
+                    : { kind: "field" };
+            }
+            const line = findWidgetFieldLine(
+                lines, lineMap, parsed.viewId, parsed.widgetId, selector, parsed.fieldName,
+            );
+            if (line != null) return line;
+        }
+    }
+
+    // 5. entities[Id]
+    if (path) {
+        const entityMatch = path.match(/entities\[([^\]]+)\]/);
+        if (entityMatch) {
+            const entityId = entityMatch[1];
+            const attrMatch = path.match(/attributes\[([^\]]+)\]/);
+            const line = resolveEntityOrAttributeLine(
+                lineMap, entityId, attrMatch ? attrMatch[1] : null,
+            );
+            if (line != null) return line;
+            if (attrMatch) return null;
+            const fallback = lineMap.itemLines.get(`entities#${entityId}`);
+            if (fallback != null) return fallback;
+        }
+    }
+
+    // 6. nested paths
+    const nested = findNestedPathLine(lineMap, path);
+    if (nested != null) return nested;
+
+    // 7. leafField / findFieldInItemBlock
+    if (path) {
+        const leafField = path.match(/^([a-zA-Z][\w]*)\.\[?([^\]]+)\]\.([a-zA-Z_]\w*)$/);
+        const leafField2 = path.match(/^([a-zA-Z][\w]*)\[([^\]]+)\]\.([a-zA-Z_]\w*)$/);
+        const m2 = leafField2 ?? leafField;
+        if (m2) {
+            const [, sectionKey, itemId, field] = m2;
+            const itemLine = lineMap.itemLines.get(`${sectionKey}#${itemId}`);
+            if (itemLine != null) {
+                const fieldLine = findFieldInItemBlock(lines, itemLine, field);
+                if (fieldLine != null) return fieldLine;
+                return itemLine;
+            }
+        }
+    }
+
+    // 8. sectionItemMatch
+    if (path) {
+        const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
+        if (sectionItemMatch) {
+            const line = lineMap.itemLines.get(
+                `${sectionItemMatch[1]}#${sectionItemMatch[2]}`,
+            );
+            if (line != null) return line;
+        }
+    }
+
+    // 9. entityFqid
+    if (issue.entityFqid) {
+        const entityId = issue.entityFqid.split("/")[1];
+        if (!entityId) return null;
+        const line = resolveEntityOrAttributeLine(
+            lineMap, entityId, issue.attributeId ?? null,
+        );
+        if (line != null) return line;
+        if (issue.attributeId) return null;
+    }
+
+    // 10. sectionMatch
+    const sectionMatch = path.match(/^([a-zA-Z]+)/);
+    if (sectionMatch) {
+        const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
+        if (sec) return sec.line;
+    }
+
+    return null;
+}

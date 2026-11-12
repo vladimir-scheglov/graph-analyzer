@@ -43022,6 +43022,56 @@ function buildLineMap(text, schema2) {
       }
       return;
     }
+    if (key === "exchangeSettings") {
+      const headerLine = start + 1;
+      let keyIndent = -1;
+      for (let i2 = start + 1; i2 < end; i2++) {
+        const line = lines[i2];
+        if (!line.trim() || line.trim().startsWith("#"))
+          continue;
+        const m = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:/);
+        if (m) {
+          keyIndent = m[1].length;
+          break;
+        }
+      }
+      const children = [];
+      if (keyIndent >= 0) {
+        for (let i2 = start + 1; i2 < end; i2++) {
+          const line = lines[i2];
+          if (!line.trim() || line.trim().startsWith("#"))
+            continue;
+          const m = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:/);
+          if (!m)
+            continue;
+          if (m[1].length !== keyIndent)
+            continue;
+          children.push({
+            id: m[2],
+            label: m[2],
+            line: i2 + 1,
+            type: "exchangeSettingsField"
+          });
+        }
+      }
+      const rootNode = {
+        id: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
+        label: "exchangeSettings",
+        line: headerLine,
+        type: "exchangeSettings",
+        children: children.length > 0 ? children : void 0
+      };
+      sections.push({
+        key,
+        label: SECTION_LABELS2[key] || key,
+        line: headerLine,
+        count: 1,
+        linesCount: end - start,
+        nodes: [rootNode]
+      });
+      itemLines.set(`exchangeSettings#\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438`, headerLine);
+      return;
+    }
     if (key === "transitiveLinkages") {
       const nodes2 = parseTransitiveSection(lines, start, end);
       if (nodes2.length > 0) {
@@ -47724,13 +47774,13 @@ function checkSpecialViews(ctx2) {
               domainId,
               propertyPath: `views[${viewId}].tabs`
             });
-          } else if (t !== "list") {
+          } else if (t !== "list" && t !== "tree") {
             emit(ctx2, {
               ruleId: "view/tabs-list-view-type",
               severity: "warning",
               category: "semantic",
               rule: "tabs_list.tabs[].view \u2014 list",
-              message: `View \xAB${viewId}\xBB: tabs[].view \xAB${tabId}\xBB \u0438\u043C\u0435\u0435\u0442 \u0442\u0438\u043F \xAB${t}\xBB, \u043E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F list`,
+              message: `View \xAB${viewId}\xBB: tabs[].view \xAB${tabId}\xBB \u0438\u043C\u0435\u0435\u0442 \u0442\u0438\u043F \xAB${t}\xBB, \u043E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F list | tree`,
               domainId,
               propertyPath: `views[${viewId}].tabs`
             });
@@ -50115,6 +50165,18 @@ function checkTreeHierarchy(ctx2, tree, entityByFqid, linkageByFqid) {
         }
         continue;
       }
+      if (linkage.type !== "1_n" && linkage.type !== "n_n") {
+        emit(ctx2, {
+          ruleId: "tree/children-linkage-type-invalid",
+          severity: "error",
+          category: "semantic",
+          rule: "linkage.type \u0432 \u0434\u0435\u0440\u0435\u0432\u0435 \u2014 1_n \u0438\u043B\u0438 n_n",
+          message: `\u0434\u0435\u0440\u0435\u0432\u043E \xAB${tree.id}\xBB, ${path}: linkage "${child.linkage}" \u0438\u043C\u0435\u0435\u0442 type "${linkage.type}"`,
+          hint: "1_1 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0451\u0442 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u044E \u2014 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 1_n \u0438\u043B\u0438 n_n",
+          domainId: tree.domainId,
+          propertyPath: path + ".linkage"
+        });
+      }
       if (linkage.type === "n_n" && linkage.undirected) {
         emit(ctx2, {
           ruleId: "tree/children-undirected-nn",
@@ -50157,7 +50219,7 @@ function checkTreeHierarchy(ctx2, tree, entityByFqid, linkageByFqid) {
             category: "semantic",
             rule: "linkage \u0441\u043E\u0435\u0434\u0438\u043D\u044F\u0435\u0442 parent \u0438 child",
             message: `\u0434\u0435\u0440\u0435\u0432\u043E \xAB${tree.id}\xBB, ${path}: linkage "${child.linkage}" (side1=${linkage.side1Fqid}, side2=${linkage.side2Fqid}) \u043D\u0435 \u0441\u0432\u044F\u0437\u044B\u0432\u0430\u0435\u0442 parent="${parentEntityFqid}" \u0438 child="${child.entity}"`,
-            hint: "parent/child \u0434\u043E\u043B\u0436\u043D\u044B \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0442\u044C \u0441\u043E \u0441\u0442\u043E\u0440\u043E\u043D\u0430\u043C\u0438 \u0441\u0432\u044F\u0437\u0438 \u0438\u043B\u0438 \u0431\u044B\u0442\u044C \u0438\u0445 \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0430\u043C\u0438 (\u0431\u043E\u043B\u0435\u0435 \u0443\u0437\u043A\u0438\u0439 \u043A\u043B\u0430\u0441\u0441). \u041F\u0440\u0435\u0434\u043E\u043A \u0441\u0442\u043E\u0440\u043E\u043D\u044B \u0441\u0432\u044F\u0437\u0438 \u2014 \u043E\u0448\u0438\u0431\u043A\u0430.",
+            hint: "linkage \u0434\u043E\u043B\u0436\u0435\u043D \u0438\u043C\u0435\u0442\u044C parent \u0438 child \u0445\u043E\u0442\u044F \u0431\u044B \u0441 \u043E\u0434\u043D\u043E\u0439 \u0441\u0442\u043E\u0440\u043E\u043D\u044B (\u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F: \u0441\u0442\u043E\u0440\u043E\u043D\u0430 linkage \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u043F\u0440\u0435\u0434\u043A\u043E\u043C, \u043D\u043E \u043D\u0435 \u043F\u043E\u0442\u043E\u043C\u043A\u043E\u043C)",
             domainId: tree.domainId,
             propertyPath: path + ".linkage"
           });
@@ -50174,6 +50236,18 @@ function checkTreeHierarchy(ctx2, tree, entityByFqid, linkageByFqid) {
               propertyPath: path + ".side"
             });
           }
+        }
+        if (linkage.type === "1_n" && parentMatchesSide2 && childMatchesSide1) {
+          emit(ctx2, {
+            ruleId: "tree/children-inverted-1n",
+            severity: "warning",
+            category: "semantic",
+            rule: "1_n: parent \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 1 (one), child \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 2 (many)",
+            message: `\u0434\u0435\u0440\u0435\u0432\u043E \xAB${tree.id}\xBB, ${path}: linkage "${child.linkage}" \u0438\u043C\u0435\u0435\u0442 parent \xAB${parentEntityFqid}\xBB \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 2 (many) \u0438 child \xAB${child.entity}\xBB \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 1 (one)`,
+            hint: "\u0414\u043B\u044F \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 1_n parent \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 1",
+            domainId: tree.domainId,
+            propertyPath: path + ".linkage"
+          });
         }
       }
       if (child.maxInstances !== void 0 && child.maxInstances < 1) {
@@ -53575,6 +53649,114 @@ function buildAttributeHoverMarkdown(entity, attribute, index) {
   lines.push("_Ctrl+Click \u2192 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E_");
   return lines.join("\n");
 }
+function buildLinkageHoverMarkdown(linkage, index) {
+  const lines = [];
+  lines.push(
+    `**${linkage.id}**${linkage.name && linkage.name !== linkage.id ? ` \u2014 ${linkage.name}` : ""}`
+  );
+  lines.push("");
+  const dir = linkage.undirected ? "\u2194" : "\u2192";
+  lines.push(
+    `\`${linkage.type}\` \xB7 \`${linkage.side1Fqid.split("/").pop()}\` ${dir} \`${linkage.side2Fqid.split("/").pop()}\``
+  );
+  if (linkage.nameFrom?.side1 || linkage.nameFrom?.side2) {
+    lines.push("");
+    if (linkage.nameFrom.side1)
+      lines.push(`- 1 \u2192 2: \xAB${linkage.nameFrom.side1}\xBB`);
+    if (linkage.nameFrom.side2)
+      lines.push(`- 2 \u2192 1: \xAB${linkage.nameFrom.side2}\xBB`);
+  }
+  if (linkage.attributes && linkage.attributes.length > 0) {
+    lines.push("");
+    lines.push(`**\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u0432\u044F\u0437\u0438 (${linkage.attributes.length})**:`);
+    for (const a of linkage.attributes.slice(0, 8)) {
+      lines.push(
+        `- \`${a.id}\` \u2014 ${a.dataType}${a.description ? ` \xB7 ${a.description}` : ""}`
+      );
+    }
+    if (linkage.attributes.length > 8)
+      lines.push(`- \u2026\u0435\u0449\u0451 ${linkage.attributes.length - 8}`);
+  }
+  const refs = [];
+  const shortId = linkage.id.toLowerCase();
+  const matchesRef = (raw) => {
+    if (!raw)
+      return false;
+    const r = raw.toLowerCase();
+    const id = r.includes("/") ? r.split("/").pop() : r;
+    return id === shortId;
+  };
+  for (const w of index.viewWidgets || []) {
+    if (w.domainId === linkage.domainId && w.type === "linkage") {
+      if (matchesRef(w.linkage))
+        refs.push(`\u0432\u0438\u0434\u0436\u0435\u0442 \`${w.id}\` \u0432\u043E \`${w.parentViewId}\``);
+    }
+  }
+  for (const t of index.trees || []) {
+    if (t.domainId !== linkage.domainId)
+      continue;
+    const walk = (children) => {
+      if (!children)
+        return false;
+      for (const c of children) {
+        if (matchesRef(c.linkage))
+          return true;
+        if (walk(c.children))
+          return true;
+      }
+      return false;
+    };
+    if (walk(t.hierarchy.children))
+      refs.push(`\u0434\u0435\u0440\u0435\u0432\u043E \`${t.id}\``);
+  }
+  for (const tl of index.transitiveLinkages || []) {
+    if (tl.domainId !== linkage.domainId)
+      continue;
+    const walk = (joins) => {
+      if (!joins)
+        return false;
+      for (const j of joins) {
+        if (matchesRef(j.linkage))
+          return true;
+        if (walk(j.joins))
+          return true;
+      }
+      return false;
+    };
+    if (walk(tl.joins))
+      refs.push(`\u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \`${tl.id}\``);
+  }
+  for (const a of index.actions || []) {
+    if (a.domainId === linkage.domainId && matchesRef(a.linkage))
+      refs.push(`\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \`${a.id}\``);
+  }
+  for (const m of index.mixins || []) {
+    if (m.domainId === linkage.domainId && matchesRef(m.linkageFqid))
+      refs.push(`\u043F\u0440\u0438\u043C\u0435\u0441\u044C \`${m.id}\``);
+  }
+  for (const r of index.dataRules || []) {
+    if (r.domainId === linkage.domainId && matchesRef(r.linkage))
+      refs.push(`\u043F\u0440\u0430\u0432\u0438\u043B\u043E \`${r.id}\``);
+  }
+  for (const f of index.viewTableFilters || []) {
+    if (f.domainId !== linkage.domainId)
+      continue;
+    if (f.linkages.some((fl) => fl.linkage && matchesRef(fl.linkage))) {
+      refs.push(`\u0444\u0438\u043B\u044C\u0442\u0440 view \`${f.viewId}\``);
+    }
+  }
+  if (refs.length > 0) {
+    lines.push("");
+    lines.push(`**\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F (${refs.length})**:`);
+    for (const r of refs.slice(0, 8))
+      lines.push(`- ${r}`);
+    if (refs.length > 8)
+      lines.push(`- \u2026\u0435\u0449\u0451 ${refs.length - 8}`);
+  }
+  lines.push("");
+  lines.push("_Ctrl+Click \u2192 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E_");
+  return lines.join("\n");
+}
 var init_hover_impact = __esm({
   "src/web/lib/monaco/hover-impact.ts"() {
     "use strict";
@@ -53583,15 +53765,16 @@ var init_hover_impact = __esm({
 });
 
 // src/web/lib/monaco/monaco-providers.ts
-function findActionTypeForLine(lines, currentLineIdx) {
-  if (currentLineIdx < 1 || currentLineIdx > lines.length)
+function findActionTypeForModel(model, currentLineNumber) {
+  const lineCount = model.getLineCount();
+  if (currentLineNumber < 1 || currentLineNumber > lineCount)
     return null;
-  const currentLine = lines[currentLineIdx - 1];
+  const currentLine = model.getLineContent(currentLineNumber);
   const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
   let actionStart = -1;
   let actionIndent = -1;
-  for (let i = currentLineIdx - 2; i >= 0; i--) {
-    const line = lines[i];
+  for (let i = currentLineNumber - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
     if (!line || !line.trim() || line.trim().startsWith("#"))
       continue;
     const m = line.match(/^(\s*)-\s+[a-zA-Z_][\w]*\s*:/);
@@ -53602,12 +53785,12 @@ function findActionTypeForLine(lines, currentLineIdx) {
     }
     const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
     if (ind === 0 && !m)
-      break;
+      return null;
   }
   if (actionStart < 0)
     return null;
-  for (let i = actionStart + 1; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = actionStart + 1; i <= lineCount; i++) {
+    const line = model.getLineContent(i);
     if (!line || !line.trim())
       continue;
     const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54136,30 +54319,267 @@ function getCachedValueContext(model, position) {
   };
   return ctx2;
 }
-function detectValueContext(model, position) {
-  const lines = model.getValue().split("\n");
-  const lineText = lines[position.lineNumber - 1] || "";
-  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
-  let section = "";
+function detectTreeChildrenContext(model, position, currentDomain, index) {
+  if (!index)
+    return null;
+  let sectionName = "";
   for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const pl = lines[i - 1];
-    if (!pl || !pl.trim())
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
       continue;
-    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-    if (pIndent === 0) {
-      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
-      if (m) {
-        section = m[1];
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m)
+        sectionName = m[1];
+      break;
+    }
+  }
+  if (sectionName !== "trees")
+    return null;
+  const currentLine = model.getLineContent(position.lineNumber);
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+  let dashLine = -1;
+  let dashIndent = -1;
+  const currentDashM = currentLine.match(/^(\s*)-\s+\S?/);
+  if (currentDashM) {
+    dashLine = position.lineNumber;
+    dashIndent = currentDashM[1].length;
+  } else {
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const line = model.getLineContent(i);
+      if (!line.trim() || line.trim().startsWith("#"))
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind < currentIndent) {
+        const m = line.match(/^(\s*)-\s+\S/);
+        if (m) {
+          dashLine = i;
+          dashIndent = m[1].length;
+        }
         break;
       }
     }
   }
-  const dc = determineViewContainer(lines, position.lineNumber, currentIndent);
+  if (dashLine < 0)
+    return null;
+  let hierarchyIndent = -1;
+  for (let i = dashLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0)
+      break;
+    const hm = line.match(/^(\s*)hierarchy\s*:\s*$/);
+    if (hm) {
+      hierarchyIndent = hm[1].length;
+      break;
+    }
+  }
+  if (hierarchyIndent < 0)
+    return null;
+  if (dashIndent < hierarchyIndent + 4)
+    return null;
+  let parentEntityId = null;
+  const targetIndent = dashIndent - 2;
+  for (let i = dashLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < targetIndent)
+      break;
+    if (ind === targetIndent) {
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        parentEntityId = m[1].replace(/["']/g, "");
+        break;
+      }
+    }
+  }
+  let currentLinkageRef = null;
+  let blockEnd = model.getLineCount() + 1;
+  for (let i = dashLine + 1; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim())
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < dashIndent) {
+      blockEnd = i;
+      break;
+    }
+    const dm = line.match(/^(\s*)-\s+\S/);
+    if (dm && dm[1].length === dashIndent) {
+      blockEnd = i;
+      break;
+    }
+  }
+  for (let i = dashLine; i < blockEnd; i++) {
+    const line = model.getLineContent(i);
+    const m = line.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
+    if (m) {
+      currentLinkageRef = m[1].replace(/["']/g, "");
+      break;
+    }
+  }
+  return {
+    parentEntityFqid: parentEntityId ? `${currentDomain}/${parentEntityId}`.toLowerCase() : null,
+    currentLinkageRef,
+    currentDomain
+  };
+}
+function relationOf(entityFqid, linkSideFqid, index) {
+  if (!entityFqid || !linkSideFqid)
+    return null;
+  const eL = entityFqid.toLowerCase();
+  const lL = linkSideFqid.toLowerCase();
+  if (eL === lL)
+    return "same";
+  let cur = eL;
+  const seen = /* @__PURE__ */ new Set();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const e = index.entitiesByFqid[cur];
+    if (!e || !e.inherits)
+      break;
+    if (e.inherits.toLowerCase() === lL)
+      return "ancestor";
+    cur = e.inherits.toLowerCase();
+  }
+  cur = lL;
+  const seen2 = /* @__PURE__ */ new Set();
+  while (cur && !seen2.has(cur)) {
+    seen2.add(cur);
+    const e = index.entitiesByFqid[cur];
+    if (!e || !e.inherits)
+      break;
+    if (e.inherits.toLowerCase() === eL)
+      return "descendant";
+    cur = e.inherits.toLowerCase();
+  }
+  return null;
+}
+function buildTreeLinkageCandidates(parentFqid, currentDomain, Kind) {
+  const index = ctx.modelIndex;
+  if (!index)
+    return [];
+  const candidates = [];
+  for (const l of index.entityLinkages) {
+    if ((l.domainId || "").toLowerCase() !== currentDomain)
+      continue;
+    const side1Rel = parentFqid ? relationOf(parentFqid, l.side1Fqid, index) : null;
+    const side2Rel = parentFqid ? relationOf(parentFqid, l.side2Fqid, index) : null;
+    const isSymmetric = l.side1Fqid === l.side2Fqid;
+    const isUndirected = l.type === "n_n" && l.undirected === true;
+    const peer = l.side2Fqid.split("/").pop() || l.side2Fqid;
+    let score = 10;
+    let detail = `${l.type}`;
+    if (l.type === "1_n") {
+      if (side1Rel === "same") {
+        score = 1e3;
+        detail = `1_n \xB7 parent \u2192 ${peer}`;
+      } else if (side1Rel === "ancestor") {
+        score = 900;
+        detail = `1_n \xB7 parent \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 side1 \xB7 \u2192 ${peer}`;
+      } else if (side2Rel === "same") {
+        score = 300;
+        detail = `1_n \xB7 inverted (parent \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 many)`;
+      } else {
+        score = 100;
+        detail = `1_n \xB7 \u043D\u0435 \u0441\u0432\u044F\u0437\u0430\u043D \u0441 parent`;
+      }
+    } else if (l.type === "n_n") {
+      if (isUndirected) {
+        score = 100;
+        detail = `n_n undirected`;
+      } else if (side1Rel === "same" || side2Rel === "same") {
+        score = 500;
+        detail = `n_n \xB7 ${l.side1Fqid.split("/").pop()} \u2194 ${l.side2Fqid.split("/").pop()}`;
+      } else {
+        score = 200;
+        detail = `n_n \xB7 \u043D\u0435 \u0441\u0432\u044F\u0437\u0430\u043D \u0441 parent`;
+      }
+    } else if (l.type === "1_1") {
+      score = 30;
+      detail = `1_1 \xB7 \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0434\u043B\u044F \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438`;
+    } else {
+      detail = `${l.type}`;
+    }
+    candidates.push({ l, score, detail });
+  }
+  candidates.sort(
+    (a, b) => b.score !== a.score ? b.score - a.score : a.l.id.localeCompare(b.l.id)
+  );
+  return candidates.map(({ l, score, detail }) => ({
+    label: l.id,
+    insertText: " " + l.id,
+    kind: Kind.Reference,
+    sortText: (2e3 - score).toString().padStart(4, "0") + "_" + l.id,
+    detail,
+    documentation: `${l.type} \xB7 ${l.side1Fqid} \u2192 ${l.side2Fqid}`
+  }));
+}
+function buildTreeEntityCandidates(treeCtx, Kind) {
+  const index = ctx.modelIndex;
+  if (!index)
+    return [];
+  const cur = treeCtx.currentDomain;
+  let targetFqid = null;
+  if (treeCtx.parentEntityFqid && treeCtx.currentLinkageRef) {
+    targetFqid = resolveLinkageTargetEntityFqid(
+      treeCtx.currentLinkageRef,
+      treeCtx.parentEntityFqid,
+      cur,
+      index
+    );
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const items = [];
+  const push = (e, score, detail) => {
+    if (!e || seen.has(e.entityId))
+      return;
+    seen.add(e.entityId);
+    items.push({
+      label: e.entityId,
+      insertText: " " + e.entityId,
+      kind: Kind.Class,
+      sortText: (2e3 - score).toString().padStart(4, "0") + "_" + e.entityId,
+      detail,
+      documentation: e.description || void 0
+    });
+  };
+  if (targetFqid) {
+    const target = index.entitiesByFqid[targetFqid];
+    if (target)
+      push(target, 1e3, `target of ${treeCtx.currentLinkageRef}`);
+    const walkDesc = (fqid, depth) => {
+      const ds = index.entityChildrenByFqid[fqid] || [];
+      for (const df of ds) {
+        const d = index.entitiesByFqid[df];
+        if (d)
+          push(d, 900 - depth * 20, `descendant (${depth + 1})`);
+        walkDesc(df, depth + 1);
+      }
+    };
+    walkDesc(targetFqid, 0);
+  }
+  for (const e of index.entities) {
+    if ((e.domainId || "").toLowerCase() !== cur)
+      continue;
+    push(e, 100, "entity");
+  }
+  return items;
+}
+function detectValueContext(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  const dc = determineViewContainer(model, position.lineNumber, currentIndent);
   const stack = [];
   if (dc.containerLine >= 0) {
     let boundary = dc.containerIndent;
     for (let i = dc.containerLine - 1; i >= 1; i--) {
-      const pl = lines[i - 1];
+      const pl = model.getLineContent(i);
       if (!pl || !pl.trim() || pl.trim().startsWith("#"))
         continue;
       const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54178,8 +54598,22 @@ function detectValueContext(model, position) {
       boundary = pIndent;
     }
   }
+  let section = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl || !pl.trim())
+      continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === 0) {
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        section = m[1];
+        break;
+      }
+    }
+  }
   const itemType = computeItemTypeFast(
-    lines,
+    model,
     section,
     dc.container,
     dc.containerLine,
@@ -54188,9 +54622,9 @@ function detectValueContext(model, position) {
   );
   return { section, container: dc.container, itemType };
 }
-function determineViewContainer(lines, currentLineIdx, currentIndent) {
+function determineViewContainer(model, currentLineIdx, currentIndent) {
   for (let i = currentLineIdx - 1; i >= 1; i--) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim() || l.trim().startsWith("#"))
       continue;
     const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54209,7 +54643,7 @@ function determineViewContainer(lines, currentLineIdx, currentIndent) {
         continue;
       let valueIndent = -1;
       for (let j = i + 1; j < currentLineIdx; j++) {
-        const nl = lines[j - 1];
+        const nl = model.getLineContent(j);
         if (!nl || !nl.trim() || nl.trim().startsWith("#"))
           continue;
         const nInd = (nl.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54225,7 +54659,7 @@ function determineViewContainer(lines, currentLineIdx, currentIndent) {
   }
   return { container: "", containerLine: -1, containerIndent: -1 };
 }
-function computeItemTypeFast(lines, section, container, containerLine, containerIndent, stack) {
+function computeItemTypeFast(model, section, container, containerLine, containerIndent, stack) {
   if (section === "entities") {
     if (container === "constraints")
       return "attributeConstraint";
@@ -54300,7 +54734,7 @@ function computeItemTypeFast(lines, section, container, containerLine, container
       if (ancestors.has("columns"))
         return "viewTableColumnControl";
       if (ancestors.has("widgets")) {
-        const widgetType = findWidgetTypeForControl(lines, containerLine);
+        const widgetType = findWidgetTypeForControl(model, containerLine);
         if (widgetType === "action")
           return "viewWidgetActionControl";
         if (widgetType === "linkage")
@@ -54316,7 +54750,7 @@ function computeItemTypeFast(lines, section, container, containerLine, container
       let itemLine = -1;
       let itemIndent = -1;
       for (let i = containerLine - 1; i >= 1; i--) {
-        const l = lines[i - 1];
+        const l = model.getLineContent(i);
         if (!l || !l.trim() || l.trim().startsWith("#"))
           continue;
         const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54333,7 +54767,7 @@ function computeItemTypeFast(lines, section, container, containerLine, container
       }
       if (itemLine !== -1) {
         for (let i = itemLine + 1; i < containerLine; i++) {
-          const l = lines[i - 1];
+          const l = model.getLineContent(i);
           if (!l || !l.trim())
             continue;
           const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54351,7 +54785,7 @@ function computeItemTypeFast(lines, section, container, containerLine, container
     if (container === "views") {
       let isNested = false;
       for (let i = containerLine - 1; i >= 1; i--) {
-        const l = lines[i - 1];
+        const l = model.getLineContent(i);
         if (!l || !l.trim() || l.trim().startsWith("#"))
           continue;
         const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54381,14 +54815,14 @@ function computeItemTypeFast(lines, section, container, containerLine, container
   if (section === "actions") {
     if (container === "attributes") {
       return isInsideBulkSettings(
-        (n) => lines[n - 1] || "",
+        (n) => model.getLineContent(n) || "",
         containerLine,
         containerIndent
       ) ? "actionBulkSettingsAttributes" : "actionAttributes";
     }
     if (container === "linkages") {
       return isInsideBulkSettings(
-        (n) => lines[n - 1] || "",
+        (n) => model.getLineContent(n) || "",
         containerLine,
         containerIndent
       ) ? "actionBulkSettingsLinkages" : "actionLinkages";
@@ -54437,10 +54871,10 @@ function computeItemTypeFast(lines, section, container, containerLine, container
     return "sortingByItem";
   return "";
 }
-function findWidgetTypeForControl(lines, controlLine) {
-  if (controlLine < 1 || controlLine > lines.length)
+function findWidgetTypeForControl(model, controlLine) {
+  if (controlLine < 1 || controlLine > model.getLineCount())
     return "";
-  const controlText = lines[controlLine - 1];
+  const controlText = model.getLineContent(controlLine);
   if (!controlText)
     return "";
   const controlIndent = (controlText.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54452,7 +54886,7 @@ function findWidgetTypeForControl(lines, controlLine) {
   let blockStart = controlLine;
   if (!isControlOpener) {
     for (let i = controlLine - 1; i >= 1; i--) {
-      const l = lines[i - 1];
+      const l = model.getLineContent(i);
       if (!l || !l.trim() || l.trim().startsWith("#"))
         continue;
       const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
@@ -54465,10 +54899,10 @@ function findWidgetTypeForControl(lines, controlLine) {
         break;
     }
   }
-  const lineCount = lines.length;
+  const lineCount = model.getLineCount();
   let blockEnd = lineCount + 1;
   for (let i = blockStart + 1; i <= lineCount; i++) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim())
       continue;
     const m = l.match(/^(\s*)-\s+\S/);
@@ -54479,7 +54913,7 @@ function findWidgetTypeForControl(lines, controlLine) {
   }
   let blockScalarIndent = -1;
   for (let i = blockStart; i < blockEnd; i++) {
-    const l = lines[i - 1];
+    const l = model.getLineContent(i);
     if (!l || !l.trim())
       continue;
     const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
@@ -56874,6 +57308,35 @@ function buildRqlSuggestions(model, position, Kind, ctx2) {
   ops.forEach(([a, d]) => push(a, Kind.Keyword, d, "2_" + a));
   return out;
 }
+function buildListValueCompletion(model, position, fieldNames, values, Kind) {
+  const beforeCursor = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+  const fieldAlt = fieldNames.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  if (!new RegExp(`^\\s*(?:-\\s+)?(?:${fieldAlt})\\s*:\\s*["']?`).test(
+    beforeCursor
+  )) {
+    return null;
+  }
+  const wordAtPos = model.getWordUntilPosition(position);
+  const range = {
+    startLineNumber: position.lineNumber,
+    startColumn: wordAtPos.startColumn,
+    endLineNumber: position.lineNumber,
+    endColumn: wordAtPos.endColumn
+  };
+  return {
+    suggestions: values.map((v) => ({
+      label: v.label,
+      kind: v.kind ?? Kind.Value,
+      insertText: v.insertText.replace(/^ /, ""),
+      // без ведущего пробела
+      filterText: v.label,
+      sortText: v.sortText,
+      detail: v.detail,
+      documentation: mdDoc(v.documentation),
+      range
+    }))
+  };
+}
 function registerMonacoProviders(monaco) {
   if (providersRegistered)
     return;
@@ -56933,6 +57396,21 @@ function registerMonacoProviders(monaco) {
           endLineNumber: position.lineNumber,
           endColumn: lineText.length + 1
         });
+        if (hit.field === "linkage") {
+          const targetDomain = hit.domainPrefix || (ctx.currentDomainId || "").toLowerCase();
+          const linkage = (ctx.modelIndex?.entityLinkages || []).find(
+            (l) => (l.domainId || "").toLowerCase() === targetDomain && l.id.toLowerCase() === hit.value.toLowerCase()
+          );
+          if (linkage) {
+            return {
+              range: buildRange(),
+              contents: [
+                { value: buildLinkageHoverMarkdown(linkage, ctx.modelIndex) }
+              ]
+            };
+          }
+          return null;
+        }
         if (hit.type === "ref-datatype") {
           const dt = ctx.modelIndex.dataTypes.find(
             (d) => d.id === hit.value
@@ -57302,7 +57780,8 @@ function registerMonacoProviders(monaco) {
         const wordAtPos = model.getWordUntilPosition(position);
         const cur = (ctx.currentDomainId || "").toLowerCase();
         const fieldMatch = beforeCursor.match(
-          /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/
+          /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[^"'\n]*["']?$/
+          // /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/,
         );
         if (!fieldMatch) {
           const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
@@ -57359,6 +57838,44 @@ function registerMonacoProviders(monaco) {
               }))
             };
           }
+          {
+            const path = findContainerPath(model, position);
+            if (path.length === 2 && path[0] === "exchangeSettings" && path[1] === "entities") {
+              const cur2 = (ctx.currentDomainId || "").toLowerCase();
+              const seen = /* @__PURE__ */ new Set();
+              const suggestions2 = [];
+              const wordAtPos2 = model.getWordUntilPosition(position);
+              const range = {
+                startLineNumber: position.lineNumber,
+                startColumn: wordAtPos2.startColumn,
+                endLineNumber: position.lineNumber,
+                endColumn: wordAtPos2.endColumn
+              };
+              ctx.modelIndex?.entities?.forEach((e) => {
+                if ((e.domainId || "").toLowerCase() !== cur2)
+                  return;
+                if (seen.has(e.entityId))
+                  return;
+                seen.add(e.entityId);
+                const parts = [];
+                if (e.name && e.name !== e.entityId)
+                  parts.push(e.name);
+                parts.push(`${e.attributes.length} \u0430\u0442\u0440.`);
+                suggestions2.push({
+                  label: e.entityId,
+                  kind: Kind.Class,
+                  insertText: e.entityId + ":",
+                  filterText: e.entityId,
+                  sortText: "0_" + e.entityId,
+                  detail: parts.join(" \xB7 "),
+                  documentation: mdDoc(e.description),
+                  range
+                });
+              });
+              if (suggestions2.length > 0)
+                return { suggestions: suggestions2 };
+            }
+          }
           const context = detectContextAtPosition(
             model,
             position,
@@ -57404,6 +57921,9 @@ function registerMonacoProviders(monaco) {
           return suggestions.length > 0 ? { suggestions } : null;
         }
         const fieldName = fieldMatch[2];
+        if (!BOOLEAN_FIELD_NAMES.has(fieldName) && !KNOWN_VALUE_FIELDS.has(fieldName)) {
+          return null;
+        }
         const vctxRaw = getCachedValueContext(model, position);
         const pathItemType = computeItemTypeFromPath(model, position);
         const pathStr = findContainerPath(model, position).join(".");
@@ -57808,9 +58328,8 @@ function registerMonacoProviders(monaco) {
             );
           }
           case "operation": {
-            const allLines = model.getLinesContent();
-            const actionType = findActionTypeForLine(
-              allLines,
+            const actionType = findActionTypeForModel(
+              model,
               position.lineNumber
             );
             const opMap = {
@@ -57837,9 +58356,8 @@ function registerMonacoProviders(monaco) {
             ) : null;
           }
           case "page": {
-            const allLines = model.getLinesContent();
-            const actionType = findActionTypeForLine(
-              allLines,
+            const actionType = findActionTypeForModel(
+              model,
               position.lineNumber
             );
             const allowed = ["open_list", "open_tree", "open_view"];
@@ -57885,12 +58403,29 @@ function registerMonacoProviders(monaco) {
             }
             return null;
           }
-          case "inherits":
           case "entity":
+          case "inherits":
           case "side1":
           case "side2": {
             if ((fieldName === "side1" || fieldName === "side2") && vctx.container === "nameFrom") {
               return null;
+            }
+            if (fieldName === "entity") {
+              const treeCtx = detectTreeChildrenContext(
+                model,
+                position,
+                cur,
+                ctx.modelIndex
+              );
+              if (treeCtx) {
+                return r(
+                  model,
+                  position,
+                  ["entity"],
+                  buildTreeEntityCandidates(treeCtx, Kind),
+                  Kind
+                );
+              }
             }
             const refs = collectRefsForField(
               cachedEntities(),
@@ -57907,7 +58442,41 @@ function registerMonacoProviders(monaco) {
               Kind
             );
           }
-          case "linkage":
+          case "linkage": {
+            const treeCtx = detectTreeChildrenContext(
+              model,
+              position,
+              cur,
+              ctx.modelIndex
+            );
+            if (treeCtx) {
+              return r(
+                model,
+                position,
+                ["linkage"],
+                buildTreeLinkageCandidates(treeCtx.parentEntityFqid, cur, Kind),
+                Kind
+              );
+            }
+            const transCtx = detectTransitiveJoinContext(
+              model,
+              position,
+              cur,
+              ctx.modelIndex
+            );
+            if (transCtx) {
+              return r(
+                model,
+                position,
+                ["linkage"],
+                buildTransitiveLinkageCandidates(
+                  transCtx.parentEntityFqid,
+                  cur,
+                  Kind
+                ),
+                Kind
+              );
+            }
             return r(
               model,
               position,
@@ -57917,6 +58486,7 @@ function registerMonacoProviders(monaco) {
               }),
               Kind
             );
+          }
           case "widget":
             return r(
               model,
@@ -57972,13 +58542,9 @@ function registerMonacoProviders(monaco) {
               model,
               position,
               ["counterColorPattern"],
-              collectRefsForField(
-                cachedCounterColors(),
-                ctx.currentDomainId,
-                {
-                  shortKind: Kind.Reference
-                }
-              ),
+              collectRefsForField(cachedCounterColors(), ctx.currentDomainId, {
+                shortKind: Kind.Reference
+              }),
               Kind
             );
           case "menuItem":
@@ -58006,17 +58572,13 @@ function registerMonacoProviders(monaco) {
               model,
               position,
               ["segment"],
-              mkSimple(
-                ["@prefix", "@YYYY", "@YY", "@MM", "@DD"],
-                Kind.Value,
-                {
-                  "@prefix": "\u041D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u043C\u044B\u0439 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 (\u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0438\u043B\u0438 defaultPrefix)",
-                  "@YYYY": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 4 \u0446\u0438\u0444\u0440\u044B",
-                  "@YY": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 2 \u0446\u0438\u0444\u0440\u044B",
-                  "@MM": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u043C\u0435\u0441\u044F\u0446, 01\u201312",
-                  "@DD": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0434\u0435\u043D\u044C \u043C\u0435\u0441\u044F\u0446\u0430, 01\u201331"
-                }
-              ),
+              mkSimple(["@prefix", "@YYYY", "@YY", "@MM", "@DD"], Kind.Value, {
+                "@prefix": "\u041D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u043C\u044B\u0439 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 (\u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0438\u043B\u0438 defaultPrefix)",
+                "@YYYY": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 4 \u0446\u0438\u0444\u0440\u044B",
+                "@YY": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 2 \u0446\u0438\u0444\u0440\u044B",
+                "@MM": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u043C\u0435\u0441\u044F\u0446, 01\u201312",
+                "@DD": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0434\u0435\u043D\u044C \u043C\u0435\u0441\u044F\u0446\u0430, 01\u201331"
+              }),
               Kind
             );
           }
@@ -58199,6 +58761,228 @@ function registerMonacoProviders(monaco) {
               suggestions: []
             };
           }
+          case "forExport": {
+            const path = findContainerPath(model, position);
+            if (path.length !== 3 || path[0] !== "exchangeSettings" || path[1] !== "entities") {
+              return null;
+            }
+            const entityId = path[2];
+            const cur2 = (ctx.currentDomainId || "").toLowerCase();
+            const entity = ctx.modelIndex?.entitiesByFqid[`${cur2}/${entityId}`.toLowerCase()];
+            if (!entity)
+              return null;
+            const seen = /* @__PURE__ */ new Set();
+            const items = [];
+            for (const sys of [
+              "label",
+              "id",
+              "createdAt",
+              "updatedAt",
+              "createdBy",
+              "updatedBy",
+              "organizationId",
+              "tenantId",
+              "version"
+            ]) {
+              if (seen.has(sys))
+                continue;
+              seen.add(sys);
+              items.push({
+                label: sys,
+                insertText: " " + sys,
+                kind: Kind.Field,
+                sortText: "0_" + sys,
+                detail: "\u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
+              });
+            }
+            let curEntity = entity;
+            const visited = /* @__PURE__ */ new Set();
+            while (curEntity && !visited.has(curEntity.fqid)) {
+              visited.add(curEntity.fqid);
+              for (const a of curEntity.attributes) {
+                if (seen.has(a.id))
+                  continue;
+                seen.add(a.id);
+                items.push({
+                  label: a.id,
+                  insertText: " " + a.id,
+                  kind: Kind.Field,
+                  sortText: "1_" + a.id,
+                  detail: `${a.dataType} \xB7 ${curEntity.entityId}`,
+                  documentation: a.description || void 0
+                });
+              }
+              curEntity = curEntity.inherits ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits] : void 0;
+            }
+            return r(model, position, ["forExport"], items, Kind);
+          }
+          case "upsertWith":
+          case "ignoreAttributes": {
+            const path = findContainerPath(model, position);
+            if (path.length !== 3 || path[0] !== "exchangeSettings" || path[1] !== "entities") {
+              return null;
+            }
+            const entityId = path[2];
+            const cur2 = (ctx.currentDomainId || "").toLowerCase();
+            const entityFqid = `${cur2}/${entityId}`.toLowerCase();
+            const entity = ctx.modelIndex?.entitiesByFqid[entityFqid];
+            if (!entity)
+              return null;
+            const seen = /* @__PURE__ */ new Set();
+            const items = [];
+            let curEntity = entity;
+            const visited = /* @__PURE__ */ new Set();
+            while (curEntity && !visited.has(curEntity.fqid)) {
+              visited.add(curEntity.fqid);
+              for (const a of curEntity.attributes) {
+                if (seen.has(a.id))
+                  continue;
+                seen.add(a.id);
+                items.push({
+                  label: a.id,
+                  insertText: a.id,
+                  kind: Kind.Field,
+                  sortText: "0_" + a.id,
+                  detail: `${a.dataType} \xB7 ${curEntity.entityId}`
+                });
+              }
+              curEntity = curEntity.inherits ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits] : void 0;
+            }
+            for (const l of ctx.modelIndex?.entityLinkages || []) {
+              if ((l.side1Fqid === entityFqid || l.side2Fqid === entityFqid) && !seen.has(l.id)) {
+                seen.add(l.id);
+                items.push({
+                  label: l.id,
+                  insertText: l.id,
+                  kind: Kind.Reference,
+                  sortText: "2_" + l.id,
+                  detail: `\u0441\u0432\u044F\u0437\u044C \xB7 ${l.type}`
+                });
+              }
+            }
+            for (const sys of [
+              "id",
+              "label",
+              "createdAt",
+              "updatedAt",
+              "createdBy",
+              "updatedBy",
+              "organizationId",
+              "tenantId",
+              "version"
+            ]) {
+              if (seen.has(sys))
+                continue;
+              seen.add(sys);
+              items.push({
+                label: sys,
+                insertText: sys,
+                kind: Kind.Field,
+                sortText: "3_" + sys,
+                detail: "\u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
+              });
+            }
+            return buildListValueCompletion(
+              model,
+              position,
+              ["upsertWith", "ignoreAttributes"],
+              items,
+              Kind
+            );
+          }
+          case "exportSystemAttributes": {
+            const path = findContainerPath(model, position);
+            if (path.length !== 3 || path[0] !== "exchangeSettings" || path[1] !== "entities") {
+              return null;
+            }
+            const items = [
+              {
+                label: "all",
+                insertText: "all",
+                kind: Kind.Value,
+                sortText: "0_all",
+                documentation: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u0441\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B"
+              }
+            ];
+            for (const sys of [
+              "id",
+              "label",
+              "createdAt",
+              "updatedAt",
+              "createdBy",
+              "updatedBy",
+              "organizationId",
+              "tenantId",
+              "domainId",
+              "entityId",
+              "entityName",
+              "version"
+            ]) {
+              items.push({
+                label: sys,
+                insertText: sys,
+                kind: Kind.Field,
+                sortText: "1_" + sys,
+                detail: "\u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
+              });
+            }
+            return buildListValueCompletion(
+              model,
+              position,
+              ["exportSystemAttributes"],
+              items,
+              Kind
+            );
+          }
+          case "Date":
+          case "Time":
+          case "Timestamp":
+          case "TimestampRange": {
+            const path = findContainerPath(model, position);
+            if (path.length !== 2 || path[0] !== "exchangeSettings" || path[1] !== "attributeFormats") {
+              return null;
+            }
+            const DATE_FORMATS = [
+              ["DD-MM-YYYY", "\u0414\u0435\u043D\u044C-\u041C\u0435\u0441\u044F\u0446-\u0413\u043E\u0434 (RU)"],
+              ["YYYY-MM-DD", "\u0413\u043E\u0434-\u041C\u0435\u0441\u044F\u0446-\u0414\u0435\u043D\u044C (ISO)"],
+              ["DD/MM/YYYY", "\u0414\u0435\u043D\u044C/\u041C\u0435\u0441\u044F\u0446/\u0413\u043E\u0434"],
+              ["MM/DD/YYYY", "\u041C\u0435\u0441\u044F\u0446/\u0414\u0435\u043D\u044C/\u0413\u043E\u0434 (US)"],
+              ["DD.MM.YYYY", "\u0414\u0435\u043D\u044C.\u041C\u0435\u0441\u044F\u0446.\u0413\u043E\u0434"]
+            ];
+            const TIME_FORMATS = [
+              ["HH:mm:ss", "\u0412\u0440\u0435\u043C\u044F 24\u0447 \u0441 \u0441\u0435\u043A\u0443\u043D\u0434\u0430\u043C\u0438"],
+              ["HH:mm", "\u0412\u0440\u0435\u043C\u044F 24\u0447"],
+              ["hh:mm A", "\u0412\u0440\u0435\u043C\u044F 12\u0447 (AM/PM)"]
+            ];
+            const TS_FORMATS = [
+              ["DD-MM-YYYYTHH:mm:ss", "\u0414\u0430\u0442\u0430-\u0432\u0440\u0435\u043C\u044F \u0441 T"],
+              ["DD-MM-YYYY HH:mm:ss", "\u0414\u0430\u0442\u0430-\u0432\u0440\u0435\u043C\u044F \u0441 \u043F\u0440\u043E\u0431\u0435\u043B\u043E\u043C"],
+              ["YYYY-MM-DDTHH:mm:ssZ", "ISO 8601 \u0441 \u0442\u0430\u0439\u043C\u0437\u043E\u043D\u043E\u0439"],
+              ["DD.MM.YYYY HH:mm:ss", "RU \u0441 \u0442\u043E\u0447\u043A\u0430\u043C\u0438"]
+            ];
+            let formats;
+            if (fieldName === "Date")
+              formats = DATE_FORMATS;
+            else if (fieldName === "Time")
+              formats = TIME_FORMATS;
+            else if (fieldName === "Timestamp")
+              formats = TS_FORMATS;
+            else
+              formats = TS_FORMATS;
+            return r(
+              model,
+              position,
+              [fieldName],
+              formats.map(([value, desc]) => ({
+                label: value,
+                insertText: " " + value,
+                kind: Kind.Value,
+                sortText: value,
+                documentation: desc
+              })),
+              Kind
+            );
+          }
         }
         return null;
       })();
@@ -58217,7 +59001,7 @@ function lineCtxRef(_model, position, type2) {
   const crumb = lc.breadcrumbs.find((b) => b.type === type2);
   return crumb?.id || null;
 }
-function applyRqlMarkers(monaco, model) {
+function applyRqlMarkers(monaco, model, lines) {
   try {
     const text = model.getValue();
     const lineContexts = ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map();
@@ -58234,6 +59018,340 @@ function applyRqlMarkers(monaco, model) {
     monaco.editor.setModelMarkers(model, "rql-check", markers);
   } catch {
   }
+}
+function applyTreeMarkers(monaco, model, lines, index, currentDomainId) {
+  if (!index) {
+    monaco.editor.setModelMarkers(model, "tree-validator", []);
+    return;
+  }
+  const markers = [];
+  const curDomain = currentDomainId.toLowerCase();
+  let treesStart = -1;
+  let treesEnd = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        if (m[1] === "trees")
+          treesStart = i;
+        else if (treesStart >= 0) {
+          treesEnd = i;
+          break;
+        }
+      }
+    }
+  }
+  if (treesStart < 0) {
+    monaco.editor.setModelMarkers(model, "tree-validator", []);
+    return;
+  }
+  let treeIndent = -1;
+  for (let i = treesStart + 1; i < treesEnd; i++) {
+    const m = lines[i].match(/^(\s*)-\s+id\s*:/);
+    if (m) {
+      treeIndent = m[1].length;
+      break;
+    }
+  }
+  if (treeIndent < 0) {
+    monaco.editor.setModelMarkers(model, "tree-validator", []);
+    return;
+  }
+  const entityLookup = (entityId) => {
+    if (!entityId)
+      return null;
+    if (entityId.includes("/"))
+      return index.entitiesByFqid[entityId.toLowerCase()] || null;
+    return index.entitiesByFqid[`${curDomain}/${entityId}`.toLowerCase()] || null;
+  };
+  const isSameOrAncestor2 = (ancestorFqid, descFqid) => {
+    if (!ancestorFqid || !descFqid)
+      return false;
+    const ancL = ancestorFqid.toLowerCase();
+    let cur = descFqid.toLowerCase();
+    const seen = /* @__PURE__ */ new Set();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      if (cur === ancL)
+        return true;
+      const e = index.entitiesByFqid[cur];
+      if (!e || !e.inherits)
+        return false;
+      cur = e.inherits.toLowerCase();
+    }
+    return false;
+  };
+  const emitMarker = (line, col, len, severity, message, code) => {
+    markers.push({
+      severity,
+      message,
+      startLineNumber: line,
+      startColumn: col,
+      endLineNumber: line,
+      endColumn: col + len,
+      source: "tree-validator",
+      code
+    });
+  };
+  for (let i = treesStart + 1; i < treesEnd; i++) {
+    const treeIdM = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (!treeIdM || treeIdM[1].length !== treeIndent)
+      continue;
+    const treeBlockEnd = (() => {
+      for (let j = i + 1; j < treesEnd; j++) {
+        if (!lines[j].trim())
+          continue;
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind < treeIndent)
+          return j;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length === treeIndent)
+          return j;
+      }
+      return treesEnd;
+    })();
+    let hierarchyLine = -1;
+    let hierarchyIndent = -1;
+    for (let j = i + 1; j < treeBlockEnd; j++) {
+      const m = lines[j].match(/^(\s*)hierarchy\s*:\s*$/);
+      if (m) {
+        hierarchyLine = j;
+        hierarchyIndent = m[1].length;
+        break;
+      }
+    }
+    if (hierarchyLine < 0)
+      continue;
+    let rootEntityId = null;
+    for (let j = hierarchyLine + 1; j < treeBlockEnd; j++) {
+      const line = lines[j];
+      if (!line.trim())
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind <= hierarchyIndent)
+        break;
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        rootEntityId = m[1].replace(/["']/g, "");
+        break;
+      }
+    }
+    const rootEntity = entityLookup(rootEntityId);
+    const rootFqid = rootEntity ? rootEntity.fqid : rootEntityId ? `${curDomain}/${rootEntityId}`.toLowerCase() : null;
+    if (!rootFqid)
+      continue;
+    let childrenLine = -1;
+    let childrenIndent = -1;
+    for (let j = hierarchyLine + 1; j < treeBlockEnd; j++) {
+      const m = lines[j].match(/^(\s*)children\s*:\s*$/);
+      if (m && m[1].length > hierarchyIndent) {
+        childrenLine = j;
+        childrenIndent = m[1].length;
+        break;
+      }
+    }
+    if (childrenLine < 0)
+      continue;
+    const walk = (parentFqid, containerLine, containerIndent, containerEnd) => {
+      let childIndent = -1;
+      for (let j2 = containerLine + 1; j2 < containerEnd; j2++) {
+        if (!lines[j2].trim())
+          continue;
+        const d = lines[j2].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length > containerIndent) {
+          childIndent = d[1].length;
+          break;
+        }
+      }
+      if (childIndent < 0)
+        return;
+      let j = containerLine + 1;
+      while (j < containerEnd) {
+        if (!lines[j].trim()) {
+          j++;
+          continue;
+        }
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= containerIndent)
+          break;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (!d || d[1].length !== childIndent) {
+          j++;
+          continue;
+        }
+        const childStart = j;
+        let childEnd = containerEnd;
+        for (let k = j + 1; k < containerEnd; k++) {
+          if (!lines[k].trim())
+            continue;
+          const kInd = (lines[k].match(/^(\s*)/) || ["", ""])[1].length;
+          if (kInd < childIndent) {
+            childEnd = k;
+            break;
+          }
+          const kd = lines[k].match(/^(\s*)-\s+\S/);
+          if (kd && kd[1].length === childIndent) {
+            childEnd = k;
+            break;
+          }
+        }
+        let linkageId = null;
+        let linkageLine = -1;
+        let linkageCol = 1;
+        let entityId = null;
+        let entityLine = -1;
+        let entityCol = 1;
+        for (let k = childStart; k < childEnd; k++) {
+          const l = lines[k];
+          if (!l.trim())
+            continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd !== childIndent && lInd !== childIndent + 2)
+            continue;
+          if (linkageId === null) {
+            const m = l.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
+            if (m) {
+              linkageId = m[1].replace(/["']/g, "");
+              linkageLine = k;
+              linkageCol = l.indexOf(linkageId) + 1;
+            }
+          }
+          if (entityId === null) {
+            const m = l.match(/^\s*(?:-\s+)?entity\s*:\s*([^\s#]+)/);
+            if (m) {
+              entityId = m[1].replace(/["']/g, "");
+              entityLine = k;
+              entityCol = l.indexOf(entityId) + 1;
+            }
+          }
+        }
+        const linkageRec = linkageId ? resolveLinkageForMonaco(linkageId, curDomain, index) : null;
+        const childEntityRec = entityLookup(entityId);
+        if (entityId && !childEntityRec && entityLine >= 0) {
+          emitMarker(
+            entityLine + 1,
+            entityCol,
+            entityId.length,
+            monaco.MarkerSeverity.Error,
+            `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB${entityId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${curDomain}`,
+            "tree/children-entity-unknown"
+          );
+        }
+        if (linkageId && !linkageRec && linkageLine >= 0) {
+          const missingDomain = isForeignDomainNotLoaded(linkageId, index);
+          if (missingDomain) {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Info,
+              `\u0421\u0432\u044F\u0437\u044C \xAB${linkageId}\xBB \u2014 \u0434\u043E\u043C\u0435\u043D \xAB${missingDomain}\xBB \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D \u0432 \u043A\u044D\u0448`,
+              "tree/children-linkage-domain-not-loaded"
+            );
+          } else {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `\u0421\u0432\u044F\u0437\u044C \xAB${linkageId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${curDomain}`,
+              "tree/children-linkage-unknown"
+            );
+          }
+        }
+        if (linkageRec && parentFqid && childEntityRec && linkageLine >= 0) {
+          const parentLower = parentFqid.toLowerCase();
+          const childLower = childEntityRec.fqid.toLowerCase();
+          const isSymmetric = linkageRec.side1Fqid === linkageRec.side2Fqid;
+          if (linkageRec.type !== "1_n" && linkageRec.type !== "n_n") {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `linkage "${linkageId}": type "${linkageRec.type}" \u043D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C \u0434\u043B\u044F \u0434\u0435\u0440\u0435\u0432\u0430 \u2014 \u043D\u0443\u0436\u0435\u043D 1_n \u0438\u043B\u0438 n_n`,
+              "tree/children-linkage-type-invalid"
+            );
+          } else if (linkageRec.type === "n_n" && linkageRec.undirected) {
+            emitMarker(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `linkage "${linkageId}": n_n undirected \u043D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C \u0432 \u0434\u0435\u0440\u0435\u0432\u0435`,
+              "tree/children-undirected-nn"
+            );
+          } else if (!isSymmetric) {
+            const parentMatchesSide1 = isSameOrAncestor2(
+              linkageRec.side1Fqid,
+              parentLower
+            );
+            const childMatchesSide2 = isSameOrAncestor2(
+              linkageRec.side2Fqid,
+              childLower
+            );
+            const parentMatchesSide2 = isSameOrAncestor2(
+              linkageRec.side2Fqid,
+              parentLower
+            );
+            const childMatchesSide1 = isSameOrAncestor2(
+              linkageRec.side1Fqid,
+              childLower
+            );
+            const connectsForward = parentMatchesSide1 && childMatchesSide2;
+            const connectsBackward = parentMatchesSide2 && childMatchesSide1;
+            const parentShort = parentFqid.split("/").pop();
+            if (!connectsForward && !connectsBackward) {
+              emitMarker(
+                linkageLine + 1,
+                linkageCol,
+                linkageId.length,
+                monaco.MarkerSeverity.Error,
+                `linkage "${linkageId}" (${linkageRec.side1Fqid.split("/").pop()} \u2192 ${linkageRec.side2Fqid.split("/").pop()}) \u043D\u0435 \u0441\u0432\u044F\u0437\u044B\u0432\u0430\u0435\u0442 parent \xAB${parentShort}\xBB \u0438 child \xAB${entityId}\xBB`,
+                "tree/children-side-mismatch"
+              );
+            } else if (linkageRec.type === "1_n" && connectsBackward) {
+              emitMarker(
+                linkageLine + 1,
+                linkageCol,
+                linkageId.length,
+                monaco.MarkerSeverity.Warning,
+                `1_n: parent \xAB${parentShort}\xBB \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 1 (one), \u0430 linkage \u0435\u0433\u043E \u0441\u0442\u0430\u0432\u0438\u0442 \u043D\u0430 \u0441\u0442\u043E\u0440\u043E\u043D\u0443 2 (many)`,
+                "tree/children-inverted-1n"
+              );
+            }
+          }
+        }
+        const childParentFqid = childEntityRec ? childEntityRec.fqid : entityId ? `${curDomain}/${entityId}`.toLowerCase() : parentFqid;
+        let grandChildrenLine = -1;
+        let grandChildrenIndent = -1;
+        for (let k = childStart + 1; k < childEnd; k++) {
+          const m = lines[k].match(/^(\s*)children\s*:\s*$/);
+          if (m) {
+            grandChildrenLine = k;
+            grandChildrenIndent = m[1].length;
+            break;
+          }
+        }
+        if (grandChildrenLine >= 0) {
+          walk(
+            childParentFqid,
+            grandChildrenLine,
+            grandChildrenIndent,
+            childEnd
+          );
+        }
+        j = childEnd;
+      }
+    };
+    walk(rootFqid, childrenLine, childrenIndent, treeBlockEnd);
+    i = treeBlockEnd - 1;
+  }
+  monaco.editor.setModelMarkers(model, "tree-validator", markers);
 }
 function isInInheritanceChain(startEntityId, targetEntityId, entities2) {
   let cur = entities2.get(startEntityId.toLowerCase());
@@ -58293,9 +59411,8 @@ function resolveAttributeRefInEntities(entityId, ref, entities2) {
   }
   return false;
 }
-function applyAttributeRefMarkers(monaco, model) {
+function applyAttributeRefMarkers(monaco, model, lines) {
   try {
-    const lines = model.getValue().split("\n");
     const entities2 = /* @__PURE__ */ new Map();
     const markers = [];
     {
@@ -58458,16 +59575,15 @@ function applyAttributeRefMarkers(monaco, model) {
     console.warn("[attribute-ref-validator]", err);
   }
 }
-function applyEnumFieldMarkers(monaco, model) {
+function applyEnumFieldMarkers(monaco, model, lines) {
   try {
-    const lines = model.getValue().split("\n");
-    const ctxByLine = new Array(lines.length + 1).fill(
-      null
-    );
+    const ctxByLine = new Array(
+      model.getLineCount() + 1
+    ).fill(null);
     let curSection = "";
     const stack = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (let i = 0; i < model.getLineCount(); i++) {
+      const line = model.getLineContent(i + 1);
       if (!line.trim() || line.trim().startsWith("#")) {
         ctxByLine[i + 1] = i > 0 ? ctxByLine[i] : null;
         continue;
@@ -58500,7 +59616,7 @@ function applyEnumFieldMarkers(monaco, model) {
       let containerIdx = -1;
       let containerLine = -1;
       if (curSection === "views") {
-        const dc = determineViewContainer(lines, i + 1, indent);
+        const dc = determineViewContainer(model, i + 1, indent);
         container = dc.container;
         containerLine = dc.containerLine;
         containerIndent = dc.containerIndent;
@@ -58516,7 +59632,7 @@ function applyEnumFieldMarkers(monaco, model) {
         }
       }
       const itemType = computeItemTypeFast(
-        lines,
+        model,
         curSection,
         container,
         containerLine,
@@ -58528,8 +59644,8 @@ function applyEnumFieldMarkers(monaco, model) {
       stack.push({ indent, key, line: i + 1 });
     }
     const markers = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (let i = 0; i < model.getLineCount(); i++) {
+      const line = model.getLineContent(i + 1);
       const fm = line.match(
         /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?([\w.-]+)["']?\s*(?:#.*)?$/
       );
@@ -58586,13 +59702,13 @@ function applyEnumFieldMarkers(monaco, model) {
         expected = ["top", "settings"];
         label = "\u0440\u0430\u0441\u043F\u043E\u043B\u043E\u0436\u0435\u043D\u0438\u0435";
       } else if (fieldName === "operation") {
-        const actionType = findActionTypeForLine(lines, i + 1);
+        const actionType = findActionTypeForModel(model, i + 1);
         if (actionType && OPERATION_ENUM_BY_ACTION_TYPE[actionType]) {
           expected = OPERATION_ENUM_BY_ACTION_TYPE[actionType];
           label = `operation \u0434\u043B\u044F type: ${actionType}`;
         }
       } else if (fieldName === "page") {
-        const actionType = findActionTypeForLine(lines, i + 1);
+        const actionType = findActionTypeForModel(model, i + 1);
         if (actionType && ["open_list", "open_tree", "open_view"].includes(actionType)) {
           expected = ["blank", "current"];
           label = `page \u0434\u043B\u044F type: ${actionType}`;
@@ -58620,10 +59736,9 @@ function applyEnumFieldMarkers(monaco, model) {
     console.warn("[enum-validator]", err);
   }
 }
-function applyWorkflowStatusRefMarkers(monaco, model) {
+function applyWorkflowStatusRefMarkers(monaco, model, lines) {
   try {
     const text = model.getValue();
-    const lines = text.split("\n");
     const markers = [];
     const parsed = parseDataTypesFromText(text);
     if (parsed.workflows.size === 0) {
@@ -58789,10 +59904,9 @@ function applyWorkflowStatusRefMarkers(monaco, model) {
     console.warn("[workflow-status-validator]", err);
   }
 }
-function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
+function applyDataTypeMarkers(monaco, model, lines, index, currentDomainId) {
   try {
     const text = model.getValue();
-    const lines = text.split("\n");
     const markers = [];
     const customTypes = /* @__PURE__ */ new Set();
     (index?.dataTypes || []).forEach((dt) => {
@@ -58900,10 +60014,8 @@ function getParentContainerKey(lines, lineIdx0) {
   }
   return "";
 }
-function applyFqidMarkers(monaco, model, index, currentDomainId) {
+function applyFqidMarkers(monaco, model, lines, index, currentDomainId) {
   try {
-    const text = model.getValue();
-    const lines = text.split("\n");
     const markers = [];
     const domainIds = /* @__PURE__ */ new Set();
     (index?.domains || []).forEach(
@@ -59458,10 +60570,8 @@ function getSectionAtLine(lines, lineIdx0) {
   }
   return "";
 }
-function applyViewRefMarkers(monaco, model, index, currentDomainId) {
+function applyViewRefMarkers(monaco, model, lines, index, currentDomainId) {
   try {
-    const text = model.getValue();
-    const lines = text.split("\n");
     const markers = [];
     const localDomain = (currentDomainId || "").toLowerCase();
     const schema2 = index?.schemasByDomain?.[currentDomainId];
@@ -59619,9 +60729,8 @@ function applyViewRefMarkers(monaco, model, index, currentDomainId) {
     console.warn("[view-ref-validator]", err);
   }
 }
-function applyAttributeMarkers(monaco, model) {
+function applyAttributeMarkers(monaco, model, lines) {
   try {
-    const lines = model.getValue().split("\n");
     const markers = [];
     let section = "";
     let sectionStart = -1;
@@ -60039,10 +61148,8 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
     });
   }
 }
-function applyUiRuleRefMarkers(monaco, model, index, currentDomainId) {
+function applyUiRuleRefMarkers(monaco, model, lines, index, currentDomainId) {
   try {
-    const text = model.getValue();
-    const lines = text.split("\n");
     const markers = [];
     const knownWidgets = /* @__PURE__ */ new Set();
     const knownGroups = /* @__PURE__ */ new Set();
@@ -60245,11 +61352,6 @@ function buildQuickFix(marker, model) {
     const lineText = model.getLineContent(marker.startLineNumber);
     const idMatch = lineText.match(/\bid\s*:\s*([a-zA-Z0-9_\-]+)/);
     if (!idMatch || !idMatch[1]) {
-      console.log("[buildQuickFix] camelcase: id not found", {
-        code,
-        msg,
-        lineText
-      });
       return null;
     }
     const oldId = idMatch[1];
@@ -60259,11 +61361,6 @@ function buildQuickFix(marker, model) {
     const pascal = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
     const newId = isAttribute ? pascal.charAt(0).toLowerCase() + pascal.slice(1) : pascal;
     if (newId === oldId) {
-      console.log("[buildQuickFix] camelcase: id already valid", {
-        code,
-        oldId,
-        newId
-      });
       return null;
     }
     const startCol = lineText.indexOf(oldId) + 1;
@@ -60363,6 +61460,613 @@ function hasPrefixMatch(suggestions, prefix) {
   }
   return false;
 }
+function detectTransitiveJoinContext(model, position, currentDomain, index) {
+  if (!index)
+    return null;
+  let sectionName = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m)
+        sectionName = m[1];
+      break;
+    }
+  }
+  if (sectionName !== "transitiveLinkages")
+    return null;
+  const currentLine = model.getLineContent(position.lineNumber);
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+  let dashLine = -1;
+  let dashIndent = -1;
+  const curDashM = currentLine.match(/^(\s*)-\s+\S?/);
+  if (curDashM) {
+    dashLine = position.lineNumber;
+    dashIndent = curDashM[1].length;
+  } else {
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const line = model.getLineContent(i);
+      if (!line.trim() || line.trim().startsWith("#"))
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind < currentIndent) {
+        const m = line.match(/^(\s*)-\s+\S/);
+        if (m) {
+          dashLine = i;
+          dashIndent = m[1].length;
+        }
+        break;
+      }
+    }
+  }
+  if (dashLine < 0)
+    return null;
+  let joinsAboveLine = -1;
+  let joinsAboveIndent = -1;
+  for (let i = dashLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0)
+      break;
+    const jm = line.match(/^(\s*)joins\s*:\s*$/);
+    if (jm && jm[1].length < dashIndent) {
+      joinsAboveLine = i;
+      joinsAboveIndent = jm[1].length;
+      break;
+    }
+  }
+  if (joinsAboveLine < 0)
+    return null;
+  let tlStart = -1;
+  let tlIndent = -1;
+  for (let i = joinsAboveLine - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim())
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0)
+      break;
+    const m = line.match(/^(\s*)-\s+id\s*:/);
+    if (m) {
+      tlStart = i;
+      tlIndent = m[1].length;
+      break;
+    }
+  }
+  if (tlStart < 0)
+    return null;
+  let rootEntityId = null;
+  for (let i = tlStart + 1; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim())
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= tlIndent)
+      break;
+    if (ind === tlIndent + 2) {
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        rootEntityId = m[1].replace(/["']/g, "");
+        break;
+      }
+    }
+  }
+  if (!rootEntityId) {
+    return { parentEntityFqid: null, currentDomain };
+  }
+  const targetJoinsLine = joinsAboveLine;
+  const targetJoinsIndent = joinsAboveIndent;
+  let joinItemIndent = -1;
+  for (let i = targetJoinsLine + 1; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim())
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= targetJoinsIndent)
+      break;
+    const dm = line.match(/^(\s*)-\s+\S/);
+    if (dm) {
+      joinItemIndent = dm[1].length;
+      break;
+    }
+  }
+  if (joinItemIndent < 0) {
+    return { parentEntityFqid: null, currentDomain };
+  }
+  let currentParent = `${currentDomain}/${rootEntityId}`.toLowerCase();
+  let cur = targetJoinsLine + 1;
+  while (cur < dashLine) {
+    const line = model.getLineContent(cur);
+    if (!line.trim()) {
+      cur++;
+      continue;
+    }
+    const dm = line.match(/^(\s*)-\s+\S/);
+    if (!dm || dm[1].length !== joinItemIndent) {
+      cur++;
+      continue;
+    }
+    let joinEnd = dashLine;
+    for (let k = cur + 1; k < dashLine; k++) {
+      const lk = model.getLineContent(k);
+      if (!lk.trim())
+        continue;
+      const ik = (lk.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ik < joinItemIndent) {
+        joinEnd = k;
+        break;
+      }
+      const dk = lk.match(/^(\s*)-\s+\S/);
+      if (dk && dk[1].length === joinItemIndent) {
+        joinEnd = k;
+        break;
+      }
+    }
+    let linkageRef = null;
+    let side;
+    for (let k = cur; k < joinEnd; k++) {
+      const l = model.getLineContent(k);
+      const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lInd !== joinItemIndent && lInd !== joinItemIndent + 2)
+        continue;
+      if (!linkageRef) {
+        const lm = l.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
+        if (lm)
+          linkageRef = lm[1].replace(/["']/g, "");
+      }
+      if (side === void 0) {
+        const sm = l.match(/^\s*side\s*:\s*([12])/);
+        if (sm)
+          side = parseInt(sm[1], 10);
+      }
+    }
+    if (linkageRef && currentParent) {
+      const linkage = resolveLinkageForMonaco(linkageRef, currentDomain, index);
+      if (linkage) {
+        const parentLower = currentParent.toLowerCase();
+        const isSymmetric = linkage.side1Fqid === linkage.side2Fqid;
+        let target = null;
+        if (isSymmetric) {
+          target = linkage.side1Fqid === parentLower ? linkage.side2Fqid : null;
+        } else {
+          const eff = side === 2 ? 2 : 1;
+          const parentSide = eff === 1 ? linkage.side1Fqid : linkage.side2Fqid;
+          const childSide = eff === 1 ? linkage.side2Fqid : linkage.side1Fqid;
+          if (parentSide === parentLower)
+            target = childSide;
+          else if (linkage.side1Fqid === parentLower)
+            target = linkage.side2Fqid;
+          else if (linkage.side2Fqid === parentLower)
+            target = linkage.side1Fqid;
+        }
+        if (target)
+          currentParent = target;
+      }
+    }
+    cur = joinEnd;
+  }
+  return { parentEntityFqid: currentParent, currentDomain };
+}
+function buildTransitiveLinkageCandidates(parentFqid, currentDomain, Kind) {
+  const index = ctx.modelIndex;
+  if (!index)
+    return [];
+  const candidates = [];
+  for (const l of index.entityLinkages) {
+    if ((l.domainId || "").toLowerCase() !== currentDomain)
+      continue;
+    const side1Rel = parentFqid ? relationOf(parentFqid, l.side1Fqid, index) : null;
+    const side2Rel = parentFqid ? relationOf(parentFqid, l.side2Fqid, index) : null;
+    const isUndirected = l.type === "n_n" && l.undirected === true;
+    const peer1 = l.side1Fqid.split("/").pop() || l.side1Fqid;
+    const peer2 = l.side2Fqid.split("/").pop() || l.side2Fqid;
+    let score = 10;
+    let detail = l.type;
+    if (l.type === "1_n") {
+      if (side1Rel === "same") {
+        score = 1e3;
+        detail = `1_n \xB7 parent \u2192 ${peer2}`;
+      } else if (side1Rel === "ancestor") {
+        score = 900;
+        detail = `1_n \xB7 parent \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 side1 \xB7 \u2192 ${peer2}`;
+      } else if (side2Rel === "same") {
+        score = 300;
+        detail = `1_n \xB7 inverted (parent \u043D\u0430 many-\u0441\u0442\u043E\u0440\u043E\u043D\u0435)`;
+      } else {
+        score = 100;
+        detail = `1_n \xB7 \u043D\u0435 \u0441\u0432\u044F\u0437\u0430\u043D \u0441 parent`;
+      }
+    } else if (l.type === "n_n") {
+      if (isUndirected) {
+        score = 200;
+        detail = `n_n undirected`;
+      } else if (side1Rel === "same" || side2Rel === "same") {
+        score = 500;
+        detail = `n_n \xB7 ${peer1} \u2194 ${peer2}`;
+      } else {
+        score = 200;
+        detail = `n_n \xB7 \u043D\u0435 \u0441\u0432\u044F\u0437\u0430\u043D \u0441 parent`;
+      }
+    } else if (l.type === "1_1") {
+      score = 30;
+      detail = `1_1 \xB7 \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0434\u043B\u044F \u0446\u0435\u043F\u043E\u0447\u043A\u0438`;
+    } else {
+      detail = l.type;
+    }
+    candidates.push({ l, score, detail });
+  }
+  candidates.sort(
+    (a, b) => b.score !== a.score ? b.score - a.score : a.l.id.localeCompare(b.l.id)
+  );
+  return candidates.map(({ l, score, detail }) => ({
+    label: l.id,
+    insertText: " " + l.id,
+    kind: Kind.Reference,
+    sortText: (2e3 - score).toString().padStart(4, "0") + "_" + l.id,
+    detail,
+    documentation: `${l.type} \xB7 ${l.side1Fqid} \u2192 ${l.side2Fqid}`
+  }));
+}
+function applyTransitiveMarkers(monaco, model, lines, index, currentDomainId) {
+  if (!index) {
+    monaco.editor.setModelMarkers(model, "transitive-validator", []);
+    return;
+  }
+  const markers = [];
+  const cur = currentDomainId.toLowerCase();
+  let sectionStart = -1;
+  let sectionEnd = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        if (m[1] === "transitiveLinkages")
+          sectionStart = i;
+        else if (sectionStart >= 0) {
+          sectionEnd = i;
+          break;
+        }
+      }
+    }
+  }
+  if (sectionStart < 0) {
+    monaco.editor.setModelMarkers(model, "transitive-validator", []);
+    return;
+  }
+  let itemIndent = -1;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const m = lines[i].match(/^(\s*)-\s+id\s*:/);
+    if (m) {
+      itemIndent = m[1].length;
+      break;
+    }
+  }
+  if (itemIndent < 0) {
+    monaco.editor.setModelMarkers(model, "transitive-validator", []);
+    return;
+  }
+  const entityLookup = (entityId) => {
+    if (!entityId)
+      return null;
+    if (entityId.includes("/"))
+      return index.entitiesByFqid[entityId.toLowerCase()] || null;
+    return index.entitiesByFqid[`${cur}/${entityId}`.toLowerCase()] || null;
+  };
+  const isSameOrAncestor2 = (ancestorFqid, descFqid) => {
+    if (!ancestorFqid || !descFqid)
+      return false;
+    const ancL = ancestorFqid.toLowerCase();
+    let walkCur = descFqid.toLowerCase();
+    const seen = /* @__PURE__ */ new Set();
+    while (walkCur && !seen.has(walkCur)) {
+      seen.add(walkCur);
+      if (walkCur === ancL)
+        return true;
+      const e = index.entitiesByFqid[walkCur];
+      if (!e || !e.inherits)
+        return false;
+      walkCur = e.inherits.toLowerCase();
+    }
+    return false;
+  };
+  const emit2 = (line, col, len, sev, msg, code) => {
+    markers.push({
+      severity: sev,
+      message: msg,
+      startLineNumber: line,
+      startColumn: col,
+      endLineNumber: line,
+      endColumn: col + len,
+      source: "transitive-validator",
+      code
+    });
+  };
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const idM = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (!idM || idM[1].length !== itemIndent)
+      continue;
+    const tlEnd = (() => {
+      for (let j = i + 1; j < sectionEnd; j++) {
+        if (!lines[j].trim())
+          continue;
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind < itemIndent)
+          return j;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length === itemIndent)
+          return j;
+      }
+      return sectionEnd;
+    })();
+    let rootEntityId = null;
+    let rootEntityLine = -1;
+    let rootEntityCol = 1;
+    for (let j = i + 1; j < tlEnd; j++) {
+      const line = lines[j];
+      if (!line.trim())
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind !== itemIndent + 2)
+        continue;
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        rootEntityId = m[1].replace(/["']/g, "");
+        rootEntityLine = j;
+        rootEntityCol = line.indexOf(rootEntityId) + 1;
+        break;
+      }
+    }
+    const rootEntity = entityLookup(rootEntityId);
+    if (rootEntityId && !rootEntity && rootEntityLine >= 0) {
+      const missingDomain = isForeignDomainNotLoaded(
+        rootEntityId,
+        index
+      );
+      if (missingDomain) {
+        emit2(
+          rootEntityLine + 1,
+          rootEntityCol,
+          rootEntityId.length,
+          monaco.MarkerSeverity.Info,
+          `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB${rootEntityId}\xBB \u2014 \u0434\u043E\u043C\u0435\u043D \xAB${missingDomain}\xBB \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D \u0432 \u043A\u044D\u0448`,
+          "transitiveLinkage/entity-domain-not-loaded"
+        );
+      } else {
+        emit2(
+          rootEntityLine + 1,
+          rootEntityCol,
+          rootEntityId.length,
+          monaco.MarkerSeverity.Error,
+          `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB${rootEntityId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${cur}`,
+          "transitiveLinkage/entity-unknown"
+        );
+      }
+    }
+    let currentParent = rootEntity ? rootEntity.fqid.toLowerCase() : rootEntityId ? `${cur}/${rootEntityId}`.toLowerCase() : null;
+    let joinsLine = -1;
+    let joinsIndent = -1;
+    for (let j = i + 1; j < tlEnd; j++) {
+      const m = lines[j].match(/^(\s*)joins\s*:\s*$/);
+      if (m) {
+        joinsLine = j;
+        joinsIndent = m[1].length;
+        break;
+      }
+    }
+    if (joinsLine < 0)
+      continue;
+    const walk = (parentFqid, containerLine, containerIndent, containerEnd) => {
+      let joinIndent = -1;
+      for (let j2 = containerLine + 1; j2 < containerEnd; j2++) {
+        if (!lines[j2].trim())
+          continue;
+        const d = lines[j2].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length > containerIndent) {
+          joinIndent = d[1].length;
+          break;
+        }
+      }
+      if (joinIndent < 0)
+        return parentFqid;
+      let currentParentLocal = parentFqid;
+      let j = containerLine + 1;
+      while (j < containerEnd) {
+        if (!lines[j].trim()) {
+          j++;
+          continue;
+        }
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= containerIndent)
+          break;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (!d || d[1].length !== joinIndent) {
+          j++;
+          continue;
+        }
+        const childStart = j;
+        let childEnd = containerEnd;
+        for (let k = j + 1; k < containerEnd; k++) {
+          if (!lines[k].trim())
+            continue;
+          const kInd = (lines[k].match(/^(\s*)/) || ["", ""])[1].length;
+          if (kInd < joinIndent) {
+            childEnd = k;
+            break;
+          }
+          const kd = lines[k].match(/^(\s*)-\s+\S/);
+          if (kd && kd[1].length === joinIndent) {
+            childEnd = k;
+            break;
+          }
+        }
+        let linkageId = null;
+        let linkageLine = -1;
+        let linkageCol = 1;
+        let side;
+        for (let k = childStart; k < childEnd; k++) {
+          const l = lines[k];
+          if (!l.trim())
+            continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd !== joinIndent && lInd !== joinIndent + 2)
+            continue;
+          if (linkageId === null) {
+            const m = l.match(
+              /^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/
+            );
+            if (m) {
+              linkageId = m[1].replace(/["']/g, "");
+              linkageLine = k;
+              linkageCol = l.indexOf(linkageId) + 1;
+            }
+          }
+          if (side === void 0) {
+            const m = l.match(/^\s*side\s*:\s*([12])/);
+            if (m)
+              side = parseInt(m[1], 10);
+          }
+        }
+        const linkageRec = linkageId ? resolveLinkageForMonaco(linkageId, cur, index) : null;
+        if (linkageId && !linkageRec && linkageLine >= 0) {
+          const missingDomain = isForeignDomainNotLoaded(
+            linkageId,
+            index
+          );
+          if (missingDomain) {
+            emit2(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Info,
+              `\u0421\u0432\u044F\u0437\u044C \xAB${linkageId}\xBB \u2014 \u0434\u043E\u043C\u0435\u043D \xAB${missingDomain}\xBB \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D \u0432 \u043A\u044D\u0448`,
+              "transitiveLinkage/linkage-domain-not-loaded"
+            );
+          } else {
+            emit2(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `\u0421\u0432\u044F\u0437\u044C \xAB${linkageId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${cur}`,
+              "transitiveLinkage/linkage-unknown"
+            );
+          }
+        }
+        if (linkageRec && currentParentLocal && linkageLine >= 0) {
+          const isSymmetric = linkageRec.side1Fqid === linkageRec.side2Fqid;
+          const isDirected = !(linkageRec.type === "n_n" && linkageRec.undirected);
+          if (isSymmetric && isDirected && !side) {
+            emit2(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Warning,
+              `\u0421\u0432\u044F\u0437\u044C "${linkageId}" \u0441\u0438\u043C\u043C\u0435\u0442\u0440\u0438\u0447\u043D\u0430\u044F \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u2014 \u0443\u043A\u0430\u0436\u0438\u0442\u0435 side: 1 \u0438\u043B\u0438 2`,
+              "transitiveLinkage/side-required"
+            );
+          }
+          const parentLower = currentParentLocal.toLowerCase();
+          const reachableForward = isSameOrAncestor2(
+            linkageRec.side1Fqid,
+            parentLower
+          );
+          const reachableBackward = isSameOrAncestor2(
+            linkageRec.side2Fqid,
+            parentLower
+          );
+          if (!reachableForward && !reachableBackward) {
+            emit2(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `linkage "${linkageId}" (${linkageRec.side1Fqid.split("/").pop()} \u2192 ${linkageRec.side2Fqid.split("/").pop()}) \u043D\u0435 \u0441\u043E\u0435\u0434\u0438\u043D\u044F\u0435\u0442 parent \xAB${currentParentLocal.split("/").pop()}\xBB`,
+              "transitiveLinkage/not-reachable"
+            );
+          }
+          let target = null;
+          if (isSymmetric) {
+            if (reachableForward)
+              target = linkageRec.side2Fqid;
+          } else {
+            const eff = side === 2 ? 2 : 1;
+            const parentSide = eff === 1 ? linkageRec.side1Fqid : linkageRec.side2Fqid;
+            const childSide = eff === 1 ? linkageRec.side2Fqid : linkageRec.side1Fqid;
+            if (isSameOrAncestor2(parentSide, parentLower)) {
+              target = childSide;
+            } else if (reachableForward) {
+              target = linkageRec.side2Fqid;
+            } else if (reachableBackward) {
+              target = linkageRec.side1Fqid;
+            }
+          }
+          if (target)
+            currentParentLocal = target;
+        }
+        let nestedJoinsLine = -1;
+        let nestedJoinsIndent = -1;
+        for (let k = childStart + 1; k < childEnd; k++) {
+          const m = lines[k].match(/^(\s*)joins\s*:\s*$/);
+          if (m) {
+            nestedJoinsLine = k;
+            nestedJoinsIndent = m[1].length;
+            break;
+          }
+        }
+        if (nestedJoinsLine >= 0) {
+          walk(
+            currentParentLocal,
+            nestedJoinsLine,
+            nestedJoinsIndent,
+            childEnd
+          );
+        }
+        j = childEnd;
+      }
+      return currentParentLocal;
+    };
+    walk(currentParent, joinsLine, joinsIndent, tlEnd);
+    i = tlEnd - 1;
+  }
+  monaco.editor.setModelMarkers(model, "transitive-validator", markers);
+}
+function resolveLinkageForMonaco(ref, currentDomain, index) {
+  if (!index || !ref)
+    return null;
+  const trimmed = String(ref).trim();
+  if (!trimmed)
+    return null;
+  const slash = trimmed.indexOf("/");
+  const targetDomain = slash > 0 ? trimmed.slice(0, slash).toLowerCase() : currentDomain.toLowerCase();
+  const id = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+  const idLower = id.toLowerCase();
+  return (index.entityLinkages || []).find(
+    (l) => (l.domainId || "").toLowerCase() === targetDomain && l.id.toLowerCase() === idLower
+  ) || null;
+}
+function isForeignDomainNotLoaded(ref, index) {
+  if (!index || !ref)
+    return null;
+  const slash = ref.indexOf("/");
+  if (slash <= 0)
+    return null;
+  const domain = ref.slice(0, slash).toLowerCase();
+  if (!domain)
+    return null;
+  const loaded = (index.domains || []).some(
+    (d) => String(d.id).toLowerCase() === domain
+  );
+  return loaded ? null : domain;
+}
 var KNOWN_VALUE_FIELDS, SORT, INLINE_COVERED_RULE_IDS, SYSTEM_ATTRIBUTES_FOR_COMPLETION, COMMON_ICON_NAMES, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, collectRefsCache, lastCtxCache, mkSimple, FIELD_DEFINITIONS, SNIPPETS, PATH_TO_CONTEXT, _colCache, withKindCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, QUICKFIX_SOURCES;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
@@ -60443,7 +62147,17 @@ var init_monaco_providers = __esm({
       "ordering",
       "selection",
       "autodownload",
-      "includeLinkToScenario"
+      "includeLinkToScenario",
+      // exchangeSettings
+      "forExport",
+      "upsertWith",
+      "ignoreAttributes",
+      "exportSystemAttributes",
+      "Date",
+      "Time",
+      "Timestamp",
+      "TimestampRange",
+      "displayMode"
     ]);
     SORT = {
       SNIPPET: "zzzz_",
@@ -61060,7 +62774,8 @@ var init_monaco_providers = __esm({
       "ordering",
       "selection",
       "autodownload",
-      "includeLinkToScenario"
+      "includeLinkToScenario",
+      "noCmsSync"
     ]);
     collectRefsCache = /* @__PURE__ */ new WeakMap();
     lastCtxCache = null;
@@ -88567,7 +90282,6 @@ function YamlViewerModal() {
         setIsLocked(false);
         useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0434\u043B\u044F \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439");
       }
-      window.setTimeout(closeEmptySuggestWidget, 40);
       lastEditAtRef.current = Date.now();
       clearTimeout(liveDebounce.current);
       liveDebounce.current = setTimeout(() => {
@@ -88591,7 +90305,7 @@ function YamlViewerModal() {
             void yamlBackups.delete(filePath);
           }
         }
-      }, 1e3);
+      }, 5e3);
     };
     const sub = editorRef.current.onDidChangeModelContent(handler);
     return () => {
@@ -88748,6 +90462,10 @@ function YamlViewerModal() {
     if (!focusTarget && hideDimmed)
       setHideDimmed(false);
   }, [focusTarget, hideDimmed]);
+  const contentLines = useMemo54(
+    () => idleContent ? idleContent.split("\n") : [],
+    [idleContent]
+  );
   const domainIssues = useMemo54(() => {
     if (!index || !effectiveDomainId)
       return [];
@@ -88757,23 +90475,16 @@ function YamlViewerModal() {
     if (!lineMap || !idleContent)
       return raw;
     return raw.map((issue) => {
-      if (typeof issue.line === "number")
-        return issue;
-      if (issue.ruleId !== "view/filter-linked-entity-attribute-unknown" && !/linkedEntity\[/.test(String(issue.propertyPath || ""))) {
-        return issue;
-      }
-      const resolved = findLinkedEntityAttributeLine(
-        idleContent,
-        lineMap,
+      const resolved = resolveIssueLine2(
         issue,
+        lineMap,
+        contentLines,
         index,
         effectiveDomainId
       );
-      if (resolved == null)
-        return issue;
-      return { ...issue, __preResolvedLine: resolved };
+      return { ...issue, __resolvedLine: resolved };
     });
-  }, [index, effectiveDomainId, lineMap, idleContent]);
+  }, [index, effectiveDomainId, lineMap, contentLines]);
   const counters = useMemo54(() => {
     if (!schema2)
       return null;
@@ -88886,15 +90597,13 @@ function YamlViewerModal() {
     return combined;
   }, [domainIssues, lineMap, idleContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
   const recheckModel = useMemo54(
-    () => buildRecheckModel(idleContent || ""),
-    [idleContent]
+    () => checksEnabled ? buildRecheckModel(idleContent || "") : null,
+    [idleContent, checksEnabled]
   );
   const effectiveIssues = useMemo54(() => {
     if (!checksEnabled)
       return allIssues;
-    if (!isDirty || !lineMap)
-      return allIssues;
-    if (idleContent === savedContent)
+    if (!lineMap || !idleContent || !recheckModel)
       return allIssues;
     const out = [];
     for (const issue of allIssues) {
@@ -88915,10 +90624,8 @@ function YamlViewerModal() {
     return out;
   }, [
     allIssues,
-    isDirty,
-    idleContent,
     lineMap,
-    savedContent,
+    idleContent,
     recheckModel,
     index,
     inlineMarkersVersion
@@ -89060,6 +90767,8 @@ function YamlViewerModal() {
   }, [idleContent]);
   const unusedAnalysis = useMemo54(() => {
     if (!yamlHighlightUnused)
+      return null;
+    if (leftCollapsed !== false)
       return null;
     if (!lineMap || !idleContent)
       return null;
@@ -89611,6 +91320,7 @@ ${body}`;
         overviewRulerLanes: 0,
         lineNumbers: "on",
         scrollBeyondLastLine: false,
+        stickyScroll: { enabled: false },
         folding: true,
         foldingStrategy: "indentation",
         breadcrumbs: { enabled: true },
@@ -89623,6 +91333,7 @@ ${body}`;
         renderValidationDecorations: "on",
         lightbulb: { enabled: "on" },
         wordBasedSuggestions: "off",
+        inlineSuggest: { enabled: false },
         suggest: {
           showWords: false,
           showSnippets: true,
@@ -89632,7 +91343,8 @@ ${body}`;
           preview: false,
           showDetails: true,
           showInlineDetails: true,
-          showStatusBar: false
+          showStatusBar: false,
+          delay: 500
         },
         quickSuggestions: false,
         suggestOnTriggerCharacters: true,
@@ -89763,7 +91475,7 @@ ${body}`;
             setCursorLine(line);
             setCursorColumn(col);
           });
-        }, 120);
+        }, 500);
       });
       editor.onMouseDown((e) => {
         if (e.target.type === m.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && typeof e.target.position?.lineNumber === "number") {
@@ -89801,13 +91513,16 @@ ${body}`;
           });
         }
       });
+      let suggestWidgetEl = null;
       const isSuggestOpen = () => {
-        const el = document.querySelector(".suggest-widget");
-        if (!el)
+        if (!suggestWidgetEl || !suggestWidgetEl.isConnected) {
+          suggestWidgetEl = document.querySelector(".suggest-widget");
+          if (!suggestWidgetEl)
+            return false;
+        }
+        if (!suggestWidgetEl.classList.contains("visible"))
           return false;
-        if (!el.classList.contains("visible"))
-          return false;
-        return el.querySelectorAll(".monaco-list-row").length > 0;
+        return suggestWidgetEl.querySelectorAll(".monaco-list-row").length > 0;
       };
       editor.onDidChangeModelContent((e) => {
         if (isLockedRef.current)
@@ -90308,40 +92023,49 @@ ${body}`;
       if (runKey === lastRunKey)
         return;
       lastRunKey = runKey;
+      const lines = currentText.split("\n");
       try {
-        applyFqidMarkers(m, model, index, domainId);
+        applyFqidMarkers(m, model, lines, index, domainId);
       } catch {
       }
       try {
-        applyDataTypeMarkers(m, model, index, domainId);
+        applyDataTypeMarkers(m, model, lines, index, domainId);
       } catch {
       }
       try {
-        applyEnumFieldMarkers(m, model);
+        applyEnumFieldMarkers(m, model, lines);
       } catch {
       }
       try {
-        applyViewRefMarkers(m, model, index, domainId);
+        applyViewRefMarkers(m, model, lines, index, domainId);
       } catch {
       }
       try {
-        applyAttributeMarkers(m, model);
+        applyAttributeMarkers(m, model, lines);
       } catch {
       }
       try {
-        applyUiRuleRefMarkers(m, model, index, domainId);
+        applyUiRuleRefMarkers(m, model, lines, index, domainId);
       } catch {
       }
       try {
-        applyAttributeRefMarkers(m, model);
+        applyAttributeRefMarkers(m, model, lines);
       } catch {
       }
       try {
-        applyWorkflowStatusRefMarkers(m, model);
+        applyWorkflowStatusRefMarkers(m, model, lines);
       } catch {
       }
       try {
-        applyRqlMarkers(m, model);
+        applyRqlMarkers(m, model, lines);
+      } catch {
+      }
+      try {
+        applyTreeMarkers(m, model, lines, index, domainId);
+      } catch {
+      }
+      try {
+        applyTransitiveMarkers(m, model, lines, index, domainId);
       } catch {
       }
       try {
@@ -90388,7 +92112,7 @@ ${body}`;
     const schedule = () => {
       if (timer)
         clearTimeout(timer);
-      timer = setTimeout(runAll, 600);
+      timer = setTimeout(runAll, 800);
     };
     const disposable = editorRef.current.onDidChangeModelContent(schedule);
     runAll();
@@ -90479,7 +92203,7 @@ ${label.message}` : ""),
     const currentText = model.getValue();
     const isDirty2 = content !== savedContent;
     const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !INLINE_COVERED_RULE_IDS.has(issue.ruleId)).filter((issue) => !isIgnored(issue, ignored)).map((issue) => {
-      const state = isDirty2 ? classifyIssue(issue, currentText, recheckModel, index) : "still";
+      const state = isDirty2 && recheckModel ? classifyIssue(issue, currentText, recheckModel, index) : "still";
       if (state === "resolved")
         return null;
       const line = findIssueLine(issue, lineMap);
@@ -90523,7 +92247,7 @@ ${label.message}` : ""),
       } catch {
       }
     };
-  }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
+  }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent, idleContent]);
   const jumpTo = useCallback37(
     (line, opts) => {
       const editor = editorRef.current;
@@ -90878,7 +92602,8 @@ ${label.message}` : ""),
     editorCreated,
     lineMap,
     jumpTo,
-    setPendingIssue
+    setPendingIssue,
+    idleContent
   ]);
   useEffect58(() => {
     if (!open)
@@ -92689,26 +94414,27 @@ ${publishInfo.hint}` : "";
     };
   }, [editorCreated]);
   const currentIndent = useMemo54(() => {
-    if (!idleContent)
+    const ed = editorRef.current;
+    if (!ed)
       return null;
-    const lines = idleContent.split("\n");
-    const line = lines[cursorLine - 1];
-    if (line === void 0)
+    const model = ed.getModel();
+    if (!model)
       return null;
-    const m = line.match(/^(\s*)/);
-    if (!m)
+    if (cursorLine < 1 || cursorLine > model.getLineCount())
       return null;
-    const indent = m[1];
-    if (!indent)
+    const line = model.getLineContent(cursorLine);
+    if (!line)
       return { spaces: 0, tabs: 0, total: 0 };
+    const m = line.match(/^(\s*)/);
+    const indent = m ? m[1] : "";
     const spaces = (indent.match(/ /g) || []).length;
     const tabs2 = (indent.match(/\t/g) || []).length;
     return { spaces, tabs: tabs2, total: spaces + tabs2 };
-  }, [idleContent, cursorLine]);
-  const totalLines = useMemo54(
-    () => content ? content.split("\n").length : 0,
-    [content]
-  );
+  }, [cursorLine, editorCreated]);
+  const totalLines = useMemo54(() => {
+    const model = editorRef.current?.getModel();
+    return model ? model.getLineCount() : 0;
+  }, [liveVersion, editorCreated]);
   const lintBreakdown = useMemo54(() => {
     const errs = filteredIssues.filter((i) => i.severity === "error").length;
     const warns = filteredIssues.filter((i) => i.severity === "warning").length;
@@ -95595,7 +97321,7 @@ function resolveLinkageTarget(linkage, sourceFqid) {
     return linkage.side1Fqid;
   return linkage.side2Fqid;
 }
-function parseLinkedEntityUseBlocks(content, lineMap, viewId) {
+function parseLinkedEntityUseBlocks(lines, lineMap, viewId) {
   const result = [];
   const viewsSection = lineMap.sections.find((s) => s.key === "views");
   if (!viewsSection)
@@ -95607,7 +97333,6 @@ function parseLinkedEntityUseBlocks(content, lineMap, viewId) {
   const nextNode = viewsSection.nodes[viewIdx + 1];
   const startLine = viewNode.line;
   const endLine = nextNode ? nextNode.line - 1 : viewsSection.line + viewsSection.linesCount - 1;
-  const lines = content.split("\n");
   const lastLine = Math.min(endLine, lines.length);
   let filterIdx = -1;
   let filterIndent = -1;
@@ -95740,13 +97465,13 @@ function parseLinkedEntityUseBlocks(content, lineMap, viewId) {
   flush();
   return result;
 }
-function findLinkedEntityAttributeLine(content, lineMap, issue, index, currentDomainId) {
+function findLinkedEntityAttributeLine(lines, lineMap, issue, index, currentDomainId) {
   const viewId = extractLinkedEntityViewId(issue);
   const attrName = extractLinkedEntityAttrName(issue);
   const targetFqid = extractLinkedEntityTargetFqid(issue);
   if (!viewId || !attrName)
     return null;
-  const useBlocks = parseLinkedEntityUseBlocks(content, lineMap, viewId);
+  const useBlocks = parseLinkedEntityUseBlocks(lines, lineMap, viewId);
   if (useBlocks.length === 0)
     return null;
   const sourceFqid = resolveViewSourceFqid(viewId, index, currentDomainId);
@@ -95774,38 +97499,38 @@ function findLinkedEntityAttributeLine(content, lineMap, issue, index, currentDo
   }
   return null;
 }
+function findFieldInItemBlock(lines, itemLine, field) {
+  const startIdx = itemLine - 1;
+  const startLine = lines[startIdx];
+  if (!startLine)
+    return null;
+  const dashIndent = (startLine.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l || !l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < dashIndent)
+      break;
+    if (/^\s*-\s+\S/.test(l) && ind === dashIndent)
+      break;
+    const m = l.match(new RegExp(`^\\s*(?:-\\s+)?${field}\\s*:`));
+    if (m)
+      return i + 1;
+  }
+  return null;
+}
 function findIssueLine(issue, lineMap) {
-  if (typeof issue.__preResolvedLine === "number" && issue.__preResolvedLine > 0) {
+  if (typeof issue.__resolvedLine === "number" && issue.__resolvedLine > 0)
+    return issue.__resolvedLine;
+  if (typeof issue.__preResolvedLine === "number" && issue.__preResolvedLine > 0)
     return issue.__preResolvedLine;
-  }
-  if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0) {
+  if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0)
     return issue.line;
-  }
   if (!lineMap)
     return null;
   if (issue.propertyPath) {
-    const path = issue.propertyPath;
-    const entityMatch = path.match(/entities\[([^\]]+)\]/);
-    if (entityMatch) {
-      const entityId = entityMatch[1];
-      const attrMatch = path.match(/attributes\[([^\]]+)\]/);
-      const line = resolveEntityOrAttributeLine(
-        lineMap,
-        entityId,
-        attrMatch ? attrMatch[1] : null
-      );
-      if (line != null)
-        return line;
-      if (attrMatch)
-        return null;
-      const fallback = lineMap.itemLines.get(`entities#${entityId}`);
-      if (fallback != null)
-        return fallback;
-    }
-    const nested = findNestedPathLine(lineMap, path);
-    if (nested != null)
-      return nested;
-    const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
+    const sectionItemMatch = issue.propertyPath.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
     if (sectionItemMatch) {
       const line = lineMap.itemLines.get(
         `${sectionItemMatch[1]}#${sectionItemMatch[2]}`
@@ -95816,23 +97541,15 @@ function findIssueLine(issue, lineMap) {
   }
   if (issue.entityFqid) {
     const entityId = issue.entityFqid.split("/")[1];
-    if (!entityId)
-      return null;
-    const line = resolveEntityOrAttributeLine(
-      lineMap,
-      entityId,
-      issue.attributeId ?? null
-    );
-    if (line != null)
-      return line;
-    if (issue.attributeId)
-      return null;
-  }
-  const sectionMatch = (issue.propertyPath || "").match(/^([a-zA-Z]+)/);
-  if (sectionMatch) {
-    const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
-    if (sec)
-      return sec.line;
+    if (entityId) {
+      const line = resolveEntityOrAttributeLine(
+        lineMap,
+        entityId,
+        issue.attributeId ?? null
+      );
+      if (line != null)
+        return line;
+    }
   }
   return null;
 }
@@ -97043,6 +98760,631 @@ function targetLabelForType(t) {
       return "\u044D\u043B\u0435\u043C\u0435\u043D\u0442";
   }
 }
+function extractDataRuleTargetAttribute(issue) {
+  if (typeof issue.attributeId === "string" && issue.attributeId) {
+    return issue.attributeId;
+  }
+  const msg = String(issue.message || "");
+  const patterns = [
+    /attributes(?:\[[^\]]*\])?\.attribute\s*=\s*["']([^"']+)["']/i,
+    /attribute\s*=\s*["']([^"']+)["']/i,
+    /attribute\s+[«"']([^«»"'`]+)[»"']/i,
+    /attribute\s*:\s*["']?([^\s"'`,#]+)/i
+  ];
+  for (const p of patterns) {
+    const m = msg.match(p);
+    if (m && m[1])
+      return m[1];
+  }
+  return null;
+}
+function extractDataRuleTargetLinkage(issue) {
+  const msg = String(issue.message || "");
+  const patterns = [
+    /linkages(?:\[[^\]]*\])?\.linkage\s*=\s*["']([^"']+)["']/i,
+    /linkage\s*=\s*["']([^"']+)["']/i,
+    /linkage\s+[«"']([^«»"'`]+)[»"']/i
+  ];
+  for (const p of patterns) {
+    const m = msg.match(p);
+    if (m && m[1])
+      return m[1];
+  }
+  if (typeof issue.attributeId === "string" && issue.attributeId) {
+    return issue.attributeId;
+  }
+  return null;
+}
+function normalizeRefName(s) {
+  const t = String(s ?? "").trim();
+  if (!t)
+    return "";
+  const slash = t.lastIndexOf("/");
+  return (slash >= 0 ? t.slice(slash + 1) : t).toLowerCase();
+}
+function findDataRuleRuleChildLine(lines, lineMap, dataRuleId, containerName, childKey, targetValue, index) {
+  const section = lineMap.sections.find((s) => s.key === "dataRules");
+  if (!section)
+    return null;
+  const nodeIdx = section.nodes.findIndex((n) => n.id === dataRuleId);
+  if (nodeIdx < 0)
+    return null;
+  const node = section.nodes[nodeIdx];
+  const nextNode = section.nodes[nodeIdx + 1];
+  const endLine = nextNode ? nextNode.line - 1 : section.line + section.linesCount - 1;
+  const lastLine = Math.min(endLine, lines.length);
+  const startIdx = node.line - 1;
+  let ruleLine = -1;
+  let ruleIndent = -1;
+  for (let i = startIdx + 1; i < lastLine; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const m = line.match(/^(\s*)rule\s*:\s*(?:#.*)?$/);
+    if (m) {
+      ruleLine = i;
+      ruleIndent = m[1].length;
+      break;
+    }
+  }
+  if (ruleLine < 0)
+    return null;
+  let containerLine = -1;
+  let containerIndent = -1;
+  const containerRe = new RegExp(
+    `^(\\s*)${containerName}\\s*:\\s*(?:#.*)?$`
+  );
+  for (let i = ruleLine + 1; i < lastLine; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= ruleIndent)
+      break;
+    const m = line.match(containerRe);
+    if (m) {
+      containerLine = i;
+      containerIndent = m[1].length;
+      break;
+    }
+  }
+  if (containerLine < 0)
+    return null;
+  const items = [];
+  const valueRe = new RegExp(
+    `^\\s*(?:-\\s+)?${childKey}\\s*:\\s*["']?([^\\s"'#]+)["']?`
+  );
+  let itemIndent = -1;
+  for (let i = containerLine + 1; i < lastLine; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= containerIndent)
+      break;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM)
+      continue;
+    if (itemIndent < 0)
+      itemIndent = dashM[1].length;
+    if (dashM[1].length !== itemIndent)
+      continue;
+    let value = null;
+    for (let j = i; j < lastLine; j++) {
+      const jLine = lines[j];
+      if (!jLine || !jLine.trim())
+        continue;
+      if (j > i && jLine.trim().startsWith("#"))
+        continue;
+      const jInd = (jLine.match(/^(\s*)/) || ["", ""])[1].length;
+      if (j > i && jInd <= containerIndent)
+        break;
+      if (j > i && jInd < itemIndent)
+        break;
+      const am = jLine.match(valueRe);
+      if (am) {
+        value = am[1];
+        break;
+      }
+    }
+    items.push({ startLine: i + 1, value });
+  }
+  if (targetValue) {
+    const needle = normalizeRefName(targetValue);
+    if (needle) {
+      const found = items.find(
+        (it) => it.value && normalizeRefName(it.value) === needle
+      );
+      if (found)
+        return found.startLine;
+    }
+  }
+  if (index >= 0 && index < items.length) {
+    return items[index].startLine;
+  }
+  return null;
+}
+function findExchangeSettingsFieldLine(lines, lineMap, propertyPath) {
+  const section = lineMap.sections.find((s) => s.key === "exchangeSettings");
+  if (!section)
+    return null;
+  const endIdx = Math.min(
+    section.line + section.linesCount - 1,
+    lines.length
+  );
+  const startIdx = section.line - 1;
+  const headerLine = lines[startIdx] || "";
+  const headerIndent = (headerLine.match(/^(\s*)/) || ["", ""])[1].length;
+  const lvl1 = headerIndent + 2;
+  const lvl2 = headerIndent + 4;
+  const lvl3 = headerIndent + 6;
+  const entityMatch = propertyPath.match(/entities[\.\[]([^\]\.]+)\]?/);
+  const entityId = entityMatch ? entityMatch[1] : null;
+  const lastDot = propertyPath.lastIndexOf(".");
+  const field = lastDot >= 0 ? propertyPath.slice(lastDot + 1) : "";
+  if (!field)
+    return null;
+  const fieldRe = new RegExp(`^\\s*${field}\\s*:`);
+  if (!entityId) {
+    for (let i = startIdx + 1; i < endIdx; i++) {
+      const line = lines[i];
+      if (!line || !line.trim() || line.trim().startsWith("#"))
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind !== lvl1)
+        continue;
+      if (fieldRe.test(line))
+        return i + 1;
+    }
+    return null;
+  }
+  let entitiesLine = -1;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind !== lvl1)
+      continue;
+    if (/^\s*entities\s*:\s*(?:#.*)?$/.test(line)) {
+      entitiesLine = i;
+      break;
+    }
+  }
+  if (entitiesLine < 0)
+    return null;
+  let entityLine = -1;
+  for (let i = entitiesLine + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= lvl1)
+      break;
+    if (ind !== lvl2)
+      continue;
+    const m = line.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
+    if (!m)
+      continue;
+    if (m[1].toLowerCase() === entityId.toLowerCase()) {
+      entityLine = i;
+      break;
+    }
+  }
+  if (entityLine < 0)
+    return null;
+  for (let i = entityLine + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= lvl2)
+      break;
+    if (ind !== lvl3)
+      continue;
+    if (fieldRe.test(line))
+      return i + 1;
+  }
+  return null;
+}
+function parseWidgetIssuePath(path) {
+  const vw = path.match(/^views\[([^\]]+)\]\.widgets\[([^\]]+)\](.*)$/);
+  if (!vw)
+    return null;
+  const viewId = vw[1];
+  const widgetId = vw[2];
+  const tail = vw[3];
+  const colWithField = tail.match(
+    /\.control\.columns(?:\[([^\]]*)\])?\.([a-zA-Z_]\w*)$/
+  );
+  if (colWithField) {
+    const inner = colWithField[1];
+    const fieldName = colWithField[2];
+    const sel = resolveColSelector(inner);
+    return { viewId, widgetId, selector: sel, fieldName };
+  }
+  const colOnly = tail.match(/\.control\.columns(?:\[([^\]]*)\])?$/);
+  if (colOnly) {
+    const inner = colOnly[1];
+    const sel = resolveColSelector(inner);
+    return { viewId, widgetId, selector: sel, fieldName: "" };
+  }
+  const fM = tail.match(/^\.([a-zA-Z_]\w*)$/);
+  if (fM) {
+    return { viewId, widgetId, selector: { kind: "field" }, fieldName: fM[1] };
+  }
+  return null;
+}
+function resolveColSelector(inner) {
+  if (inner === void 0 || inner === "") {
+    return { kind: "columnByAttribute", attribute: "" };
+  }
+  if (/^\d+$/.test(inner)) {
+    return { kind: "columnByIndex", index: parseInt(inner, 10) };
+  }
+  return { kind: "columnById", id: inner };
+}
+function extractWidgetColumnAttributeName(issue) {
+  const msg = String(issue.message || "");
+  const patterns = [
+    /attribute\s+[«"']([^«»"'`]+)[»"']/i,
+    /attribute\s*=\s*["']([^"']+)["']/i,
+    /attribute\s*:\s*["']?([^\s"'`,#]+)/i
+  ];
+  for (const p of patterns) {
+    const m = msg.match(p);
+    if (m && m[1])
+      return m[1];
+  }
+  return null;
+}
+function findWidgetFieldLine(lines, lineMap, viewId, widgetId, selector, fieldName) {
+  const section = lineMap.sections.find((s) => s.key === "views");
+  if (!section)
+    return null;
+  const viewNode = findViewNodeDeep(section, viewId);
+  if (!viewNode)
+    return null;
+  const widgetNode = findWidgetDeep(viewNode, widgetId);
+  if (!widgetNode)
+    return null;
+  const startIdx = widgetNode.line - 1;
+  const startLine = lines[startIdx];
+  if (!startLine)
+    return null;
+  const dashIndent = (startLine.match(/^(\s*)/) || ["", ""])[1].length;
+  const fieldIndent = dashIndent + 2;
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < dashIndent) {
+      endIdx = i;
+      break;
+    }
+    const dash = line.match(/^(\s*)-\s+\S/);
+    if (dash && dash[1].length === dashIndent) {
+      endIdx = i;
+      break;
+    }
+  }
+  if (selector.kind === "field") {
+    const re2 = new RegExp(`^\\s*${fieldName}\\s*:`);
+    for (let i = startIdx + 1; i < endIdx; i++) {
+      const line = lines[i];
+      if (!line || !line.trim() || line.trim().startsWith("#"))
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind !== fieldIndent)
+        continue;
+      if (re2.test(line))
+        return i + 1;
+    }
+    return null;
+  }
+  let controlLine = -1;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind !== fieldIndent)
+      continue;
+    if (/^\s*control\s*:\s*(?:#.*)?$/.test(line)) {
+      controlLine = i;
+      break;
+    }
+  }
+  if (controlLine < 0)
+    return null;
+  let columnsLine = -1;
+  let columnsIndent = -1;
+  for (let i = controlLine + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= fieldIndent)
+      break;
+    if (/^\s*columns\s*:\s*(?:#.*)?$/.test(line)) {
+      columnsLine = i;
+      columnsIndent = ind;
+      break;
+    }
+  }
+  if (columnsLine < 0)
+    return null;
+  const items = [];
+  let itemIndent = -1;
+  for (let i = columnsLine + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= columnsIndent)
+      break;
+    const dash = line.match(/^(\s*)-\s+\S/);
+    if (!dash)
+      continue;
+    if (itemIndent < 0)
+      itemIndent = dash[1].length;
+    if (dash[1].length !== itemIndent)
+      continue;
+    const colFieldIndent2 = itemIndent + 2;
+    let id = null;
+    let attribute = null;
+    let attributeLine = null;
+    for (let j = i; j < endIdx; j++) {
+      const jLine = lines[j];
+      if (!jLine || !jLine.trim())
+        continue;
+      if (j > i && jLine.trim().startsWith("#"))
+        continue;
+      const jInd = (jLine.match(/^(\s*)/) || ["", ""])[1].length;
+      if (j > i && jInd <= columnsIndent)
+        break;
+      if (j > i && jInd < itemIndent)
+        break;
+      if (id === null) {
+        const im = jLine.match(/^\s*(?:-\s+)?id\s*:\s*["']?([^\s"'#]+)["']?/);
+        if (im && (jInd === itemIndent || jInd >= colFieldIndent2))
+          id = im[1];
+      }
+      if (attribute === null) {
+        const am = jLine.match(/^\s*(?:-\s+)?attribute\s*:\s*["']?([^\s"'#]+)["']?/);
+        if (am && jInd >= colFieldIndent2) {
+          attribute = am[1];
+          attributeLine = j + 1;
+        }
+      }
+    }
+    items.push({ startLine: i + 1, id, attribute, attributeLine });
+  }
+  let chosen = null;
+  if (selector.kind === "columnByIndex") {
+    if (selector.index >= 0 && selector.index < items.length)
+      chosen = items[selector.index];
+  } else if (selector.kind === "columnById") {
+    const needle = selector.id.toLowerCase();
+    chosen = items.find((it) => it.id && it.id.toLowerCase() === needle) || null;
+  } else {
+    const needle = normalizeRefName(selector.attribute);
+    if (needle) {
+      chosen = items.find((it) => it.attribute && normalizeRefName(it.attribute) === needle) || null;
+    }
+  }
+  if (!chosen)
+    return null;
+  if (fieldName === "") {
+    return chosen.startLine;
+  }
+  if (fieldName === "attribute") {
+    return chosen.attributeLine ?? chosen.startLine;
+  }
+  if (fieldName === "attribute" && chosen.attributeLine != null) {
+    return chosen.attributeLine;
+  }
+  if (fieldName === "")
+    return chosen.startLine;
+  const colStartIdx = chosen.startLine - 1;
+  let colEnd = endIdx;
+  for (let i = colStartIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim())
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= columnsIndent) {
+      colEnd = i;
+      break;
+    }
+    const dash = line.match(/^(\s*)-\s+\S/);
+    if (dash && dash[1].length === itemIndent) {
+      colEnd = i;
+      break;
+    }
+  }
+  const colFieldIndent = itemIndent + 2;
+  const re = new RegExp(`^\\s*${fieldName}\\s*:`);
+  for (let i = colStartIdx + 1; i < colEnd; i++) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind !== colFieldIndent)
+      continue;
+    if (re.test(line))
+      return i + 1;
+  }
+  return null;
+}
+function findViewNodeDeep(section, viewId) {
+  const stack = [...section.nodes];
+  while (stack.length > 0) {
+    const n = stack.pop();
+    if (n.id === viewId)
+      return n;
+    if (n.children)
+      stack.push(...n.children);
+  }
+  return null;
+}
+function findWidgetDeep(viewNode, widgetId) {
+  const stack = [...viewNode.children || []];
+  while (stack.length > 0) {
+    const n = stack.pop();
+    if (n.id === widgetId && n.type === "widget")
+      return n;
+    if (n.children)
+      stack.push(...n.children);
+  }
+  return null;
+}
+function resolveIssueLine2(issue, lineMap, lines, index, domainId) {
+  if (typeof issue.__preResolvedLine === "number" && issue.__preResolvedLine > 0)
+    return issue.__preResolvedLine;
+  if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0)
+    return issue.line;
+  const path = issue.propertyPath || "";
+  if (issue.ruleId === "view/filter-linked-entity-attribute-unknown" || /linkedEntity\[/.test(path)) {
+    const line = findLinkedEntityAttributeLine(lines, lineMap, issue, index, domainId);
+    if (line != null)
+      return line;
+  }
+  if (path && !path.includes(".nested.")) {
+    const drMatch = path.match(/^dataRules\[([^\]]+)\]/);
+    if (drMatch) {
+      const drId = drMatch[1];
+      const isAttr = issue.ruleId === "dataRule/attribute-action-unknown" || /^dataRules\[[^\]]+\]\.(?:rule\.)?attributes\b/.test(path);
+      const isLnk = issue.ruleId === "dataRule/linkage-side-required" || /^dataRules\[[^\]]+\]\.(?:rule\.)?linkages\b/.test(path);
+      if (isAttr) {
+        const idxM = path.match(/\.attributes\[(\d+)\]/);
+        const idx = idxM ? parseInt(idxM[1], 10) : -1;
+        const line = findDataRuleRuleChildLine(
+          lines,
+          lineMap,
+          drId,
+          "attributes",
+          "attribute",
+          extractDataRuleTargetAttribute(issue),
+          idx
+        );
+        if (line != null)
+          return line;
+      }
+      if (isLnk) {
+        const idxM = path.match(/\.linkages\[(\d+)\]/);
+        const idx = idxM ? parseInt(idxM[1], 10) : -1;
+        const line = findDataRuleRuleChildLine(
+          lines,
+          lineMap,
+          drId,
+          "linkages",
+          "linkage",
+          extractDataRuleTargetLinkage(issue),
+          idx
+        );
+        if (line != null)
+          return line;
+      }
+    }
+  }
+  if (path && /^exchangeSettings\./.test(path)) {
+    const line = findExchangeSettingsFieldLine(lines, lineMap, path);
+    if (line != null)
+      return line;
+  }
+  if (path) {
+    const parsed = parseWidgetIssuePath(path);
+    if (parsed) {
+      let selector = parsed.selector;
+      if (selector.kind === "columnByAttribute" && selector.attribute === "") {
+        const val = extractWidgetColumnAttributeName(issue);
+        selector = val ? { kind: "columnByAttribute", attribute: val } : { kind: "field" };
+      }
+      const line = findWidgetFieldLine(
+        lines,
+        lineMap,
+        parsed.viewId,
+        parsed.widgetId,
+        selector,
+        parsed.fieldName
+      );
+      if (line != null)
+        return line;
+    }
+  }
+  if (path) {
+    const entityMatch = path.match(/entities\[([^\]]+)\]/);
+    if (entityMatch) {
+      const entityId = entityMatch[1];
+      const attrMatch = path.match(/attributes\[([^\]]+)\]/);
+      const line = resolveEntityOrAttributeLine(
+        lineMap,
+        entityId,
+        attrMatch ? attrMatch[1] : null
+      );
+      if (line != null)
+        return line;
+      if (attrMatch)
+        return null;
+      const fallback = lineMap.itemLines.get(`entities#${entityId}`);
+      if (fallback != null)
+        return fallback;
+    }
+  }
+  const nested = findNestedPathLine(lineMap, path);
+  if (nested != null)
+    return nested;
+  if (path) {
+    const leafField = path.match(/^([a-zA-Z][\w]*)\.\[?([^\]]+)\]\.([a-zA-Z_]\w*)$/);
+    const leafField2 = path.match(/^([a-zA-Z][\w]*)\[([^\]]+)\]\.([a-zA-Z_]\w*)$/);
+    const m2 = leafField2 ?? leafField;
+    if (m2) {
+      const [, sectionKey, itemId, field] = m2;
+      const itemLine = lineMap.itemLines.get(`${sectionKey}#${itemId}`);
+      if (itemLine != null) {
+        const fieldLine = findFieldInItemBlock(lines, itemLine, field);
+        if (fieldLine != null)
+          return fieldLine;
+        return itemLine;
+      }
+    }
+  }
+  if (path) {
+    const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
+    if (sectionItemMatch) {
+      const line = lineMap.itemLines.get(
+        `${sectionItemMatch[1]}#${sectionItemMatch[2]}`
+      );
+      if (line != null)
+        return line;
+    }
+  }
+  if (issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/")[1];
+    if (!entityId)
+      return null;
+    const line = resolveEntityOrAttributeLine(
+      lineMap,
+      entityId,
+      issue.attributeId ?? null
+    );
+    if (line != null)
+      return line;
+    if (issue.attributeId)
+      return null;
+  }
+  const sectionMatch = path.match(/^([a-zA-Z]+)/);
+  if (sectionMatch) {
+    const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
+    if (sec)
+      return sec.line;
+  }
+  return null;
+}
 var EMPTY_BOOKMARKS, INLINE_SOURCES, normalizeEol, EXT_KIND_META, IssuesPanel, BACKLINK_KIND_LABELS, BACKLINK_KIND_COLORS, BacklinksPanel;
 var init_YamlViewerModal = __esm({
   "src/web/components/modals/editor/YamlViewerModal.tsx"() {
@@ -97098,7 +99440,9 @@ var init_YamlViewerModal = __esm({
       "attribute-ref-validator",
       "action-required-validator",
       "rql-check",
-      "workflow-status-validator"
+      "workflow-status-validator",
+      "tree-validator",
+      "transitive-validator"
     ];
     normalizeEol = (s) => s.replace(/\r\n/g, "\n");
     EXT_KIND_META = {
