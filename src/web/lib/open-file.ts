@@ -54,6 +54,14 @@ export async function openFileInEditor(
   st.setYamlViewerFqid(fqid ?? null);
   st.setYamlViewerDomainId(effectiveDomainId);
   st.setYamlViewerOpen(true);
+
+  // Добавляем задачу на скролл к сущности
+  if (fqid) {
+    st.setYamlViewerPendingGoto({ kind: "fqid", fqid, expectedPath: filePath });
+  } else {
+    st.setYamlViewerPendingGoto(null);
+  }
+
   return true;
 }
 

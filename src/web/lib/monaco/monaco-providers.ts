@@ -25,6 +25,10 @@ import {
   buildLinkageHoverMarkdown,
 } from "./hover-impact";
 import { classifyQuickFix } from "./quickfix-rules";
+import { useGraphStore } from "../../state/useGraphStore";
+import { openFileInEditor } from "../open-file";
+import { registerColorProvider } from "./color-provider";
+import { registerSnippetsCompletion } from "./snippets-completion";
 
 /**
  * Поля, для которых в provideCompletionItems есть value-ветка
@@ -6460,7 +6464,28 @@ interface SnippetDef {
   body: string;
 }
 
-const SNIPPETS: SnippetDef[] = [
+export const SNIPPETS: SnippetDef[] = [
+  {
+    prefix: "newdataruleattr",
+    description: "Действие правила: атрибут",
+    contexts: ["dataRuleAttributeAction"],
+    body: [
+      "- attribute: ${1:attrId}",
+      "  constraint: !rql ${2:true}",
+      '  message: "${3:Сообщение об ошибке}"',
+    ].join("\n"),
+  },
+  {
+    prefix: "newdatarulelink",
+    description: "Действие правила: связь",
+    contexts: ["dataRuleLinkageAction"],
+    body: [
+      "- linkage: ${1:myLinkage}",
+      "  side: ${2:1}",
+      "  constraint: !rql ${3:true}",
+      '  message: "${4:Сообщение об ошибке}"',
+    ].join("\n"),
+  },
   {
     prefix: "newentity",
     description: "Новая сущность",
@@ -7524,14 +7549,19 @@ function isAtSearchingItemStart(model: any, position: any): boolean {
     if (!pl.trim() || pl.trim().startsWith("#")) continue;
     const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
 
-    // Предыдущий `- xxx:` на нашем indent — sibling, пропускаем
+    // Sibling `- xxx:` на нашем indent — пропускаем
     if (pIndent === currentIndent && /^\s*-\s+\S/.test(pl)) {
       continue;
     }
 
-    if (pIndent <= currentIndent) {
+    // Контейнер (`key:`) на нашем indent — это sibling, а не parent.
+    // Значит `searching:` выше — тоже sibling, а не родитель → false.
+    if (pIndent === currentIndent) {
+      return false;
+    }
+
+    if (pIndent < currentIndent) {
       if (/^\s*searching\s*:\s*$/.test(pl)) return true;
-      // Другой ключ выше — не searching
       return false;
     }
   }
@@ -7552,7 +7582,9 @@ interface ContainerEntry {
 
 function findContainerPath(model: any, position: any): string[] {
   const currentLine = model.getLineContent(position.lineNumber);
+
   const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+
   const result: string[] = [];
   let boundary = currentIndent;
 
@@ -7563,7 +7595,8 @@ function findContainerPath(model: any, position: any): string[] {
     if (!line.trim() || line.trim().startsWith("#")) continue;
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
 
-    if (indent >= boundary) continue;
+    if (indent > boundary) continue;
+    if (indent === boundary && boundary > 0) continue;
 
     if (indent === 0) {
       const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
@@ -7929,7 +7962,6 @@ export function detectContextAtPosition(
   const lineText = model.getLineContent(position.lineNumber);
   const beforeCursor = lineText.slice(0, position.column - 1);
 
-  // Если пользователь уже набрал `key: value` — это значение, не поле
   if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s+\S/.test(beforeCursor)) return null;
   if (/^\s*#/.test(beforeCursor)) return null;
 
@@ -8488,12 +8520,18 @@ export function detectContextAtPosition(
 
 // ============ Хелпер для поля/сниппета ============
 
-function buildFieldSuggestion(monaco: any, field: FieldDef, range: any): any {
+function buildFieldSuggestion(
+  monaco: any,
+  field: FieldDef,
+  range: any,
+  needsLeadingSpace: boolean = false,
+): any {
   const isRequired = field.required === true;
   return {
     label: field.name,
     kind: monaco.languages.CompletionItemKind.Field,
-    insertText: field.name + ": ",
+    // Добавляем пробел, если его нет
+    insertText: (needsLeadingSpace ? " " : "") + field.name + ": ",
     filterText: field.name,
     sortText: `${field.priority ?? (isRequired ? 0 : 1)}_${field.name}`,
     detail: `${field.type}${isRequired ? " · required" : ""}`,
@@ -8507,15 +8545,14 @@ function buildSnippetSuggestion(
   snippet: SnippetDef,
   range: any,
   currentIndent: string,
-  hasDash: boolean,
 ): any {
-  let body = snippet.body;
-  if (hasDash && body.startsWith("- ")) {
-    body = body.slice(2);
-  }
+  // ВАЖНО: НЕ срезаем дефис. Range начинается с колонки 1 и покрывает
+  // `- new` целиком; если мы срежем `- `, получится невалидный YAML.
+  const lines = snippet.body.split("\n");
+  const indented = lines.map((line) => currentIndent + line).join("\n");
 
-  const lines = body.split("\n");
-  const insertText = lines.map((line) => currentIndent + line).join("\n");
+  // Оборачиваем в пустые строки — перед и после сниппета
+  const insertText = "\n" + indented + "\n";
 
   return {
     label: `✨ ${snippet.prefix}`,
@@ -10279,6 +10316,92 @@ export function registerMonacoProviders(monaco: any): void {
   if (providersRegistered) return;
   providersRegistered = true;
 
+  try {
+    registerSnippetsCompletion(monaco);
+  } catch (err) {
+    console.warn("[monaco] snippets completion init failed", err);
+  }
+
+  registerColorProvider(monaco, () => ctx);
+
+  if (!(monaco.editor as any).__dgOpenFqidRegistered) {
+    (monaco.editor as any).__dgOpenFqidRegistered = true;
+    monaco.editor.registerCommand(
+      "dg-open-fqid",
+      (_accessor: any, args: any) => {
+        try {
+          let filePath = "";
+          let fqid = "";
+          if (typeof args === "string") {
+            const params = new URLSearchParams(args);
+            filePath = params.get("filePath") || "";
+            fqid = params.get("fqid") || "";
+          } else if (args && typeof args === "object") {
+            filePath = args.filePath || "";
+            fqid = args.fqid || "";
+          }
+          if (filePath) {
+            void openFileInEditor(filePath, fqid);
+          }
+        } catch (e) {
+          console.warn("[dg-open-fqid] failed", e);
+        }
+      },
+    );
+  }
+
+  // 2. Регистрируем DocumentLinkProvider
+  monaco.languages.registerLinkProvider("yaml", {
+    provideLinks: (model: any) => {
+      const links: any[] = [];
+      const text = model.getValue();
+      if (text.indexOf("/") === -1) return { links: [] };
+
+      const lines = text.split("\n");
+      const fqidRegex = /([a-z0-9][\w.-]*\.[a-z0-9][\w.-]*)\/([A-Za-z][\w]*)/g;
+
+      const nodes = useGraphStore.getState().nodes;
+      const domainToFile = new Map<string, string>();
+      for (const n of nodes) {
+        if (n.data.domainId && n.data.filePath) {
+          domainToFile.set(n.data.domainId.toLowerCase(), n.data.filePath);
+        }
+      }
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.includes("/")) continue;
+
+        let match;
+        fqidRegex.lastIndex = 0;
+        while ((match = fqidRegex.exec(line)) !== null) {
+          const domainId = match[1].toLowerCase();
+          const fullFqid = match[0];
+
+          const filePath = domainToFile.get(domainId);
+          if (filePath) {
+            // Формируем command URI с параметрами в query
+            const uri = monaco.Uri.parse("command:dg-open-fqid").with({
+              query: JSON.stringify({ filePath, fqid: fullFqid }),
+            });
+
+            links.push({
+              range: new monaco.Range(
+                i + 1,
+                match.index + 1,
+                i + 1,
+                match.index + 1 + fullFqid.length,
+              ),
+              url: uri, // ← именно url, а не target
+              tooltip: `Открыть ${fullFqid}`,
+            });
+          }
+        }
+      }
+      return { links };
+    },
+  });
+
   // === Регистрируем прямую команду для Quick Fix (обходит баг WorkspaceEdit) ===
   if (!(monaco.editor as any).__dgApplyEditRegistered) {
     (monaco.editor as any).__dgApplyEditRegistered = true;
@@ -10687,833 +10810,947 @@ export function registerMonacoProviders(monaco: any): void {
   monaco.languages.registerCompletionItemProvider("yaml", {
     triggerCharacters: [":", "/", " ", ".", "-"],
     provideCompletionItems: (model: any, position: any) => {
-      const raw = ((): { suggestions: any[] } | null => {
-        if (!ctx.modelIndex) return null;
-        const Kind = monaco.languages.CompletionItemKind;
+      try {
+        const raw = ((): { suggestions: any[] } | null => {
+          if (!ctx.modelIndex) return null;
+          const Kind = monaco.languages.CompletionItemKind;
 
-        //setTimeout(ensureSuggestDetailsVisible, 30);
+          //setTimeout(ensureSuggestDetailsVisible, 30);
 
-        // ============ RQL-контекст: только RQL-конструкции ============
-        // ============ RQL-контекст ============
-        if (isInsideRql(model, position)) {
-          // Сначала пробуем @root.member
-          const aliasResult = buildRqlAliasCompletions(
-            model,
-            position,
-            Kind,
-            ctx,
-          );
-          if (aliasResult) return aliasResult;
-          // Общий RQL-список
-          return {
-            suggestions: buildRqlSuggestions(model, position, Kind, ctx),
-          };
-        }
-
-        // ============ Далее — обычная YAML-логика ============
-
-        // ============ searching[]: массив атрибутов ============
-        // Поддерживаем две формы:
-        //   A. Канонично:   searching: [{ attribute: <cursor> }, ...]
-        //   B. Legacy/docs: searching: { attributes: [<cursor>, ...] }
-        {
-          const lineText0 = model.getLineContent(position.lineNumber);
-          const before0 = lineText0.slice(0, position.column - 1);
-
-          const inSearching = (currentIndent: number): boolean => {
-            for (let i = position.lineNumber - 1; i >= 1; i--) {
-              const l = model.getLineContent(i);
-              if (!l.trim() || l.trim().startsWith("#")) continue;
-              const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-              if (lIndent >= currentIndent) continue;
-              const trimmed = l.trim();
-              if (/^searching\s*:\s*$/.test(trimmed)) return true;
-              // любой другой ключ на меньшем отступе — вышли из searching
-              if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed)) return false;
-              if (lIndent === 0) return false;
-            }
-            return false;
-          };
-
-          const buildSuggestions = (): { suggestions: any[] } | null => {
-            const context = detectAttributeCompletionContext(model, position);
-            if (!context) return null;
-            const wordAtPos0 = model.getWordUntilPosition(position);
-            const range0 = {
-              startLineNumber: position.lineNumber,
-              startColumn: wordAtPos0.startColumn,
-              endLineNumber: position.lineNumber,
-              endColumn: wordAtPos0.endColumn,
-            };
-            const attrs = cachedAttributes(context);
-            if (attrs.length === 0) return null;
+          // ============ RQL-контекст: только RQL-конструкции ============
+          // ============ RQL-контекст ============
+          if (isInsideRql(model, position)) {
+            // Сначала пробуем @root.member
+            const aliasResult = buildRqlAliasCompletions(
+              model,
+              position,
+              Kind,
+              ctx,
+            );
+            if (aliasResult) return aliasResult;
+            // Общий RQL-список
             return {
-              suggestions: attrs.map((v) => ({
-                label: v.label,
-                kind: Kind.Field,
-                insertText: v.label,
-                filterText: v.label,
-                sortText: v.sortText,
-                detail: v.detail,
-                documentation: v.documentation,
-                range: range0,
-              })),
+              suggestions: buildRqlSuggestions(model, position, Kind, ctx),
             };
-          };
-
-          // A. Каноничная форма: `- attribute: <cursor>`
-          const mA = before0.match(/^(\s*)-\s+attribute\s*:\s*(.*)$/);
-          if (mA) {
-            if (inSearching(mA[1].length)) return buildSuggestions();
           }
 
-          // B. Legacy: `- <cursor>` внутри `searching.attributes:`
-          const mB = before0.match(/^(\s*)-\s+([\w]*)$/);
-          if (mB) {
-            const currentIndent = mB[1].length;
-            let sawAttributes = false;
-            for (let i = position.lineNumber - 1; i >= 1; i--) {
-              const l = model.getLineContent(i);
-              if (!l.trim() || l.trim().startsWith("#")) continue;
-              const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-              const trimmed = l.trim();
-              if (trimmed.startsWith("-")) continue;
-              if (lIndent > currentIndent) continue;
-              if (!sawAttributes && /^attributes\s*:/.test(trimmed)) {
-                sawAttributes = true;
-                continue;
+          // ============ Далее — обычная YAML-логика ============
+
+          // ============ searching[]: массив атрибутов ============
+          // Поддерживаем две формы:
+          //   A. Канонично:   searching: [{ attribute: <cursor> }, ...]
+          //   B. Legacy/docs: searching: { attributes: [<cursor>, ...] }
+          {
+            const lineText0 = model.getLineContent(position.lineNumber);
+            const before0 = lineText0.slice(0, position.column - 1);
+
+            const inSearching = (currentIndent: number): boolean => {
+              for (let i = position.lineNumber - 1; i >= 1; i--) {
+                const l = model.getLineContent(i);
+                if (!l.trim() || l.trim().startsWith("#")) continue;
+                const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+                if (lIndent >= currentIndent) continue;
+                const trimmed = l.trim();
+                if (/^searching\s*:\s*$/.test(trimmed)) return true;
+                // любой другой ключ на меньшем отступе — вышли из searching
+                if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed)) return false;
+                if (lIndent === 0) return false;
               }
-              if (sawAttributes && /^searching\s*:/.test(trimmed)) {
-                return buildSuggestions();
+              return false;
+            };
+
+            const buildSuggestions = (): { suggestions: any[] } | null => {
+              const context = detectAttributeCompletionContext(model, position);
+              if (!context) return null;
+              const wordAtPos0 = model.getWordUntilPosition(position);
+              const range0 = {
+                startLineNumber: position.lineNumber,
+                startColumn: wordAtPos0.startColumn,
+                endLineNumber: position.lineNumber,
+                endColumn: wordAtPos0.endColumn,
+              };
+              const attrs = cachedAttributes(context);
+              if (attrs.length === 0) return null;
+              return {
+                suggestions: attrs.map((v) => ({
+                  label: v.label,
+                  kind: Kind.Field,
+                  insertText: v.label,
+                  filterText: v.label,
+                  sortText: v.sortText,
+                  detail: v.detail,
+                  documentation: v.documentation,
+                  range: range0,
+                })),
+              };
+            };
+
+            // A. Каноничная форма: `- attribute: <cursor>`
+            const mA = before0.match(/^(\s*)-\s+attribute\s*:\s*(.*)$/);
+            if (mA) {
+              if (inSearching(mA[1].length)) return buildSuggestions();
+            }
+
+            // B. Legacy: `- <cursor>` внутри `searching.attributes:`
+            const mB = before0.match(/^(\s*)-\s+([\w]*)$/);
+            if (mB) {
+              const currentIndent = mB[1].length;
+              let sawAttributes = false;
+              for (let i = position.lineNumber - 1; i >= 1; i--) {
+                const l = model.getLineContent(i);
+                if (!l.trim() || l.trim().startsWith("#")) continue;
+                const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+                const trimmed = l.trim();
+                if (trimmed.startsWith("-")) continue;
+                if (lIndent > currentIndent) continue;
+                if (!sawAttributes && /^attributes\s*:/.test(trimmed)) {
+                  sawAttributes = true;
+                  continue;
+                }
+                if (sawAttributes && /^searching\s*:/.test(trimmed)) {
+                  return buildSuggestions();
+                }
+                if (lIndent < currentIndent) break;
               }
-              if (lIndent < currentIndent) break;
             }
           }
-        }
 
-        const lineText = model.getLineContent(position.lineNumber);
-        const beforeCursor = lineText.slice(0, position.column - 1);
-        const wordAtPos = model.getWordUntilPosition(position);
-        const cur = (ctx.currentDomainId || "").toLowerCase();
+          const lineText = model.getLineContent(position.lineNumber);
+          const beforeCursor = lineText.slice(0, position.column - 1);
+          const wordAtPos = model.getWordUntilPosition(position);
+          const cur = (ctx.currentDomainId || "").toLowerCase();
 
-        // === 1. Проверяем, value ли это (`field: value`) ===
-        const fieldMatch = beforeCursor.match(
-          /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[^"'\n]*["']?$/,
-          // /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/,
-        );
+          // === 1. Проверяем, value ли это (`field: value`) ===
+          const fieldMatch = beforeCursor.match(
+            /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[^"'\n]*["']?$/,
+            // /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/,
+          );
 
-        // === 2. Если НЕ value — field-name / root / snippets ===
-        if (!fieldMatch) {
-          const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+          // === 2. Если НЕ value — field-name / root / snippets ===
+          if (!fieldMatch) {
+            const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
 
-          if (
-            lineIndent === 0 &&
-            /^[a-zA-Z_][a-zA-Z0-9_]*\s*$/.test(beforeCursor)
-          ) {
-            const rootItems = [
-              ["id", "Уникальный идентификатор домена (FQDN)"],
-              ["name", "Название домена"],
-              ["version", "Версия схемы (SemVer)"],
-              ["type", "Тип элемента экспертизы (domain)"],
-              ["description", "Описание домена"],
-              ["status", "Статус схемы"],
-              ["date", "Дата схемы"],
-              ["tags", "Теги"],
-              ["author", "Автор схемы"],
-              ["entities", "Сущности домена"],
-              ["dataTypes", "Кастомные типы (Enum, Workflow, Table)"],
-              ["linkages", "Связи сущностей"],
-              ["sequences", "Последовательности для Identifier"],
-              ["counterColorPatterns", "Цветовые схемы счётчиков"],
-              ["trees", "Древовидные связи"],
-              ["transitiveLinkages", "Транзитивные связи"],
-              ["mixins", "Примеси"],
-              ["dataRules", "Правила данных"],
-              ["exchangeSettings", "Настройки импорта и экспорта объектов"],
-              ["actions", "Действия"],
-              ["medias", "Иконки"],
-              ["views", "Представления"],
-              ["widgets", "Доменные виджеты (для дашбордов)"],
-              ["menus", "Меню домена"],
-              ["permissions", "Разрешения действий и доступа к данным"],
-              [
-                "accessRules",
-                "Правила доступа (scope create/edit/view/delete/launch)",
-              ],
-              ["localizations", "Локализации"],
-              ["uiRules", "UI Rules"],
-              ["uiPresets", "UI Presets"],
-            ] as const;
-            const range = {
+            if (
+              lineIndent === 0 &&
+              /^[a-zA-Z_][a-zA-Z0-9_]*\s*$/.test(beforeCursor)
+            ) {
+              let foundArrayCtx: string | null = null;
+              try {
+                // Проверяем, не находимся ли мы внутри top-level массива
+                // (набрали "new" на пустой строке между `entities:` и `  - id: ...`)
+                const TOP_LEVEL_ARRAYS: Record<string, string> = {
+                  entities: "entityList",
+                  linkages: "linkageList",
+                  dataTypes: "dataTypeList",
+                  sequences: "sequenceList",
+                  actions: "actionList",
+                  views: "viewList",
+                  trees: "treeList",
+                  transitiveLinkages: "transitiveLinkageList",
+                  mixins: "mixinList",
+                  dataRules: "dataRuleList",
+                  medias: "mediaList",
+                  menus: "menuRootList",
+                  uiRules: "uiRuleList",
+                  uiPresets: "uiPresetList",
+                  accessRules: "accessRule",
+                  localizations: "localization",
+                  counterColorPatterns: "counterColorPattern",
+                  counterColorPattern: "counterColorPattern",
+                  widgets: "widget",
+                  permissions: "permission",
+                };
+
+                for (let i = position.lineNumber - 1; i >= 1; i--) {
+                  const pl = model.getLineContent(i);
+                  if (!pl.trim() || pl.trim().startsWith("#")) continue;
+                  const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+                  if (pIndent !== 0) continue;
+                  const m = pl.match(/^([a-zA-Z_][\w]*)\s*:\s*(#.*)?$/);
+                  if (m && TOP_LEVEL_ARRAYS[m[1]]) {
+                    foundArrayCtx = TOP_LEVEL_ARRAYS[m[1]];
+                  }
+                  break;
+                }
+              } catch (e) {
+                console.warn("[suggest] array-context detection failed", e);
+              }
+
+              if (foundArrayCtx) {
+                const snippetRange = {
+                  startLineNumber: position.lineNumber,
+                  startColumn: 1,
+                  endLineNumber: position.lineNumber,
+                  endColumn: wordAtPos.endColumn,
+                };
+                // Индент для элемента массива — 2 пробела
+                const suggestions = SNIPPETS.filter((sn) =>
+                  sn.contexts.includes(foundArrayCtx!),
+                ).map((sn) =>
+                  buildSnippetSuggestion(monaco, sn, snippetRange, "  "),
+                );
+                if (suggestions.length > 0) return { suggestions };
+              }
+
+              const rootItems = [
+                ["id", "Уникальный идентификатор домена (FQDN)"],
+                ["name", "Название домена"],
+                ["version", "Версия схемы (SemVer)"],
+                ["type", "Тип элемента экспертизы (domain)"],
+                ["description", "Описание домена"],
+                ["status", "Статус схемы"],
+                ["date", "Дата схемы"],
+                ["tags", "Теги"],
+                ["author", "Автор схемы"],
+                ["entities", "Сущности домена"],
+                ["dataTypes", "Кастомные типы (Enum, Workflow, Table)"],
+                ["linkages", "Связи сущностей"],
+                ["sequences", "Последовательности для Identifier"],
+                ["counterColorPatterns", "Цветовые схемы счётчиков"],
+                ["trees", "Древовидные связи"],
+                ["transitiveLinkages", "Транзитивные связи"],
+                ["mixins", "Примеси"],
+                ["dataRules", "Правила данных"],
+                ["exchangeSettings", "Настройки импорта и экспорта объектов"],
+                ["actions", "Действия"],
+                ["medias", "Иконки"],
+                ["views", "Представления"],
+                ["widgets", "Доменные виджеты (для дашбордов)"],
+                ["menus", "Меню домена"],
+                ["permissions", "Разрешения действий и доступа к данным"],
+                [
+                  "accessRules",
+                  "Правила доступа (scope create/edit/view/delete/launch)",
+                ],
+                ["localizations", "Локализации"],
+                ["uiRules", "UI Rules"],
+                ["uiPresets", "UI Presets"],
+              ] as const;
+              const range = {
+                startLineNumber: position.lineNumber,
+                startColumn: 1,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+              };
+              return {
+                suggestions: rootItems.map(([id, desc]) => ({
+                  label: id,
+                  kind: Kind.Module,
+                  insertText: id + ":",
+                  filterText: id,
+                  sortText: id,
+                  detail: desc,
+                  range,
+                })),
+              };
+            }
+
+            // === exchangeSettings.entities → <EntityId>: (ключ = id сущности домена) ===
+            // `entities:` — карта, а не массив. Пока пользователь не набрал `:`,
+            // подсказываем id сущностей текущего домена.
+            {
+              const path = findContainerPath(model, position);
+              if (
+                path.length === 2 &&
+                path[0] === "exchangeSettings" &&
+                path[1] === "entities"
+              ) {
+                const cur = (ctx.currentDomainId || "").toLowerCase();
+                const seen = new Set<string>();
+                const suggestions: any[] = [];
+                const wordAtPos = model.getWordUntilPosition(position);
+                const range = {
+                  startLineNumber: position.lineNumber,
+                  startColumn: wordAtPos.startColumn,
+                  endLineNumber: position.lineNumber,
+                  endColumn: wordAtPos.endColumn,
+                };
+                ctx.modelIndex?.entities?.forEach((e: any) => {
+                  if ((e.domainId || "").toLowerCase() !== cur) return;
+                  if (seen.has(e.entityId)) return;
+                  seen.add(e.entityId);
+                  const parts: string[] = [];
+                  if (e.name && e.name !== e.entityId) parts.push(e.name);
+                  parts.push(`${e.attributes.length} атр.`);
+                  suggestions.push({
+                    label: e.entityId,
+                    kind: Kind.Class,
+                    insertText: e.entityId + ":",
+                    filterText: e.entityId,
+                    sortText: "0_" + e.entityId,
+                    detail: parts.join(" · "),
+                    documentation: mdDoc(e.description),
+                    range,
+                  });
+                });
+                if (suggestions.length > 0) return { suggestions };
+              }
+            }
+
+            const context = detectContextAtPosition(
+              model,
+              position,
+              ctx.lineMap?.lineContexts || new Map(),
+            );
+            if (!context) return null;
+
+            const rawIndent = (lineText.match(/^(\s*)/) || ["", ""])[1];
+            const currentIndent = "  ".repeat(Math.floor(rawIndent.length / 2));
+            const suggestions: any[] = [];
+
+            const needsLeadingSpace = beforeCursor.endsWith("-");
+
+            const snippetRange = {
               startLineNumber: position.lineNumber,
               startColumn: 1,
               endLineNumber: position.lineNumber,
-              endColumn: position.column,
+              endColumn: wordAtPos.endColumn,
             };
-            return {
-              suggestions: rootItems.map(([id, desc]) => ({
-                label: id,
-                kind: Kind.Module,
-                insertText: id + ":",
-                filterText: id,
-                sortText: id,
-                detail: desc,
-                range,
-              })),
-            };
-          }
-
-          // === exchangeSettings.entities → <EntityId>: (ключ = id сущности домена) ===
-          // `entities:` — карта, а не массив. Пока пользователь не набрал `:`,
-          // подсказываем id сущностей текущего домена.
-          {
-            const path = findContainerPath(model, position);
-            if (
-              path.length === 2 &&
-              path[0] === "exchangeSettings" &&
-              path[1] === "entities"
-            ) {
-              const cur = (ctx.currentDomainId || "").toLowerCase();
-              const seen = new Set<string>();
-              const suggestions: any[] = [];
-              const wordAtPos = model.getWordUntilPosition(position);
+            SNIPPETS.forEach((sn) => {
+              if (sn.contexts.includes(context)) {
+                suggestions.push(
+                  buildSnippetSuggestion(
+                    monaco,
+                    sn,
+                    snippetRange,
+                    currentIndent,
+                  ),
+                );
+              }
+            });
+            const fields =
+              FIELD_DEFINITIONS[context] ??
+              FIELD_DEFINITIONS[context.replace(/List$/, "")];
+            if (fields) {
               const range = {
                 startLineNumber: position.lineNumber,
                 startColumn: wordAtPos.startColumn,
                 endLineNumber: position.lineNumber,
                 endColumn: wordAtPos.endColumn,
               };
-              ctx.modelIndex?.entities?.forEach((e: any) => {
-                if ((e.domainId || "").toLowerCase() !== cur) return;
-                if (seen.has(e.entityId)) return;
-                seen.add(e.entityId);
-                const parts: string[] = [];
-                if (e.name && e.name !== e.entityId) parts.push(e.name);
-                parts.push(`${e.attributes.length} атр.`);
-                suggestions.push({
-                  label: e.entityId,
-                  kind: Kind.Class,
-                  insertText: e.entityId + ":",
-                  filterText: e.entityId,
-                  sortText: "0_" + e.entityId,
-                  detail: parts.join(" · "),
-                  documentation: mdDoc(e.description),
-                  range,
-                });
-              });
-              if (suggestions.length > 0) return { suggestions };
-            }
-          }
-
-          const context = detectContextAtPosition(
-            model,
-            position,
-            ctx.lineMap?.lineContexts || new Map(),
-          );
-          if (!context) return null;
-
-          const rawIndent = (lineText.match(/^(\s*)/) || ["", ""])[1];
-          const currentIndent = "  ".repeat(Math.floor(rawIndent.length / 2));
-          const hasDash = /^\s*-/.test(beforeCursor);
-          const suggestions: any[] = [];
-          const snippetRange = {
-            startLineNumber: position.lineNumber,
-            startColumn: 1,
-            endLineNumber: position.lineNumber,
-            endColumn: wordAtPos.endColumn,
-          };
-          SNIPPETS.forEach((sn) => {
-            if (sn.contexts.includes(context)) {
-              suggestions.push(
-                buildSnippetSuggestion(
-                  monaco,
-                  sn,
-                  snippetRange,
-                  currentIndent,
-                  hasDash,
+              fields.forEach((f) =>
+                suggestions.push(
+                  buildFieldSuggestion(monaco, f, range, needsLeadingSpace),
                 ),
               );
             }
-          });
-          const fields =
-            FIELD_DEFINITIONS[context] ??
-            FIELD_DEFINITIONS[context.replace(/List$/, "")];
-          if (fields) {
-            const range = {
-              startLineNumber: position.lineNumber,
-              startColumn: wordAtPos.startColumn,
-              endLineNumber: position.lineNumber,
-              endColumn: wordAtPos.endColumn,
-            };
-            fields.forEach((f) =>
-              suggestions.push(buildFieldSuggestion(monaco, f, range)),
-            );
+            return suggestions.length > 0 ? { suggestions } : null;
           }
-          return suggestions.length > 0 ? { suggestions } : null;
-        }
 
-        // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
-        const fieldName = fieldMatch[2];
+          // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
+          const fieldName = fieldMatch[2];
 
-        // Guard: value-completion поддерживается только для полей из KNOWN_VALUE_FIELDS
-        // и BOOLEAN_FIELD_NAMES. Для `name:`, `description:`, `label:` и прочих
-        // свободных полей сразу выходим — не запускаем O(N) разбор контекста.
-        if (
-          !BOOLEAN_FIELD_NAMES.has(fieldName) &&
-          !KNOWN_VALUE_FIELDS.has(fieldName)
-        ) {
-          return null;
-        }
+          // Guard: value-completion поддерживается только для полей из KNOWN_VALUE_FIELDS
+          // и BOOLEAN_FIELD_NAMES. Для `name:`, `description:`, `label:` и прочих
+          // свободных полей сразу выходим — не запускаем O(N) разбор контекста.
+          if (
+            !BOOLEAN_FIELD_NAMES.has(fieldName) &&
+            !KNOWN_VALUE_FIELDS.has(fieldName)
+          ) {
+            return null;
+          }
 
-        const vctxRaw = getCachedValueContext(model, position);
-        const pathItemType = computeItemTypeFromPath(model, position);
+          const vctxRaw = getCachedValueContext(model, position);
+          const pathItemType = computeItemTypeFromPath(model, position);
 
-        // Приоритет: path-based, КРОМЕ мест, где detectValueContext уточняет
-        // через widget.type (единственный «динамический» путь на сегодня).
-        // Такие пути — whitelist.
-        const pathStr = findContainerPath(model, position).join(".");
-        const DYNAMIC_PATHS = new Set<string>([
-          "views.widgets.control", // control.type зависит от widget.type
-        ]);
+          // Приоритет: path-based, КРОМЕ мест, где detectValueContext уточняет
+          // через widget.type (единственный «динамический» путь на сегодня).
+          // Такие пути — whitelist.
+          const pathStr = findContainerPath(model, position).join(".");
+          const DYNAMIC_PATHS = new Set<string>([
+            "views.widgets.control", // control.type зависит от widget.type
+          ]);
 
-        const effectiveItemType =
-          DYNAMIC_PATHS.has(pathStr) && vctxRaw.itemType
-            ? vctxRaw.itemType
-            : (pathItemType ?? vctxRaw.itemType ?? "");
+          const effectiveItemType =
+            DYNAMIC_PATHS.has(pathStr) && vctxRaw.itemType
+              ? vctxRaw.itemType
+              : (pathItemType ?? vctxRaw.itemType ?? "");
 
-        const vctx = { ...vctxRaw, itemType: effectiveItemType };
+          const vctx = { ...vctxRaw, itemType: effectiveItemType };
 
-        const r = buildValueCompletion; // сокращение
-        // ============ Boolean-поля: только true / false ============
-        if (BOOLEAN_FIELD_NAMES.has(fieldName)) {
-          return r(
-            model,
-            position,
-            [fieldName],
-            mkSimple(["true", "false"], Kind.Value, {
-              true: "логическое true",
-              false: "логическое false",
-            }),
-            Kind,
-          );
-        }
-
-        switch (fieldName) {
-          case "iconName": {
-            // Только внутри medias[] — иначе iconName может быть чем-то другим
-            const path = findContainerPath(model, position);
-            if (path[0] !== "medias" && vctx.section !== "medias") {
-              return null;
-            }
-            // Частые иконки — сверху через префикс sortText
-            const POPULAR = new Set([
-              "Add",
-              "Edit",
-              "Trash",
-              "Eye",
-              "Save",
-              "Close",
-              "Refresh",
-              "Search",
-              "Filter",
-              "Settings",
-              "Folder",
-              "File",
-              "FileText",
-              "Download",
-              "Upload",
-              "Menu",
-              "MoreVertical",
-              "Check",
-              "Alert",
-              "Info",
-              "User",
-              "Users",
-              "Group",
-              "Link",
-              "List",
-              "Dashboard",
-              "Server",
-              "Cloud",
-              "Lock",
-              "Shield",
-              "Bug",
-              "Rocket",
-              "StarFilled",
-              "StarUnfilled",
-              "Play",
-              "Pause",
-            ]);
+          const r = buildValueCompletion; // сокращение
+          // ============ Boolean-поля: только true / false ============
+          if (BOOLEAN_FIELD_NAMES.has(fieldName)) {
             return r(
               model,
               position,
-              ["iconName"],
-              COMMON_ICON_NAMES.map(([name, desc]) => ({
-                label: name,
-                insertText: " " + name,
-                kind: Kind.Value,
-                sortText: (POPULAR.has(name) ? "0_" : "1_") + name,
-                documentation: desc,
-              })),
-              Kind,
-            );
-          }
-          case "initial": {
-            if (vctx.section !== "dataTypes") return null;
-            const statuses = getDataTypeStatuses(model, position);
-            if (statuses.length === 0) return null;
-            return r(
-              model,
-              position,
-              ["initial"],
-              mkSimple(statuses, Kind.EnumMember, {
-                ...statuses.reduce(
-                  (acc, s) => ({ ...acc, [s]: `Статус workflow` }),
-                  {},
-                ),
+              [fieldName],
+              mkSimple(["true", "false"], Kind.Value, {
+                true: "логическое true",
+                false: "логическое false",
               }),
               Kind,
             );
           }
-          case "from":
-          case "to": {
-            // Только внутри dataTypes[].transitions[]
-            if (vctx.section !== "dataTypes") return null;
-            if (vctx.container !== "transitions") return null;
-            const statuses = getDataTypeStatuses(model, position);
-            const items = ["*", ...statuses];
-            return r(
-              model,
-              position,
-              ["from", "to"],
-              mkSimple(items, Kind.Value, {
-                "*": "Любой статус",
-              }),
-              Kind,
-            );
-          }
-          // ---------- dataType ----------
-          case "dataType": {
-            // NEW: drag_drop_area.context.dataType
-            if (vctx.itemType === "viewWidgetDragDropContext") {
-              return r(
-                model,
-                position,
-                ["dataType"],
-                mkSimple(["Array", "Attachment", "Table"], Kind.Value, {
-                  Array: "Массив вложений",
-                  Attachment: "Одно вложение",
-                  Table: "Таблица вложений",
-                }),
-                Kind,
-              );
-            }
 
-            if (vctx.section === "dataTypes" && vctx.itemType === "dataType") {
-              return r(
-                model,
-                position,
-                ["dataType"],
-                mkSimple(["Enum", "Table", "Workflow"], Kind.Value, {
-                  Enum: "Перечисление — фиксированный список значений",
-                  Table: "Таблица — структурированные данные (строки/колонки)",
-                  Workflow: "Рабочий процесс — статусы и переходы",
-                }),
-                Kind,
-              );
-            }
-            const base: RefSuggestion[] = BASE_DATA_TYPES_COMPLETION.map(
-              (t) => ({
-                label: t,
-                insertText: " " + t,
-                kind: Kind.Value,
-                sortText: "0_" + t,
-                documentation: BASE_DATA_TYPE_DESCRIPTIONS[t],
-              }),
-            );
-            const custom: RefSuggestion[] = [];
-            const seen = new Set<string>();
-            ctx.modelIndex.dataTypes
-              .filter((dt: any) => (dt.domainId || "").toLowerCase() === cur)
-              .forEach((dt: any) => {
-                if (!dt?.id || seen.has(dt.id)) return;
-                seen.add(dt.id);
-                const parts: string[] = [];
-                if (dt.kind) parts.push(dt.kind);
-                if (dt.description) parts.push(dt.description);
-                if (dt.kind === "Enum" && typeof dt.valuesCount === "number")
-                  parts.push(`${dt.valuesCount} значений`);
-                if (
-                  dt.kind === "Workflow" &&
-                  typeof dt.statusesCount === "number"
-                )
-                  parts.push(`${dt.statusesCount} статусов`);
-                if (
-                  dt.kind === "Table" &&
-                  typeof dt.attributesCount === "number"
-                )
-                  parts.push(`${dt.attributesCount} колонок`);
-                custom.push({
-                  label: dt.id,
-                  insertText: " " + dt.id,
-                  kind:
-                    dt.kind === "Enum"
-                      ? Kind.Enum
-                      : dt.kind === "Workflow"
-                        ? Kind.Interface
-                        : Kind.Struct,
-                  sortText: "1_" + dt.id,
-                  documentation: parts.join(" · "),
-                });
-              });
-            return (
-              r(model, position, ["dataType"], [...base, ...custom], Kind) || {
-                suggestions: [],
+          switch (fieldName) {
+            case "iconName": {
+              // Только внутри medias[] — иначе iconName может быть чем-то другим
+              const path = findContainerPath(model, position);
+              if (path[0] !== "medias" && vctx.section !== "medias") {
+                return null;
               }
-            );
-          }
-
-          // ---------- type ----------
-          case "type": {
-            const map: Record<
-              string,
-              { list: string[]; desc?: Record<string, string> }
-            > = {
-              view: {
-                list: [
-                  "entity",
-                  "list",
-                  "tree",
-                  "tabs_list",
-                  "dashboard",
-                  "dashboard_tree",
-                ],
-              },
-              viewNested: { list: ["panel", "modal", "page"] },
-              widget: {
-                list: Object.keys(WIDGET_TYPE_DESCRIPTIONS),
-                desc: WIDGET_TYPE_DESCRIPTIONS,
-              },
-              group: {
-                list: ["block", "form", "tab", "tabs", "resizable_block_pair"],
-              },
-              action: {
-                list: Object.keys(ACTION_TYPE_DESCRIPTIONS),
-                desc: ACTION_TYPE_DESCRIPTIONS,
-              },
-              linkage: { list: ["1_1", "1_n", "n_n"] },
-              dataType: { list: ["Enum", "Table", "Workflow"] },
-              tree: { list: ["ordinary", "orderable", "multiparent"] },
-              viewWidgetControl: {
-                list: Object.keys(CONTROL_TYPE_DESCRIPTIONS),
-                desc: CONTROL_TYPE_DESCRIPTIONS,
-              },
-              viewWidgetLinkageControl: {
-                list: ["select", "multi_select", "table", "list", "tree"],
-              },
-              reconciliationMergeStrategy: {
-                list: RECONCILIATION_MERGE_STRATEGIES.map(([t]) => t),
-                desc: RECONCILIATION_MERGE_LABELS,
-              },
-              menu: {
-                list: ["root_group", "root_menu"],
-                desc: {
-                  root_group: "Раздел с подразделами (левое меню)",
-                  root_menu: "Отдельный пункт в главном меню",
-                },
-              },
-              menuItem: {
-                list: ["menu"],
-                desc: { menu: "Подраздел в группе" },
-              },
-              media: {
-                list: ["icon_name", "data"],
-                desc: {
-                  icon_name: "Иконка из дизайн-системы",
-                  data: "Base64-строка",
-                },
-              },
-              viewTableColumnControl: {
-                list: Object.keys(CONTROL_TYPE_DESCRIPTIONS),
-                desc: CONTROL_TYPE_DESCRIPTIONS,
-              },
-              treeNodeType: {
-                list: ["root", "branch", "leaf"],
-                desc: {
-                  root: "Корень дерева вложения",
-                  branch: "Ветка дерева вложения",
-                  leaf: "Лист дерева вложения",
-                },
-              },
-              viewDashboardLayout: {
-                list: ["grid"],
-                desc: { grid: "Расположение виджетов сеткой" },
-              },
-              // ============ NEW: bulk-edit (без bulkSettings) ============
-              actionAttributes: {
-                list: ["specific"],
-                desc: {
-                  specific: "Редактирование только перечисленных атрибутов",
-                },
-              },
-              actionLinkages: {
-                list: ["specific"],
-                desc: {
-                  specific:
-                    "Редактирование только перечисленных виджетов связей",
-                },
-              },
-
-              // ============ NEW: bulkSettings (tree_bulk) ============
-              actionBulkSettingsAttributes: {
-                list: ["all", "specific"],
-                desc: {
-                  all: "Редактирование всех атрибутов сущности",
-                  specific: "Редактирование только перечисленных атрибутов",
-                },
-              },
-              actionBulkSettingsLinkages: {
-                list: ["all", "specific"],
-                desc: {
-                  all: "Редактирование во всех виджетах связей",
-                  specific: "Редактирование только перечисленных виджетов",
-                },
-              },
-            };
-            const entry = map[vctx.itemType];
-            return entry
-              ? r(
-                  model,
-                  position,
-                  ["type"],
-                  mkSimple(entry.list, Kind.Value, entry.desc),
-                  Kind,
-                )
-              : null;
-          }
-
-          // ---------- effect ----------
-          case "effect": {
-            let list: string[] | null = null;
-            if (vctx.itemType === "dataRuleRule")
-              list = ["hidden", "readonly", "required", "default", "allowed"];
-            else if (vctx.itemType === "uiRuleRule")
-              list = [
-                "hidden",
-                "show",
-                "hiddenEmpty",
-                "readonly",
-                "editable",
-                "inherit",
-                "variant",
-              ];
-            return list
-              ? r(
-                  model,
-                  position,
-                  ["effect"],
-                  mkSimple(list, Kind.Value, EFFECT_DESCRIPTIONS),
-                  Kind,
-                )
-              : null;
-          }
-
-          // ---------- target ----------
-          case "target": {
-            let list: string[] | null = null;
-            if (vctx.itemType === "dataRule")
-              list = ["entity", "entityAttribute", "linkage"];
-            else if (vctx.itemType === "uiRule")
-              list = ["list_view", "entity_view", "entity_attribute"];
-            else if (vctx.itemType === "accessRule")
-              list = [
-                "entity",
-                "action",
-                "linkage",
-                "any_entity",
-                "any_action",
-                "any_linkage",
-              ];
-            return list
-              ? r(
-                  model,
-                  position,
-                  ["target"],
-                  mkSimple(list, Kind.Value, TARGET_DESCRIPTIONS),
-                  Kind,
-                )
-              : null;
-          }
-
-          case "direction": {
-            let list: string[] | null = null;
-            if (vctx.container === "layout") list = ["column", "row"];
-            else if (
-              vctx.itemType === "sortingByItem" ||
-              vctx.container === "by" ||
-              vctx.container === "defaults"
-            )
-              list = ["asc", "desc"];
-            return list
-              ? r(
-                  model,
-                  position,
-                  ["direction"],
-                  mkSimple(list, Kind.Value, {
-                    column: "Вертикальное размещение",
-                    asc: "По возрастанию",
-                    desc: "По убыванию",
-                  }),
-                  Kind,
-                )
-              : null;
-          }
-          case "mode":
-            return vctx.container === "search"
-              ? r(
-                  model,
-                  position,
-                  ["mode"],
-                  mkSimple(["entity", "linkage", "both"], Kind.Value, {
-                    entity: "Искать по атрибутам связанной сущности",
-                    linkage: "Искать по атрибутам связи",
-                    both: "Искать и по сущности, и по связи",
-                  }),
-                  Kind,
-                )
-              : null;
-          case "placement":
-            return r(
-              model,
-              position,
-              ["placement"],
-              mkSimple(["top", "settings"], Kind.Value, {
-                top: "Главное меню",
-                settings: "Раздел Настройки",
-              }),
-              Kind,
-            );
-          case "defaultViewMode": {
-            return r(
-              model,
-              position,
-              ["defaultViewMode"],
-              mkSimple(["cola", "horizontal", "vertical"], Kind.Value, {
-                cola: "Центральное упорядочивание",
-                horizontal: "Горизонтально",
-                vertical: "Вертикально",
-              }),
-              Kind,
-            );
-          }
-          case "defaultGroupMode": {
-            return r(
-              model,
-              position,
-              ["defaultGroupMode"],
-              mkSimple(["cluster", "byEntity"], Kind.Value, {
-                cluster: "Кластерная группировка",
-                byEntity: "Группировка по сущности",
-              }),
-              Kind,
-            );
-          }
-          case "operation": {
-            const actionType = findActionTypeForModel(
-              model,
-              position.lineNumber,
-            );
-            const opMap: Record<string, string[]> = {
-              open_modal: ["create", "edit"],
-              open_page: ["create", "edit", "view"],
-              bulk: ["remove", "edit", "edit_attribute", "import", "export"],
-              tree_bulk: ["edit", "remove"],
-            };
-            const list = actionType ? opMap[actionType] : null;
-            return list
-              ? r(
-                  model,
-                  position,
-                  ["operation"],
-                  mkSimple(list, Kind.Value, {
-                    create: "Создать объект",
-                    edit: "Редактировать объект",
-                    view: "Просмотреть объект",
-                    remove: "Удалить объект",
-                    edit_attribute: "Изменить атрибут",
-                    import: "Импортировать",
-                    export: "Экспортировать",
-                  }),
-                  Kind,
-                )
-              : null;
-          }
-          case "page": {
-            const actionType = findActionTypeForModel(
-              model,
-              position.lineNumber,
-            );
-            const allowed = ["open_list", "open_tree", "open_view"];
-            if (actionType && allowed.includes(actionType)) {
+              // Частые иконки — сверху через префикс sortText
+              const POPULAR = new Set([
+                "Add",
+                "Edit",
+                "Trash",
+                "Eye",
+                "Save",
+                "Close",
+                "Refresh",
+                "Search",
+                "Filter",
+                "Settings",
+                "Folder",
+                "File",
+                "FileText",
+                "Download",
+                "Upload",
+                "Menu",
+                "MoreVertical",
+                "Check",
+                "Alert",
+                "Info",
+                "User",
+                "Users",
+                "Group",
+                "Link",
+                "List",
+                "Dashboard",
+                "Server",
+                "Cloud",
+                "Lock",
+                "Shield",
+                "Bug",
+                "Rocket",
+                "StarFilled",
+                "StarUnfilled",
+                "Play",
+                "Pause",
+              ]);
               return r(
                 model,
                 position,
-                ["page"],
-                mkSimple(["blank", "current"], Kind.Value, {
-                  blank: "Отобразить в отдельном окне",
-                  current: "Отобразить в текущем окне",
+                ["iconName"],
+                COMMON_ICON_NAMES.map(([name, desc]) => ({
+                  label: name,
+                  insertText: " " + name,
+                  kind: Kind.Value,
+                  sortText: (POPULAR.has(name) ? "0_" : "1_") + name,
+                  documentation: desc,
+                })),
+                Kind,
+              );
+            }
+            case "initial": {
+              if (vctx.section !== "dataTypes") return null;
+              const statuses = getDataTypeStatuses(model, position);
+              if (statuses.length === 0) return null;
+              return r(
+                model,
+                position,
+                ["initial"],
+                mkSimple(statuses, Kind.EnumMember, {
+                  ...statuses.reduce(
+                    (acc, s) => ({ ...acc, [s]: `Статус workflow` }),
+                    {},
+                  ),
                 }),
                 Kind,
               );
             }
-            return null;
-          }
-          case "side": {
-            return r(
-              model,
-              position,
-              ["side"],
-              mkSimple(["1", "2"], Kind.Value, {
-                "1": "Первая сторона",
-                "2": "Вторая сторона",
-              }),
-              Kind,
-            );
-          }
-
-          // ---------- entity refs ----------
-          case "iconColor": {
-            if (
-              vctx.container === "graphView" ||
-              (vctx.section === "linkages" && vctx.container === "view")
-            ) {
+            case "from":
+            case "to": {
+              // Только внутри dataTypes[].transitions[]
+              if (vctx.section !== "dataTypes") return null;
+              if (vctx.container !== "transitions") return null;
+              const statuses = getDataTypeStatuses(model, position);
+              const items = ["*", ...statuses];
               return r(
                 model,
                 position,
-                ["iconColor"],
-                mkSimple(
-                  GRAPH_VIEW_COLORS.map(([c]) => c),
-                  Kind.EnumMember,
-                  GRAPH_VIEW_COLOR_LABELS,
-                ),
+                ["from", "to"],
+                mkSimple(items, Kind.Value, {
+                  "*": "Любой статус",
+                }),
                 Kind,
               );
             }
-            return null;
-          }
-          case "entity":
-          case "inherits":
-          case "side1":
-          case "side2": {
-            if (
-              (fieldName === "side1" || fieldName === "side2") &&
-              vctx.container === "nameFrom"
-            ) {
-              return null;
+            // ---------- dataType ----------
+            case "dataType": {
+              // NEW: drag_drop_area.context.dataType
+              if (vctx.itemType === "viewWidgetDragDropContext") {
+                return r(
+                  model,
+                  position,
+                  ["dataType"],
+                  mkSimple(["Array", "Attachment", "Table"], Kind.Value, {
+                    Array: "Массив вложений",
+                    Attachment: "Одно вложение",
+                    Table: "Таблица вложений",
+                  }),
+                  Kind,
+                );
+              }
+
+              if (
+                vctx.section === "dataTypes" &&
+                vctx.itemType === "dataType"
+              ) {
+                return r(
+                  model,
+                  position,
+                  ["dataType"],
+                  mkSimple(["Enum", "Table", "Workflow"], Kind.Value, {
+                    Enum: "Перечисление — фиксированный список значений",
+                    Table:
+                      "Таблица — структурированные данные (строки/колонки)",
+                    Workflow: "Рабочий процесс — статусы и переходы",
+                  }),
+                  Kind,
+                );
+              }
+              const base: RefSuggestion[] = BASE_DATA_TYPES_COMPLETION.map(
+                (t) => ({
+                  label: t,
+                  insertText: " " + t,
+                  kind: Kind.Value,
+                  sortText: "0_" + t,
+                  documentation: BASE_DATA_TYPE_DESCRIPTIONS[t],
+                }),
+              );
+              const custom: RefSuggestion[] = [];
+              const seen = new Set<string>();
+              ctx.modelIndex.dataTypes
+                .filter((dt: any) => (dt.domainId || "").toLowerCase() === cur)
+                .forEach((dt: any) => {
+                  if (!dt?.id || seen.has(dt.id)) return;
+                  seen.add(dt.id);
+                  const parts: string[] = [];
+                  if (dt.kind) parts.push(dt.kind);
+                  if (dt.description) parts.push(dt.description);
+                  if (dt.kind === "Enum" && typeof dt.valuesCount === "number")
+                    parts.push(`${dt.valuesCount} значений`);
+                  if (
+                    dt.kind === "Workflow" &&
+                    typeof dt.statusesCount === "number"
+                  )
+                    parts.push(`${dt.statusesCount} статусов`);
+                  if (
+                    dt.kind === "Table" &&
+                    typeof dt.attributesCount === "number"
+                  )
+                    parts.push(`${dt.attributesCount} колонок`);
+                  custom.push({
+                    label: dt.id,
+                    insertText: " " + dt.id,
+                    kind:
+                      dt.kind === "Enum"
+                        ? Kind.Enum
+                        : dt.kind === "Workflow"
+                          ? Kind.Interface
+                          : Kind.Struct,
+                    sortText: "1_" + dt.id,
+                    documentation: parts.join(" · "),
+                  });
+                });
+              return (
+                r(
+                  model,
+                  position,
+                  ["dataType"],
+                  [...base, ...custom],
+                  Kind,
+                ) || {
+                  suggestions: [],
+                }
+              );
             }
 
-            // Trees children — контекстная подсказка entity
-            if (fieldName === "entity") {
+            // ---------- type ----------
+            case "type": {
+              const map: Record<
+                string,
+                { list: string[]; desc?: Record<string, string> }
+              > = {
+                view: {
+                  list: [
+                    "entity",
+                    "list",
+                    "tree",
+                    "tabs_list",
+                    "dashboard",
+                    "dashboard_tree",
+                  ],
+                },
+                viewNested: { list: ["panel", "modal", "page"] },
+                widget: {
+                  list: Object.keys(WIDGET_TYPE_DESCRIPTIONS),
+                  desc: WIDGET_TYPE_DESCRIPTIONS,
+                },
+                group: {
+                  list: [
+                    "block",
+                    "form",
+                    "tab",
+                    "tabs",
+                    "resizable_block_pair",
+                  ],
+                },
+                action: {
+                  list: Object.keys(ACTION_TYPE_DESCRIPTIONS),
+                  desc: ACTION_TYPE_DESCRIPTIONS,
+                },
+                linkage: { list: ["1_1", "1_n", "n_n"] },
+                dataType: { list: ["Enum", "Table", "Workflow"] },
+                tree: { list: ["ordinary", "orderable", "multiparent"] },
+                viewWidgetControl: {
+                  list: Object.keys(CONTROL_TYPE_DESCRIPTIONS),
+                  desc: CONTROL_TYPE_DESCRIPTIONS,
+                },
+                viewWidgetLinkageControl: {
+                  list: ["select", "multi_select", "table", "list", "tree"],
+                },
+                reconciliationMergeStrategy: {
+                  list: RECONCILIATION_MERGE_STRATEGIES.map(([t]) => t),
+                  desc: RECONCILIATION_MERGE_LABELS,
+                },
+                menu: {
+                  list: ["root_group", "root_menu"],
+                  desc: {
+                    root_group: "Раздел с подразделами (левое меню)",
+                    root_menu: "Отдельный пункт в главном меню",
+                  },
+                },
+                menuItem: {
+                  list: ["menu"],
+                  desc: { menu: "Подраздел в группе" },
+                },
+                media: {
+                  list: ["icon_name", "data"],
+                  desc: {
+                    icon_name: "Иконка из дизайн-системы",
+                    data: "Base64-строка",
+                  },
+                },
+                viewTableColumnControl: {
+                  list: Object.keys(CONTROL_TYPE_DESCRIPTIONS),
+                  desc: CONTROL_TYPE_DESCRIPTIONS,
+                },
+                treeNodeType: {
+                  list: ["root", "branch", "leaf"],
+                  desc: {
+                    root: "Корень дерева вложения",
+                    branch: "Ветка дерева вложения",
+                    leaf: "Лист дерева вложения",
+                  },
+                },
+                viewDashboardLayout: {
+                  list: ["grid"],
+                  desc: { grid: "Расположение виджетов сеткой" },
+                },
+                // ============ NEW: bulk-edit (без bulkSettings) ============
+                actionAttributes: {
+                  list: ["specific"],
+                  desc: {
+                    specific: "Редактирование только перечисленных атрибутов",
+                  },
+                },
+                actionLinkages: {
+                  list: ["specific"],
+                  desc: {
+                    specific:
+                      "Редактирование только перечисленных виджетов связей",
+                  },
+                },
+
+                // ============ NEW: bulkSettings (tree_bulk) ============
+                actionBulkSettingsAttributes: {
+                  list: ["all", "specific"],
+                  desc: {
+                    all: "Редактирование всех атрибутов сущности",
+                    specific: "Редактирование только перечисленных атрибутов",
+                  },
+                },
+                actionBulkSettingsLinkages: {
+                  list: ["all", "specific"],
+                  desc: {
+                    all: "Редактирование во всех виджетах связей",
+                    specific: "Редактирование только перечисленных виджетов",
+                  },
+                },
+              };
+              const entry = map[vctx.itemType];
+              return entry
+                ? r(
+                    model,
+                    position,
+                    ["type"],
+                    mkSimple(entry.list, Kind.Value, entry.desc),
+                    Kind,
+                  )
+                : null;
+            }
+
+            // ---------- effect ----------
+            case "effect": {
+              let list: string[] | null = null;
+              if (vctx.itemType === "dataRuleRule")
+                list = ["hidden", "readonly", "required", "default", "allowed"];
+              else if (vctx.itemType === "uiRuleRule")
+                list = [
+                  "hidden",
+                  "show",
+                  "hiddenEmpty",
+                  "readonly",
+                  "editable",
+                  "inherit",
+                  "variant",
+                ];
+              return list
+                ? r(
+                    model,
+                    position,
+                    ["effect"],
+                    mkSimple(list, Kind.Value, EFFECT_DESCRIPTIONS),
+                    Kind,
+                  )
+                : null;
+            }
+
+            // ---------- target ----------
+            case "target": {
+              let list: string[] | null = null;
+              if (vctx.itemType === "dataRule")
+                list = ["entity", "entityAttribute", "linkage"];
+              else if (vctx.itemType === "uiRule")
+                list = ["list_view", "entity_view", "entity_attribute"];
+              else if (vctx.itemType === "accessRule")
+                list = [
+                  "entity",
+                  "action",
+                  "linkage",
+                  "any_entity",
+                  "any_action",
+                  "any_linkage",
+                ];
+              return list
+                ? r(
+                    model,
+                    position,
+                    ["target"],
+                    mkSimple(list, Kind.Value, TARGET_DESCRIPTIONS),
+                    Kind,
+                  )
+                : null;
+            }
+
+            case "direction": {
+              let list: string[] | null = null;
+              if (vctx.container === "layout") list = ["column", "row"];
+              else if (
+                vctx.itemType === "sortingByItem" ||
+                vctx.container === "by" ||
+                vctx.container === "defaults"
+              )
+                list = ["asc", "desc"];
+              return list
+                ? r(
+                    model,
+                    position,
+                    ["direction"],
+                    mkSimple(list, Kind.Value, {
+                      column: "Вертикальное размещение",
+                      asc: "По возрастанию",
+                      desc: "По убыванию",
+                    }),
+                    Kind,
+                  )
+                : null;
+            }
+            case "mode":
+              return vctx.container === "search"
+                ? r(
+                    model,
+                    position,
+                    ["mode"],
+                    mkSimple(["entity", "linkage", "both"], Kind.Value, {
+                      entity: "Искать по атрибутам связанной сущности",
+                      linkage: "Искать по атрибутам связи",
+                      both: "Искать и по сущности, и по связи",
+                    }),
+                    Kind,
+                  )
+                : null;
+            case "placement":
+              return r(
+                model,
+                position,
+                ["placement"],
+                mkSimple(["top", "settings"], Kind.Value, {
+                  top: "Главное меню",
+                  settings: "Раздел Настройки",
+                }),
+                Kind,
+              );
+            case "defaultViewMode": {
+              return r(
+                model,
+                position,
+                ["defaultViewMode"],
+                mkSimple(["cola", "horizontal", "vertical"], Kind.Value, {
+                  cola: "Центральное упорядочивание",
+                  horizontal: "Горизонтально",
+                  vertical: "Вертикально",
+                }),
+                Kind,
+              );
+            }
+            case "defaultGroupMode": {
+              return r(
+                model,
+                position,
+                ["defaultGroupMode"],
+                mkSimple(["cluster", "byEntity"], Kind.Value, {
+                  cluster: "Кластерная группировка",
+                  byEntity: "Группировка по сущности",
+                }),
+                Kind,
+              );
+            }
+            case "operation": {
+              const actionType = findActionTypeForModel(
+                model,
+                position.lineNumber,
+              );
+              const opMap: Record<string, string[]> = {
+                open_modal: ["create", "edit"],
+                open_page: ["create", "edit", "view"],
+                bulk: ["remove", "edit", "edit_attribute", "import", "export"],
+                tree_bulk: ["edit", "remove"],
+              };
+              const list = actionType ? opMap[actionType] : null;
+              return list
+                ? r(
+                    model,
+                    position,
+                    ["operation"],
+                    mkSimple(list, Kind.Value, {
+                      create: "Создать объект",
+                      edit: "Редактировать объект",
+                      view: "Просмотреть объект",
+                      remove: "Удалить объект",
+                      edit_attribute: "Изменить атрибут",
+                      import: "Импортировать",
+                      export: "Экспортировать",
+                    }),
+                    Kind,
+                  )
+                : null;
+            }
+            case "page": {
+              const actionType = findActionTypeForModel(
+                model,
+                position.lineNumber,
+              );
+              const allowed = ["open_list", "open_tree", "open_view"];
+              if (actionType && allowed.includes(actionType)) {
+                return r(
+                  model,
+                  position,
+                  ["page"],
+                  mkSimple(["blank", "current"], Kind.Value, {
+                    blank: "Отобразить в отдельном окне",
+                    current: "Отобразить в текущем окне",
+                  }),
+                  Kind,
+                );
+              }
+              return null;
+            }
+            case "side": {
+              return r(
+                model,
+                position,
+                ["side"],
+                mkSimple(["1", "2"], Kind.Value, {
+                  "1": "Первая сторона",
+                  "2": "Вторая сторона",
+                }),
+                Kind,
+              );
+            }
+
+            // ---------- entity refs ----------
+            case "iconColor": {
+              if (
+                vctx.container === "graphView" ||
+                (vctx.section === "linkages" && vctx.container === "view")
+              ) {
+                return r(
+                  model,
+                  position,
+                  ["iconColor"],
+                  mkSimple(
+                    GRAPH_VIEW_COLORS.map(([c]) => c),
+                    Kind.EnumMember,
+                    GRAPH_VIEW_COLOR_LABELS,
+                  ),
+                  Kind,
+                );
+              }
+              return null;
+            }
+            case "entity":
+            case "inherits":
+            case "side1":
+            case "side2": {
+              if (
+                (fieldName === "side1" || fieldName === "side2") &&
+                vctx.container === "nameFrom"
+              ) {
+                return null;
+              }
+
+              // Trees children — контекстная подсказка entity
+              if (fieldName === "entity") {
+                const treeCtx = detectTreeChildrenContext(
+                  model,
+                  position,
+                  cur,
+                  ctx.modelIndex,
+                );
+                if (treeCtx) {
+                  return r(
+                    model,
+                    position,
+                    ["entity"],
+                    buildTreeEntityCandidates(treeCtx, Kind),
+                    Kind,
+                  );
+                }
+              }
+
+              const refs = collectRefsForField(
+                cachedEntities(),
+                ctx.currentDomainId,
+                {
+                  shortKind: Kind.Class,
+                },
+              );
+              return r(
+                model,
+                position,
+                ["inherits", "entity", "side1", "side2"],
+                refs,
+                Kind,
+              );
+            }
+
+            // ---------- простые ref-поля ----------
+            case "linkage": {
+              // Trees (уже есть)
               const treeCtx = detectTreeChildrenContext(
                 model,
                 position,
@@ -11524,658 +11761,638 @@ export function registerMonacoProviders(monaco: any): void {
                 return r(
                   model,
                   position,
-                  ["entity"],
-                  buildTreeEntityCandidates(treeCtx, Kind),
+                  ["linkage"],
+                  buildTreeLinkageCandidates(
+                    treeCtx.parentEntityFqid,
+                    cur,
+                    Kind,
+                  ),
                   Kind,
                 );
               }
-            }
-
-            const refs = collectRefsForField(
-              cachedEntities(),
-              ctx.currentDomainId,
-              {
-                shortKind: Kind.Class,
-              },
-            );
-            return r(
-              model,
-              position,
-              ["inherits", "entity", "side1", "side2"],
-              refs,
-              Kind,
-            );
-          }
-
-          // ---------- простые ref-поля ----------
-          case "linkage": {
-            // Trees (уже есть)
-            const treeCtx = detectTreeChildrenContext(
-              model,
-              position,
-              cur,
-              ctx.modelIndex,
-            );
-            if (treeCtx) {
+              // Transitive (новое)
+              const transCtx = detectTransitiveJoinContext(
+                model,
+                position,
+                cur,
+                ctx.modelIndex,
+              );
+              if (transCtx) {
+                return r(
+                  model,
+                  position,
+                  ["linkage"],
+                  buildTransitiveLinkageCandidates(
+                    transCtx.parentEntityFqid,
+                    cur,
+                    Kind,
+                  ),
+                  Kind,
+                );
+              }
               return r(
                 model,
                 position,
                 ["linkage"],
-                buildTreeLinkageCandidates(treeCtx.parentEntityFqid, cur, Kind),
+                collectRefsForField(cachedLinkages(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
                 Kind,
               );
             }
-            // Transitive (новое)
-            const transCtx = detectTransitiveJoinContext(
-              model,
-              position,
-              cur,
-              ctx.modelIndex,
-            );
-            if (transCtx) {
+            case "widget":
               return r(
                 model,
                 position,
-                ["linkage"],
-                buildTransitiveLinkageCandidates(
-                  transCtx.parentEntityFqid,
-                  cur,
-                  Kind,
+                ["widget"],
+                collectRefsForField(cachedWidgets(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
+                Kind,
+              );
+            case "group":
+              return r(
+                model,
+                position,
+                ["group"],
+                collectRefsForField(cachedGroups(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
+                Kind,
+              );
+            case "column":
+              return r(
+                model,
+                position,
+                ["column"],
+                collectRefsForField(cachedColumns(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
+                Kind,
+              );
+            case "action":
+              return r(
+                model,
+                position,
+                ["action"],
+                collectRefsForField(cachedActions(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
+                Kind,
+              );
+            case "sequence":
+              return r(
+                model,
+                position,
+                ["sequence"],
+                collectRefsForField(cachedSequences(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
+                Kind,
+              );
+            case "counterColorPattern":
+              return r(
+                model,
+                position,
+                ["counterColorPattern"],
+                collectRefsForField(
+                  cachedCounterColors(),
+                  ctx.currentDomainId,
+                  {
+                    shortKind: Kind.Reference,
+                  },
                 ),
                 Kind,
               );
-            }
-            return r(
-              model,
-              position,
-              ["linkage"],
-              collectRefsForField(cachedLinkages(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          }
-          case "widget":
-            return r(
-              model,
-              position,
-              ["widget"],
-              collectRefsForField(cachedWidgets(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "group":
-            return r(
-              model,
-              position,
-              ["group"],
-              collectRefsForField(cachedGroups(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "column":
-            return r(
-              model,
-              position,
-              ["column"],
-              collectRefsForField(cachedColumns(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "action":
-            return r(
-              model,
-              position,
-              ["action"],
-              collectRefsForField(cachedActions(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "sequence":
-            return r(
-              model,
-              position,
-              ["sequence"],
-              collectRefsForField(cachedSequences(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "counterColorPattern":
-            return r(
-              model,
-              position,
-              ["counterColorPattern"],
-              collectRefsForField(cachedCounterColors(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "menuItem":
-            return r(
-              model,
-              position,
-              ["menuItem"],
-              collectRefsForField(cachedMenus(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-          case "preset":
-            return r(
-              model,
-              position,
-              ["preset"],
-              collectRefsForField(cachedUiPresets(), ctx.currentDomainId, {
-                shortKind: Kind.EnumMember,
-              }),
-              Kind,
-            );
-
-          case "segment": {
-            // segment — массив литералов (можно с @, можно без).
-            // Monaco в YAML-режиме в массив-элементах выдаёт value-suggestions через
-            // тот же механизм, что и для `- attr:`.
-            return r(
-              model,
-              position,
-              ["segment"],
-              mkSimple(["@prefix", "@YYYY", "@YY", "@MM", "@DD"], Kind.Value, {
-                "@prefix":
-                  "Настраиваемый префикс (правила подстановки или defaultPrefix)",
-                "@YYYY": "Текущий год, 4 цифры",
-                "@YY": "Текущий год, 2 цифры",
-                "@MM": "Текущий месяц, 01–12",
-                "@DD": "Текущий день месяца, 01–31",
-              }),
-              Kind,
-            );
-          }
-          case "tree":
-            return r(
-              model,
-              position,
-              ["tree"],
-              collectRefsForField(cachedTrees(), ctx.currentDomainId, {
-                shortKind: Kind.Reference,
-              }),
-              Kind,
-            );
-
-          // ---------- attribute / scenario ----------
-          case "attribute": {
-            const context = detectAttributeCompletionContext(model, position);
-            if (!context) return null;
-            const items = withKind(cachedAttributes(context), Kind.Field);
-            return (
-              r(model, position, ["attribute"], items, Kind) || {
-                suggestions: [],
-              }
-            );
-          }
-          case "scenario": {
-            const items = withKind(cachedScenarios(), Kind.Reference);
-            return (
-              r(model, position, ["scenario"], items, Kind) || {
-                suggestions: [],
-              }
-            );
-          }
-
-          // ---------- view / modal / panel / form / addLinksView ----------
-          case "modal": {
-            const views = cachedViews();
-            const refs = collectRefsForField(views, ctx.currentDomainId, {
-              shortKind: Kind.Reference,
-              typeFilter: "modal",
-            });
-            return r(model, position, ["modal"], refs, Kind);
-          }
-          case "panel": {
-            const views = cachedViews();
-            const refs = collectRefsForField(views, ctx.currentDomainId, {
-              shortKind: Kind.Reference,
-              typeFilter: "panel",
-            });
-            return r(model, position, ["panel"], refs, Kind);
-          }
-          case "addLinksView": {
-            const views = cachedViews().filter(
-              (v) => v.type === "list" || v.type === "tabs_list",
-            );
-            const refs = collectRefsForField(views, ctx.currentDomainId, {
-              shortKind: Kind.Reference,
-            });
-            return (
-              r(model, position, ["addLinksView"], refs, Kind) || {
-                suggestions: [],
-              }
-            );
-          }
-          case "form": {
-            const groups = cachedGroups().filter((g) => g.type === "form");
-            const refs = collectRefsForField(groups, ctx.currentDomainId, {
-              shortKind: Kind.Reference,
-            });
-            return r(model, position, ["form"], refs, Kind);
-          }
-          case "view": {
-            let items = cachedViews();
-            if (
-              vctx.itemType === "menu" ||
-              vctx.itemType === "menuItem" ||
-              vctx.itemType === "action"
-            ) {
-              items = items.filter((v) =>
-                [
-                  "list",
-                  "tabs_list",
-                  "tree",
-                  "dashboard",
-                  "dashboard_tree",
-                ].includes(v.type || ""),
-              );
-            }
-            const refs = collectRefsForField(items, ctx.currentDomainId, {
-              shortKind: Kind.Reference,
-            });
-            return r(model, position, ["view"], refs, Kind);
-          }
-          case "kind": {
-            if (vctx.container === "constraints") {
+            case "menuItem":
               return r(
                 model,
                 position,
-                ["kind"],
+                ["menuItem"],
+                collectRefsForField(cachedMenus(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
+                }),
+                Kind,
+              );
+            case "preset":
+              return r(
+                model,
+                position,
+                ["preset"],
+                collectRefsForField(cachedUiPresets(), ctx.currentDomainId, {
+                  shortKind: Kind.EnumMember,
+                }),
+                Kind,
+              );
+
+            case "segment": {
+              // segment — массив литералов (можно с @, можно без).
+              // Monaco в YAML-режиме в массив-элементах выдаёт value-suggestions через
+              // тот же механизм, что и для `- attr:`.
+              return r(
+                model,
+                position,
+                ["segment"],
                 mkSimple(
-                  [
-                    "required",
-                    "range",
-                    "length",
-                    "regexp",
-                    "size",
-                    "mime_types",
-                    "unique",
-                  ],
+                  ["@prefix", "@YYYY", "@YY", "@MM", "@DD"],
                   Kind.Value,
                   {
-                    required: "Значение не должно быть пустым",
-                    range: "Число в диапазоне min..max",
-                    length: "Длина строки от min до max",
-                    regexp: "Строка соответствует регулярному выражению",
-                    size: "Размер файла от min до max",
-                    mime_types: "Допустимые MIME-типы вложения",
-                    unique:
-                      "Уникальное значение (String/Integer/Uuid/Reference/Array/Table)",
+                    "@prefix":
+                      "Настраиваемый префикс (правила подстановки или defaultPrefix)",
+                    "@YYYY": "Текущий год, 4 цифры",
+                    "@YY": "Текущий год, 2 цифры",
+                    "@MM": "Текущий месяц, 01–12",
+                    "@DD": "Текущий день месяца, 01–31",
                   },
                 ),
                 Kind,
               );
             }
-            // NEW: entities[].kind
-            if (vctx.section === "entities" && vctx.itemType === "entity") {
+            case "tree":
               return r(
                 model,
                 position,
-                ["kind"],
-                mkSimple(["abstract", "regular", "static"], Kind.Value, {
-                  abstract: "Абстрактная сущность (только наследование)",
-                  regular: "Стандартная сущность (по умолчанию)",
-                  static: "Статическая сущность (без создания экземпляров)",
+                ["tree"],
+                collectRefsForField(cachedTrees(), ctx.currentDomainId, {
+                  shortKind: Kind.Reference,
                 }),
                 Kind,
               );
-            }
 
-            // NEW: accessRules scope item
-            if (vctx.itemType === "accessRuleItem") {
-              return r(
-                model,
-                position,
-                ["kind"],
-                mkSimple(["permission", "pass", "condition"], Kind.Value, {
-                  permission: "Разрешить всё для обработки (с исключениями)",
-                  pass: "Пропустить всё для обработки (с исключениями)",
-                  condition: "Разрешить обработку при выполнении RQL-условия",
-                }),
-                Kind,
+            // ---------- attribute / scenario ----------
+            case "attribute": {
+              const context = detectAttributeCompletionContext(model, position);
+              if (!context) return null;
+              const items = withKind(cachedAttributes(context), Kind.Field);
+              return (
+                r(model, position, ["attribute"], items, Kind) || {
+                  suggestions: [],
+                }
+              );
+            }
+            case "scenario": {
+              const items = withKind(cachedScenarios(), Kind.Reference);
+              return (
+                r(model, position, ["scenario"], items, Kind) || {
+                  suggestions: [],
+                }
               );
             }
 
-            return null;
-          }
-          case "displayMode": {
-            if (vctx.section === "views" && vctx.container === "control") {
-              return r(
-                model,
-                position,
-                ["displayMode"],
-                mkSimple(["flat", "grouped"], Kind.Value, {
-                  flat: "Плоская таблица (для транзитивных связей)",
-                  grouped:
-                    "Группировка по первому звену цепочки (для транзитивных связей)",
-                }),
-                Kind,
-              );
-            }
-            return null;
-          }
-
-          case "linkageAttribute": {
-            const wId = lineCtxRef(model, position, "widget");
-            const vId = lineCtxRef(model, position, "view");
-            if (!wId) return null;
-
-            const widget = (ctx.modelIndex?.viewWidgets || []).find(
-              (w: any) => w.id === wId && (!vId || w.parentViewId === vId),
-            );
-            if (!widget?.linkage) return null;
-
-            const lk = findLinkageByRef(widget.linkage, cur);
-            if (!lk) return null;
-
-            const items: RefSuggestion[] = (lk.attributes || [])
-              .filter((a: any) => a && a.id)
-              .map((a: any) => ({
-                label: String(a.id),
-                insertText: " " + String(a.id),
-                kind: Kind.Field,
-                sortText: "0_" + String(a.id),
-                detail: `linkage: ${lk.id}`,
-                documentation: [
-                  a.dataType || "",
-                  a.description || "",
-                  `linkage: ${lk.id}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · "),
-              }));
-
-            return (
-              r(model, position, ["linkageAttribute"], items, Kind) || {
-                suggestions: [],
-              }
-            );
-          }
-
-          case "forExport": {
-            const path = findContainerPath(model, position);
-            if (
-              path.length !== 3 ||
-              path[0] !== "exchangeSettings" ||
-              path[1] !== "entities"
-            ) {
-              return null;
-            }
-            const entityId = path[2];
-            const cur = (ctx.currentDomainId || "").toLowerCase();
-            const entity =
-              ctx.modelIndex?.entitiesByFqid[
-                `${cur}/${entityId}`.toLowerCase()
-              ];
-            if (!entity) return null;
-
-            const seen = new Set<string>();
-            const items: RefSuggestion[] = [];
-
-            // Системные атрибуты (per docs — label по умолчанию)
-            for (const sys of [
-              "label",
-              "id",
-              "createdAt",
-              "updatedAt",
-              "createdBy",
-              "updatedBy",
-              "organizationId",
-              "tenantId",
-              "version",
-            ]) {
-              if (seen.has(sys)) continue;
-              seen.add(sys);
-              items.push({
-                label: sys,
-                insertText: " " + sys,
-                kind: Kind.Field,
-                sortText: "0_" + sys,
-                detail: "системный",
+            // ---------- view / modal / panel / form / addLinksView ----------
+            case "modal": {
+              const views = cachedViews();
+              const refs = collectRefsForField(views, ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+                typeFilter: "modal",
               });
+              return r(model, position, ["modal"], refs, Kind);
             }
-
-            // Атрибуты через цепочку наследования
-            let curEntity: any = entity;
-            const visited = new Set<string>();
-            while (curEntity && !visited.has(curEntity.fqid)) {
-              visited.add(curEntity.fqid);
-              for (const a of curEntity.attributes) {
-                if (seen.has(a.id)) continue;
-                seen.add(a.id);
-                items.push({
-                  label: a.id,
-                  insertText: " " + a.id,
-                  kind: Kind.Field,
-                  sortText: "1_" + a.id,
-                  detail: `${a.dataType} · ${curEntity.entityId}`,
-                  documentation: a.description || undefined,
-                });
-              }
-              curEntity = curEntity.inherits
-                ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits]
-                : undefined;
+            case "panel": {
+              const views = cachedViews();
+              const refs = collectRefsForField(views, ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+                typeFilter: "panel",
+              });
+              return r(model, position, ["panel"], refs, Kind);
             }
-
-            return r(model, position, ["forExport"], items, Kind);
-          }
-
-          case "upsertWith":
-          case "ignoreAttributes": {
-            const path = findContainerPath(model, position);
-            if (
-              path.length !== 3 ||
-              path[0] !== "exchangeSettings" ||
-              path[1] !== "entities"
-            ) {
-              return null;
+            case "addLinksView": {
+              const views = cachedViews().filter(
+                (v) => v.type === "list" || v.type === "tabs_list",
+              );
+              const refs = collectRefsForField(views, ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              });
+              return (
+                r(model, position, ["addLinksView"], refs, Kind) || {
+                  suggestions: [],
+                }
+              );
             }
-            const entityId = path[2];
-            const cur = (ctx.currentDomainId || "").toLowerCase();
-            const entityFqid = `${cur}/${entityId}`.toLowerCase();
-            const entity = ctx.modelIndex?.entitiesByFqid[entityFqid];
-            if (!entity) return null;
-
-            const seen = new Set<string>();
-            const items: RefSuggestion[] = [];
-
-            // Атрибуты (унаследованные тоже)
-            let curEntity: any = entity;
-            const visited = new Set<string>();
-            while (curEntity && !visited.has(curEntity.fqid)) {
-              visited.add(curEntity.fqid);
-              for (const a of curEntity.attributes) {
-                if (seen.has(a.id)) continue;
-                seen.add(a.id);
-                items.push({
-                  label: a.id,
-                  insertText: a.id,
-                  kind: Kind.Field,
-                  sortText: "0_" + a.id,
-                  detail: `${a.dataType} · ${curEntity.entityId}`,
-                });
-              }
-              curEntity = curEntity.inherits
-                ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits]
-                : undefined;
+            case "form": {
+              const groups = cachedGroups().filter((g) => g.type === "form");
+              const refs = collectRefsForField(groups, ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              });
+              return r(model, position, ["form"], refs, Kind);
             }
-
-            // Связи сущности
-            for (const l of ctx.modelIndex?.entityLinkages || []) {
+            case "view": {
+              let items = cachedViews();
               if (
-                (l.side1Fqid === entityFqid || l.side2Fqid === entityFqid) &&
-                !seen.has(l.id)
+                vctx.itemType === "menu" ||
+                vctx.itemType === "menuItem" ||
+                vctx.itemType === "action"
               ) {
-                seen.add(l.id);
+                items = items.filter((v) =>
+                  [
+                    "list",
+                    "tabs_list",
+                    "tree",
+                    "dashboard",
+                    "dashboard_tree",
+                  ].includes(v.type || ""),
+                );
+              }
+              const refs = collectRefsForField(items, ctx.currentDomainId, {
+                shortKind: Kind.Reference,
+              });
+              return r(model, position, ["view"], refs, Kind);
+            }
+            case "kind": {
+              if (vctx.container === "constraints") {
+                return r(
+                  model,
+                  position,
+                  ["kind"],
+                  mkSimple(
+                    [
+                      "required",
+                      "range",
+                      "length",
+                      "regexp",
+                      "size",
+                      "mime_types",
+                      "unique",
+                    ],
+                    Kind.Value,
+                    {
+                      required: "Значение не должно быть пустым",
+                      range: "Число в диапазоне min..max",
+                      length: "Длина строки от min до max",
+                      regexp: "Строка соответствует регулярному выражению",
+                      size: "Размер файла от min до max",
+                      mime_types: "Допустимые MIME-типы вложения",
+                      unique:
+                        "Уникальное значение (String/Integer/Uuid/Reference/Array/Table)",
+                    },
+                  ),
+                  Kind,
+                );
+              }
+              // NEW: entities[].kind
+              if (vctx.section === "entities" && vctx.itemType === "entity") {
+                return r(
+                  model,
+                  position,
+                  ["kind"],
+                  mkSimple(["abstract", "regular", "static"], Kind.Value, {
+                    abstract: "Абстрактная сущность (только наследование)",
+                    regular: "Стандартная сущность (по умолчанию)",
+                    static: "Статическая сущность (без создания экземпляров)",
+                  }),
+                  Kind,
+                );
+              }
+
+              // NEW: accessRules scope item
+              if (vctx.itemType === "accessRuleItem") {
+                return r(
+                  model,
+                  position,
+                  ["kind"],
+                  mkSimple(["permission", "pass", "condition"], Kind.Value, {
+                    permission: "Разрешить всё для обработки (с исключениями)",
+                    pass: "Пропустить всё для обработки (с исключениями)",
+                    condition: "Разрешить обработку при выполнении RQL-условия",
+                  }),
+                  Kind,
+                );
+              }
+
+              return null;
+            }
+            case "displayMode": {
+              if (vctx.section === "views" && vctx.container === "control") {
+                return r(
+                  model,
+                  position,
+                  ["displayMode"],
+                  mkSimple(["flat", "grouped"], Kind.Value, {
+                    flat: "Плоская таблица (для транзитивных связей)",
+                    grouped:
+                      "Группировка по первому звену цепочки (для транзитивных связей)",
+                  }),
+                  Kind,
+                );
+              }
+              return null;
+            }
+
+            case "linkageAttribute": {
+              const wId = lineCtxRef(model, position, "widget");
+              const vId = lineCtxRef(model, position, "view");
+              if (!wId) return null;
+
+              const widget = (ctx.modelIndex?.viewWidgets || []).find(
+                (w: any) => w.id === wId && (!vId || w.parentViewId === vId),
+              );
+              if (!widget?.linkage) return null;
+
+              const lk = findLinkageByRef(widget.linkage, cur);
+              if (!lk) return null;
+
+              const items: RefSuggestion[] = (lk.attributes || [])
+                .filter((a: any) => a && a.id)
+                .map((a: any) => ({
+                  label: String(a.id),
+                  insertText: " " + String(a.id),
+                  kind: Kind.Field,
+                  sortText: "0_" + String(a.id),
+                  detail: `linkage: ${lk.id}`,
+                  documentation: [
+                    a.dataType || "",
+                    a.description || "",
+                    `linkage: ${lk.id}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                }));
+
+              return (
+                r(model, position, ["linkageAttribute"], items, Kind) || {
+                  suggestions: [],
+                }
+              );
+            }
+
+            case "forExport": {
+              const path = findContainerPath(model, position);
+              if (
+                path.length !== 3 ||
+                path[0] !== "exchangeSettings" ||
+                path[1] !== "entities"
+              ) {
+                return null;
+              }
+              const entityId = path[2];
+              const cur = (ctx.currentDomainId || "").toLowerCase();
+              const entity =
+                ctx.modelIndex?.entitiesByFqid[
+                  `${cur}/${entityId}`.toLowerCase()
+                ];
+              if (!entity) return null;
+
+              const seen = new Set<string>();
+              const items: RefSuggestion[] = [];
+
+              // Системные атрибуты (per docs — label по умолчанию)
+              for (const sys of [
+                "label",
+                "id",
+                "createdAt",
+                "updatedAt",
+                "createdBy",
+                "updatedBy",
+                "organizationId",
+                "tenantId",
+                "version",
+              ]) {
+                if (seen.has(sys)) continue;
+                seen.add(sys);
                 items.push({
-                  label: l.id,
-                  insertText: l.id,
-                  kind: Kind.Reference,
-                  sortText: "2_" + l.id,
-                  detail: `связь · ${l.type}`,
+                  label: sys,
+                  insertText: " " + sys,
+                  kind: Kind.Field,
+                  sortText: "0_" + sys,
+                  detail: "системный",
                 });
               }
+
+              // Атрибуты через цепочку наследования
+              let curEntity: any = entity;
+              const visited = new Set<string>();
+              while (curEntity && !visited.has(curEntity.fqid)) {
+                visited.add(curEntity.fqid);
+                for (const a of curEntity.attributes) {
+                  if (seen.has(a.id)) continue;
+                  seen.add(a.id);
+                  items.push({
+                    label: a.id,
+                    insertText: " " + a.id,
+                    kind: Kind.Field,
+                    sortText: "1_" + a.id,
+                    detail: `${a.dataType} · ${curEntity.entityId}`,
+                    documentation: a.description || undefined,
+                  });
+                }
+                curEntity = curEntity.inherits
+                  ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits]
+                  : undefined;
+              }
+
+              return r(model, position, ["forExport"], items, Kind);
             }
 
-            // Системные
-            for (const sys of [
-              "id",
-              "label",
-              "createdAt",
-              "updatedAt",
-              "createdBy",
-              "updatedBy",
-              "organizationId",
-              "tenantId",
-              "version",
-            ]) {
-              if (seen.has(sys)) continue;
-              seen.add(sys);
-              items.push({
-                label: sys,
-                insertText: sys,
-                kind: Kind.Field,
-                sortText: "3_" + sys,
-                detail: "системный",
-              });
+            case "upsertWith":
+            case "ignoreAttributes": {
+              const path = findContainerPath(model, position);
+              if (
+                path.length !== 3 ||
+                path[0] !== "exchangeSettings" ||
+                path[1] !== "entities"
+              ) {
+                return null;
+              }
+              const entityId = path[2];
+              const cur = (ctx.currentDomainId || "").toLowerCase();
+              const entityFqid = `${cur}/${entityId}`.toLowerCase();
+              const entity = ctx.modelIndex?.entitiesByFqid[entityFqid];
+              if (!entity) return null;
+
+              const seen = new Set<string>();
+              const items: RefSuggestion[] = [];
+
+              // Атрибуты (унаследованные тоже)
+              let curEntity: any = entity;
+              const visited = new Set<string>();
+              while (curEntity && !visited.has(curEntity.fqid)) {
+                visited.add(curEntity.fqid);
+                for (const a of curEntity.attributes) {
+                  if (seen.has(a.id)) continue;
+                  seen.add(a.id);
+                  items.push({
+                    label: a.id,
+                    insertText: a.id,
+                    kind: Kind.Field,
+                    sortText: "0_" + a.id,
+                    detail: `${a.dataType} · ${curEntity.entityId}`,
+                  });
+                }
+                curEntity = curEntity.inherits
+                  ? ctx.modelIndex?.entitiesByFqid[curEntity.inherits]
+                  : undefined;
+              }
+
+              // Связи сущности
+              for (const l of ctx.modelIndex?.entityLinkages || []) {
+                if (
+                  (l.side1Fqid === entityFqid || l.side2Fqid === entityFqid) &&
+                  !seen.has(l.id)
+                ) {
+                  seen.add(l.id);
+                  items.push({
+                    label: l.id,
+                    insertText: l.id,
+                    kind: Kind.Reference,
+                    sortText: "2_" + l.id,
+                    detail: `связь · ${l.type}`,
+                  });
+                }
+              }
+
+              // Системные
+              for (const sys of [
+                "id",
+                "label",
+                "createdAt",
+                "updatedAt",
+                "createdBy",
+                "updatedBy",
+                "organizationId",
+                "tenantId",
+                "version",
+              ]) {
+                if (seen.has(sys)) continue;
+                seen.add(sys);
+                items.push({
+                  label: sys,
+                  insertText: sys,
+                  kind: Kind.Field,
+                  sortText: "3_" + sys,
+                  detail: "системный",
+                });
+              }
+
+              return buildListValueCompletion(
+                model,
+                position,
+                ["upsertWith", "ignoreAttributes"],
+                items,
+                Kind,
+              );
             }
 
-            return buildListValueCompletion(
-              model,
-              position,
-              ["upsertWith", "ignoreAttributes"],
-              items,
-              Kind,
-            );
+            case "exportSystemAttributes": {
+              const path = findContainerPath(model, position);
+              if (
+                path.length !== 3 ||
+                path[0] !== "exchangeSettings" ||
+                path[1] !== "entities"
+              ) {
+                return null;
+              }
+              const items: RefSuggestion[] = [
+                {
+                  label: "all",
+                  insertText: "all",
+                  kind: Kind.Value,
+                  sortText: "0_all",
+                  documentation: "Экспортировать все системные атрибуты",
+                },
+              ];
+              for (const sys of [
+                "id",
+                "label",
+                "createdAt",
+                "updatedAt",
+                "createdBy",
+                "updatedBy",
+                "organizationId",
+                "tenantId",
+                "domainId",
+                "entityId",
+                "entityName",
+                "version",
+              ]) {
+                items.push({
+                  label: sys,
+                  insertText: sys,
+                  kind: Kind.Field,
+                  sortText: "1_" + sys,
+                  detail: "системный",
+                });
+              }
+              return buildListValueCompletion(
+                model,
+                position,
+                ["exportSystemAttributes"],
+                items,
+                Kind,
+              );
+            }
+
+            case "Date":
+            case "Time":
+            case "Timestamp":
+            case "TimestampRange": {
+              const path = findContainerPath(model, position);
+              if (
+                path.length !== 2 ||
+                path[0] !== "exchangeSettings" ||
+                path[1] !== "attributeFormats"
+              ) {
+                return null;
+              }
+
+              const DATE_FORMATS = [
+                ["DD-MM-YYYY", "День-Месяц-Год (RU)"],
+                ["YYYY-MM-DD", "Год-Месяц-День (ISO)"],
+                ["DD/MM/YYYY", "День/Месяц/Год"],
+                ["MM/DD/YYYY", "Месяц/День/Год (US)"],
+                ["DD.MM.YYYY", "День.Месяц.Год"],
+              ];
+              const TIME_FORMATS = [
+                ["HH:mm:ss", "Время 24ч с секундами"],
+                ["HH:mm", "Время 24ч"],
+                ["hh:mm A", "Время 12ч (AM/PM)"],
+              ];
+              const TS_FORMATS = [
+                ["DD-MM-YYYYTHH:mm:ss", "Дата-время с T"],
+                ["DD-MM-YYYY HH:mm:ss", "Дата-время с пробелом"],
+                ["YYYY-MM-DDTHH:mm:ssZ", "ISO 8601 с таймзоной"],
+                ["DD.MM.YYYY HH:mm:ss", "RU с точками"],
+              ];
+
+              let formats: string[][];
+              if (fieldName === "Date") formats = DATE_FORMATS;
+              else if (fieldName === "Time") formats = TIME_FORMATS;
+              else if (fieldName === "Timestamp") formats = TS_FORMATS;
+              else formats = TS_FORMATS; // TimestampRange
+
+              return r(
+                model,
+                position,
+                [fieldName],
+                formats.map(([value, desc]) => ({
+                  label: value,
+                  insertText: " " + value,
+                  kind: Kind.Value,
+                  sortText: value,
+                  documentation: desc,
+                })),
+                Kind,
+              );
+            }
           }
 
-          case "exportSystemAttributes": {
-            const path = findContainerPath(model, position);
-            if (
-              path.length !== 3 ||
-              path[0] !== "exchangeSettings" ||
-              path[1] !== "entities"
-            ) {
-              return null;
-            }
-            const items: RefSuggestion[] = [
-              {
-                label: "all",
-                insertText: "all",
-                kind: Kind.Value,
-                sortText: "0_all",
-                documentation: "Экспортировать все системные атрибуты",
-              },
-            ];
-            for (const sys of [
-              "id",
-              "label",
-              "createdAt",
-              "updatedAt",
-              "createdBy",
-              "updatedBy",
-              "organizationId",
-              "tenantId",
-              "domainId",
-              "entityId",
-              "entityName",
-              "version",
-            ]) {
-              items.push({
-                label: sys,
-                insertText: sys,
-                kind: Kind.Field,
-                sortText: "1_" + sys,
-                detail: "системный",
-              });
-            }
-            return buildListValueCompletion(
-              model,
-              position,
-              ["exportSystemAttributes"],
-              items,
-              Kind,
-            );
-          }
+          return null;
+        })();
 
-          case "Date":
-          case "Time":
-          case "Timestamp":
-          case "TimestampRange": {
-            const path = findContainerPath(model, position);
-            if (
-              path.length !== 2 ||
-              path[0] !== "exchangeSettings" ||
-              path[1] !== "attributeFormats"
-            ) {
-              return null;
-            }
+        const wordAtPosition = model.getWordUntilPosition(position);
+        const prefix = wordAtPosition.word || "";
 
-            const DATE_FORMATS = [
-              ["DD-MM-YYYY", "День-Месяц-Год (RU)"],
-              ["YYYY-MM-DD", "Год-Месяц-День (ISO)"],
-              ["DD/MM/YYYY", "День/Месяц/Год"],
-              ["MM/DD/YYYY", "Месяц/День/Год (US)"],
-              ["DD.MM.YYYY", "День.Месяц.Год"],
-            ];
-            const TIME_FORMATS = [
-              ["HH:mm:ss", "Время 24ч с секундами"],
-              ["HH:mm", "Время 24ч"],
-              ["hh:mm A", "Время 12ч (AM/PM)"],
-            ];
-            const TS_FORMATS = [
-              ["DD-MM-YYYYTHH:mm:ss", "Дата-время с T"],
-              ["DD-MM-YYYY HH:mm:ss", "Дата-время с пробелом"],
-              ["YYYY-MM-DDTHH:mm:ssZ", "ISO 8601 с таймзоной"],
-              ["DD.MM.YYYY HH:mm:ss", "RU с точками"],
-            ];
+        if (
+          raw &&
+          raw.suggestions.length > 0 &&
+          !hasPrefixMatch(raw.suggestions, prefix)
+        )
+          return null;
 
-            let formats: string[][];
-            if (fieldName === "Date") formats = DATE_FORMATS;
-            else if (fieldName === "Time") formats = TIME_FORMATS;
-            else if (fieldName === "Timestamp") formats = TS_FORMATS;
-            else formats = TS_FORMATS; // TimestampRange
-
-            return r(
-              model,
-              position,
-              [fieldName],
-              formats.map(([value, desc]) => ({
-                label: value,
-                insertText: " " + value,
-                kind: Kind.Value,
-                sortText: value,
-                documentation: desc,
-              })),
-              Kind,
-            );
-          }
-        }
-
+        return raw && raw.suggestions.length > 0 ? raw : null;
+      } catch (e) {
+        console.error("[provideCompletionItems] failed", e);
         return null;
-      })();
-
-      const wordAtPosition = model.getWordUntilPosition(position);
-      const prefix = wordAtPosition.word || "";
-
-      if (
-        raw &&
-        raw.suggestions.length > 0 &&
-        !hasPrefixMatch(raw.suggestions, prefix)
-      )
-        return null;
-
-      return raw && raw.suggestions.length > 0 ? raw : null;
+      }
     },
   });
 }
@@ -15930,390 +16147,375 @@ function buildTransitiveLinkageCandidates(
   }));
 }
 export function applyTransitiveMarkers(
-    monaco: any,
-    model: any,
-    lines: string[],
-    index: ModelIndex | null,
-    currentDomainId: string,
+  monaco: any,
+  model: any,
+  lines: string[],
+  index: ModelIndex | null,
+  currentDomainId: string,
 ): void {
-    if (!index) {
-        monaco.editor.setModelMarkers(model, "transitive-validator", []);
-        return;
-    }
+  if (!index) {
+    monaco.editor.setModelMarkers(model, "transitive-validator", []);
+    return;
+  }
 
-    const markers: any[] = [];
-    const cur = currentDomainId.toLowerCase();
+  const markers: any[] = [];
+  const cur = currentDomainId.toLowerCase();
 
-    // ── Секция transitiveLinkages ──
-    let sectionStart = -1;
-    let sectionEnd = lines.length;
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim() || line.trim().startsWith("#")) continue;
-        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
-        if (ind === 0) {
-            const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
-            if (m) {
-                if (m[1] === "transitiveLinkages") sectionStart = i;
-                else if (sectionStart >= 0) {
-                    sectionEnd = i;
-                    break;
-                }
-            }
+  // ── Секция transitiveLinkages ──
+  let sectionStart = -1;
+  let sectionEnd = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        if (m[1] === "transitiveLinkages") sectionStart = i;
+        else if (sectionStart >= 0) {
+          sectionEnd = i;
+          break;
         }
+      }
     }
-    if (sectionStart < 0) {
-        monaco.editor.setModelMarkers(model, "transitive-validator", []);
-        return;
+  }
+  if (sectionStart < 0) {
+    monaco.editor.setModelMarkers(model, "transitive-validator", []);
+    return;
+  }
+
+  let itemIndent = -1;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const m = lines[i].match(/^(\s*)-\s+id\s*:/);
+    if (m) {
+      itemIndent = m[1].length;
+      break;
+    }
+  }
+  if (itemIndent < 0) {
+    monaco.editor.setModelMarkers(model, "transitive-validator", []);
+    return;
+  }
+
+  const entityLookup = (entityId: string | null): EntityRecord | null => {
+    if (!entityId) return null;
+    if (entityId.includes("/"))
+      return index.entitiesByFqid[entityId.toLowerCase()] || null;
+    return index.entitiesByFqid[`${cur}/${entityId}`.toLowerCase()] || null;
+  };
+
+  // Inheritance-aware: ancestorFqid — сам descFqid или его предок
+  const isSameOrAncestor = (
+    ancestorFqid: string,
+    descFqid: string,
+  ): boolean => {
+    if (!ancestorFqid || !descFqid) return false;
+    const ancL = ancestorFqid.toLowerCase();
+    let walkCur: string | undefined = descFqid.toLowerCase();
+    const seen = new Set<string>();
+    while (walkCur && !seen.has(walkCur)) {
+      seen.add(walkCur);
+      if (walkCur === ancL) return true;
+      const e = index.entitiesByFqid[walkCur];
+      if (!e || !e.inherits) return false;
+      walkCur = e.inherits.toLowerCase();
+    }
+    return false;
+  };
+
+  const emit = (
+    line: number,
+    col: number,
+    len: number,
+    sev: any,
+    msg: string,
+    code: string,
+  ) => {
+    markers.push({
+      severity: sev,
+      message: msg,
+      startLineNumber: line,
+      startColumn: col,
+      endLineNumber: line,
+      endColumn: col + len,
+      source: "transitive-validator",
+      code,
+    });
+  };
+
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const idM = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (!idM || idM[1].length !== itemIndent) continue;
+
+    const tlEnd = (() => {
+      for (let j = i + 1; j < sectionEnd; j++) {
+        if (!lines[j].trim()) continue;
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind < itemIndent) return j;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length === itemIndent) return j;
+      }
+      return sectionEnd;
+    })();
+
+    // ── entity: корня ──
+    let rootEntityId: string | null = null;
+    let rootEntityLine = -1;
+    let rootEntityCol = 1;
+    for (let j = i + 1; j < tlEnd; j++) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind !== itemIndent + 2) continue;
+      const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (m) {
+        rootEntityId = m[1].replace(/["']/g, "");
+        rootEntityLine = j;
+        rootEntityCol = line.indexOf(rootEntityId) + 1;
+        break;
+      }
     }
 
-    let itemIndent = -1;
-    for (let i = sectionStart + 1; i < sectionEnd; i++) {
-        const m = lines[i].match(/^(\s*)-\s+id\s*:/);
-        if (m) {
-            itemIndent = m[1].length;
+    const rootEntity = entityLookup(rootEntityId);
+    if (rootEntityId && !rootEntity && rootEntityLine >= 0) {
+      const missingDomain = isForeignDomainNotLoaded(rootEntityId, index);
+      if (missingDomain) {
+        emit(
+          rootEntityLine + 1,
+          rootEntityCol,
+          rootEntityId.length,
+          monaco.MarkerSeverity.Info,
+          `Сущность «${rootEntityId}» — домен «${missingDomain}» не загружен в кэш`,
+          "transitiveLinkage/entity-domain-not-loaded",
+        );
+      } else {
+        emit(
+          rootEntityLine + 1,
+          rootEntityCol,
+          rootEntityId.length,
+          monaco.MarkerSeverity.Error,
+          `Сущность «${rootEntityId}» не найдена в домене ${cur}`,
+          "transitiveLinkage/entity-unknown",
+        );
+      }
+    }
+
+    let currentParent: string | null = rootEntity
+      ? rootEntity.fqid.toLowerCase()
+      : rootEntityId
+        ? `${cur}/${rootEntityId}`.toLowerCase()
+        : null;
+
+    // ── joins: ──
+    let joinsLine = -1;
+    let joinsIndent = -1;
+    for (let j = i + 1; j < tlEnd; j++) {
+      const m = lines[j].match(/^(\s*)joins\s*:\s*$/);
+      if (m) {
+        joinsLine = j;
+        joinsIndent = m[1].length;
+        break;
+      }
+    }
+    if (joinsLine < 0) continue;
+
+    const walk = (
+      parentFqid: string | null,
+      containerLine: number,
+      containerIndent: number,
+      containerEnd: number,
+    ): string | null => {
+      let joinIndent = -1;
+      for (let j = containerLine + 1; j < containerEnd; j++) {
+        if (!lines[j].trim()) continue;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (d && d[1].length > containerIndent) {
+          joinIndent = d[1].length;
+          break;
+        }
+      }
+      if (joinIndent < 0) return parentFqid;
+
+      let currentParentLocal = parentFqid;
+      let j = containerLine + 1;
+      while (j < containerEnd) {
+        if (!lines[j].trim()) {
+          j++;
+          continue;
+        }
+        const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= containerIndent) break;
+        const d = lines[j].match(/^(\s*)-\s+\S/);
+        if (!d || d[1].length !== joinIndent) {
+          j++;
+          continue;
+        }
+
+        const childStart = j;
+        let childEnd = containerEnd;
+        for (let k = j + 1; k < containerEnd; k++) {
+          if (!lines[k].trim()) continue;
+          const kInd = (lines[k].match(/^(\s*)/) || ["", ""])[1].length;
+          if (kInd < joinIndent) {
+            childEnd = k;
             break;
+          }
+          const kd = lines[k].match(/^(\s*)-\s+\S/);
+          if (kd && kd[1].length === joinIndent) {
+            childEnd = k;
+            break;
+          }
         }
-    }
-    if (itemIndent < 0) {
-        monaco.editor.setModelMarkers(model, "transitive-validator", []);
-        return;
-    }
 
-    const entityLookup = (entityId: string | null): EntityRecord | null => {
-        if (!entityId) return null;
-        if (entityId.includes("/"))
-            return index.entitiesByFqid[entityId.toLowerCase()] || null;
-        return index.entitiesByFqid[`${cur}/${entityId}`.toLowerCase()] || null;
-    };
+        let linkageId: string | null = null;
+        let linkageLine = -1;
+        let linkageCol = 1;
+        let side: 1 | 2 | undefined;
 
-    // Inheritance-aware: ancestorFqid — сам descFqid или его предок
-    const isSameOrAncestor = (
-        ancestorFqid: string,
-        descFqid: string,
-    ): boolean => {
-        if (!ancestorFqid || !descFqid) return false;
-        const ancL = ancestorFqid.toLowerCase();
-        let walkCur: string | undefined = descFqid.toLowerCase();
-        const seen = new Set<string>();
-        while (walkCur && !seen.has(walkCur)) {
-            seen.add(walkCur);
-            if (walkCur === ancL) return true;
-            const e = index.entitiesByFqid[walkCur];
-            if (!e || !e.inherits) return false;
-            walkCur = e.inherits.toLowerCase();
-        }
-        return false;
-    };
+        for (let k = childStart; k < childEnd; k++) {
+          const l = lines[k];
+          if (!l.trim()) continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd !== joinIndent && lInd !== joinIndent + 2) continue;
 
-    const emit = (
-        line: number,
-        col: number,
-        len: number,
-        sev: any,
-        msg: string,
-        code: string,
-    ) => {
-        markers.push({
-            severity: sev,
-            message: msg,
-            startLineNumber: line,
-            startColumn: col,
-            endLineNumber: line,
-            endColumn: col + len,
-            source: "transitive-validator",
-            code,
-        });
-    };
-
-    for (let i = sectionStart + 1; i < sectionEnd; i++) {
-        const idM = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-        if (!idM || idM[1].length !== itemIndent) continue;
-
-        const tlEnd = (() => {
-            for (let j = i + 1; j < sectionEnd; j++) {
-                if (!lines[j].trim()) continue;
-                const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
-                if (ind < itemIndent) return j;
-                const d = lines[j].match(/^(\s*)-\s+\S/);
-                if (d && d[1].length === itemIndent) return j;
-            }
-            return sectionEnd;
-        })();
-
-        // ── entity: корня ──
-        let rootEntityId: string | null = null;
-        let rootEntityLine = -1;
-        let rootEntityCol = 1;
-        for (let j = i + 1; j < tlEnd; j++) {
-            const line = lines[j];
-            if (!line.trim()) continue;
-            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
-            if (ind !== itemIndent + 2) continue;
-            const m = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+          if (linkageId === null) {
+            const m = l.match(/^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/);
             if (m) {
-                rootEntityId = m[1].replace(/["']/g, "");
-                rootEntityLine = j;
-                rootEntityCol = line.indexOf(rootEntityId) + 1;
-                break;
+              linkageId = m[1].replace(/["']/g, "");
+              linkageLine = k;
+              linkageCol = l.indexOf(linkageId) + 1;
             }
+          }
+          if (side === undefined) {
+            const m = l.match(/^\s*side\s*:\s*([12])/);
+            if (m) side = parseInt(m[1], 10) as 1 | 2;
+          }
         }
 
-        const rootEntity = entityLookup(rootEntityId);
-        if (rootEntityId && !rootEntity && rootEntityLine >= 0) {
-            const missingDomain = isForeignDomainNotLoaded(
-                rootEntityId,
-                index,
+        // ── Резолв linkage (FQID-aware) ──
+        const linkageRec = linkageId
+          ? resolveLinkageForMonaco(linkageId, cur, index)
+          : null;
+
+        if (linkageId && !linkageRec && linkageLine >= 0) {
+          const missingDomain = isForeignDomainNotLoaded(linkageId, index);
+          if (missingDomain) {
+            emit(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Info,
+              `Связь «${linkageId}» — домен «${missingDomain}» не загружен в кэш`,
+              "transitiveLinkage/linkage-domain-not-loaded",
             );
-            if (missingDomain) {
-                emit(
-                    rootEntityLine + 1,
-                    rootEntityCol,
-                    rootEntityId.length,
-                    monaco.MarkerSeverity.Info,
-                    `Сущность «${rootEntityId}» — домен «${missingDomain}» не загружен в кэш`,
-                    "transitiveLinkage/entity-domain-not-loaded",
-                );
-            } else {
-                emit(
-                    rootEntityLine + 1,
-                    rootEntityCol,
-                    rootEntityId.length,
-                    monaco.MarkerSeverity.Error,
-                    `Сущность «${rootEntityId}» не найдена в домене ${cur}`,
-                    "transitiveLinkage/entity-unknown",
-                );
-            }
+          } else {
+            emit(
+              linkageLine + 1,
+              linkageCol,
+              linkageId.length,
+              monaco.MarkerSeverity.Error,
+              `Связь «${linkageId}» не найдена в домене ${cur}`,
+              "transitiveLinkage/linkage-unknown",
+            );
+          }
         }
 
-        let currentParent: string | null = rootEntity
-            ? rootEntity.fqid.toLowerCase()
-            : rootEntityId
-              ? `${cur}/${rootEntityId}`.toLowerCase()
-              : null;
+        if (linkageRec && currentParentLocal && linkageLine >= 0) {
+          const isSymmetric = linkageRec.side1Fqid === linkageRec.side2Fqid;
+          const isDirected = !(
+            linkageRec.type === "n_n" && linkageRec.undirected
+          );
 
-        // ── joins: ──
-        let joinsLine = -1;
-        let joinsIndent = -1;
-        for (let j = i + 1; j < tlEnd; j++) {
-            const m = lines[j].match(/^(\s*)joins\s*:\s*$/);
-            if (m) {
-                joinsLine = j;
-                joinsIndent = m[1].length;
-                break;
+          if (isSymmetric && isDirected && !side) {
+            emit(
+              linkageLine + 1,
+              linkageCol,
+              linkageId!.length,
+              monaco.MarkerSeverity.Warning,
+              `Связь "${linkageId}" симметричная направленная — укажите side: 1 или 2`,
+              "transitiveLinkage/side-required",
+            );
+          }
+
+          const parentLower = currentParentLocal.toLowerCase();
+
+          // ── Inheritance-aware достижимость ──
+          const reachableForward = isSameOrAncestor(
+            linkageRec.side1Fqid,
+            parentLower,
+          );
+          const reachableBackward = isSameOrAncestor(
+            linkageRec.side2Fqid,
+            parentLower,
+          );
+
+          if (!reachableForward && !reachableBackward) {
+            emit(
+              linkageLine + 1,
+              linkageCol,
+              linkageId!.length,
+              monaco.MarkerSeverity.Error,
+              `linkage "${linkageId}" (${linkageRec.side1Fqid.split("/").pop()} → ${linkageRec.side2Fqid.split("/").pop()}) не соединяет parent «${currentParentLocal.split("/").pop()}»`,
+              "transitiveLinkage/not-reachable",
+            );
+          }
+          // inverted-1n удалён — для транзитивной цепочки
+          // ориентация 1_n не критична, хопы могут идти в любом
+          // направлении.
+
+          // ── Резолв target для следующего хопа ──
+          let target: string | null = null;
+          if (isSymmetric) {
+            if (reachableForward) target = linkageRec.side2Fqid;
+          } else {
+            const eff = side === 2 ? 2 : 1;
+            const parentSide =
+              eff === 1 ? linkageRec.side1Fqid : linkageRec.side2Fqid;
+            const childSide =
+              eff === 1 ? linkageRec.side2Fqid : linkageRec.side1Fqid;
+
+            if (isSameOrAncestor(parentSide, parentLower)) {
+              target = childSide;
+            } else if (reachableForward) {
+              target = linkageRec.side2Fqid;
+            } else if (reachableBackward) {
+              target = linkageRec.side1Fqid;
             }
+          }
+          if (target) currentParentLocal = target;
         }
-        if (joinsLine < 0) continue;
 
-        const walk = (
-            parentFqid: string | null,
-            containerLine: number,
-            containerIndent: number,
-            containerEnd: number,
-        ): string | null => {
-            let joinIndent = -1;
-            for (let j = containerLine + 1; j < containerEnd; j++) {
-                if (!lines[j].trim()) continue;
-                const d = lines[j].match(/^(\s*)-\s+\S/);
-                if (d && d[1].length > containerIndent) {
-                    joinIndent = d[1].length;
-                    break;
-                }
-            }
-            if (joinIndent < 0) return parentFqid;
+        // ── Вложенные joins ──
+        let nestedJoinsLine = -1;
+        let nestedJoinsIndent = -1;
+        for (let k = childStart + 1; k < childEnd; k++) {
+          const m = lines[k].match(/^(\s*)joins\s*:\s*$/);
+          if (m) {
+            nestedJoinsLine = k;
+            nestedJoinsIndent = m[1].length;
+            break;
+          }
+        }
+        if (nestedJoinsLine >= 0) {
+          walk(
+            currentParentLocal,
+            nestedJoinsLine,
+            nestedJoinsIndent,
+            childEnd,
+          );
+        }
 
-            let currentParentLocal = parentFqid;
-            let j = containerLine + 1;
-            while (j < containerEnd) {
-                if (!lines[j].trim()) {
-                    j++;
-                    continue;
-                }
-                const ind = (lines[j].match(/^(\s*)/) || ["", ""])[1].length;
-                if (ind <= containerIndent) break;
-                const d = lines[j].match(/^(\s*)-\s+\S/);
-                if (!d || d[1].length !== joinIndent) {
-                    j++;
-                    continue;
-                }
+        j = childEnd;
+      }
 
-                const childStart = j;
-                let childEnd = containerEnd;
-                for (let k = j + 1; k < containerEnd; k++) {
-                    if (!lines[k].trim()) continue;
-                    const kInd = (lines[k].match(/^(\s*)/) || ["", ""])[1]
-                        .length;
-                    if (kInd < joinIndent) {
-                        childEnd = k;
-                        break;
-                    }
-                    const kd = lines[k].match(/^(\s*)-\s+\S/);
-                    if (kd && kd[1].length === joinIndent) {
-                        childEnd = k;
-                        break;
-                    }
-                }
+      return currentParentLocal;
+    };
 
-                let linkageId: string | null = null;
-                let linkageLine = -1;
-                let linkageCol = 1;
-                let side: 1 | 2 | undefined;
+    walk(currentParent, joinsLine, joinsIndent, tlEnd);
+    i = tlEnd - 1;
+  }
 
-                for (let k = childStart; k < childEnd; k++) {
-                    const l = lines[k];
-                    if (!l.trim()) continue;
-                    const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
-                    if (lInd !== joinIndent && lInd !== joinIndent + 2)
-                        continue;
-
-                    if (linkageId === null) {
-                        const m = l.match(
-                            /^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/,
-                        );
-                        if (m) {
-                            linkageId = m[1].replace(/["']/g, "");
-                            linkageLine = k;
-                            linkageCol = l.indexOf(linkageId) + 1;
-                        }
-                    }
-                    if (side === undefined) {
-                        const m = l.match(/^\s*side\s*:\s*([12])/);
-                        if (m) side = parseInt(m[1], 10) as 1 | 2;
-                    }
-                }
-
-                // ── Резолв linkage (FQID-aware) ──
-                const linkageRec = linkageId
-                    ? resolveLinkageForMonaco(linkageId, cur, index)
-                    : null;
-
-                if (linkageId && !linkageRec && linkageLine >= 0) {
-                    const missingDomain = isForeignDomainNotLoaded(
-                        linkageId,
-                        index,
-                    );
-                    if (missingDomain) {
-                        emit(
-                            linkageLine + 1,
-                            linkageCol,
-                            linkageId.length,
-                            monaco.MarkerSeverity.Info,
-                            `Связь «${linkageId}» — домен «${missingDomain}» не загружен в кэш`,
-                            "transitiveLinkage/linkage-domain-not-loaded",
-                        );
-                    } else {
-                        emit(
-                            linkageLine + 1,
-                            linkageCol,
-                            linkageId.length,
-                            monaco.MarkerSeverity.Error,
-                            `Связь «${linkageId}» не найдена в домене ${cur}`,
-                            "transitiveLinkage/linkage-unknown",
-                        );
-                    }
-                }
-
-                if (linkageRec && currentParentLocal && linkageLine >= 0) {
-                    const isSymmetric =
-                        linkageRec.side1Fqid === linkageRec.side2Fqid;
-                    const isDirected = !(
-                        linkageRec.type === "n_n" && linkageRec.undirected
-                    );
-
-                    if (isSymmetric && isDirected && !side) {
-                        emit(
-                            linkageLine + 1,
-                            linkageCol,
-                            linkageId!.length,
-                            monaco.MarkerSeverity.Warning,
-                            `Связь "${linkageId}" симметричная направленная — укажите side: 1 или 2`,
-                            "transitiveLinkage/side-required",
-                        );
-                    }
-
-                    const parentLower = currentParentLocal.toLowerCase();
-
-                    // ── Inheritance-aware достижимость ──
-                    const reachableForward = isSameOrAncestor(
-                        linkageRec.side1Fqid,
-                        parentLower,
-                    );
-                    const reachableBackward = isSameOrAncestor(
-                        linkageRec.side2Fqid,
-                        parentLower,
-                    );
-
-                    if (!reachableForward && !reachableBackward) {
-                        emit(
-                            linkageLine + 1,
-                            linkageCol,
-                            linkageId!.length,
-                            monaco.MarkerSeverity.Error,
-                            `linkage "${linkageId}" (${linkageRec.side1Fqid.split("/").pop()} → ${linkageRec.side2Fqid.split("/").pop()}) не соединяет parent «${currentParentLocal.split("/").pop()}»`,
-                            "transitiveLinkage/not-reachable",
-                        );
-                    }
-                    // inverted-1n удалён — для транзитивной цепочки
-                    // ориентация 1_n не критична, хопы могут идти в любом
-                    // направлении.
-
-                    // ── Резолв target для следующего хопа ──
-                    let target: string | null = null;
-                    if (isSymmetric) {
-                        if (reachableForward) target = linkageRec.side2Fqid;
-                    } else {
-                        const eff = side === 2 ? 2 : 1;
-                        const parentSide =
-                            eff === 1
-                                ? linkageRec.side1Fqid
-                                : linkageRec.side2Fqid;
-                        const childSide =
-                            eff === 1
-                                ? linkageRec.side2Fqid
-                                : linkageRec.side1Fqid;
-
-                        if (isSameOrAncestor(parentSide, parentLower)) {
-                            target = childSide;
-                        } else if (reachableForward) {
-                            target = linkageRec.side2Fqid;
-                        } else if (reachableBackward) {
-                            target = linkageRec.side1Fqid;
-                        }
-                    }
-                    if (target) currentParentLocal = target;
-                }
-
-                // ── Вложенные joins ──
-                let nestedJoinsLine = -1;
-                let nestedJoinsIndent = -1;
-                for (let k = childStart + 1; k < childEnd; k++) {
-                    const m = lines[k].match(/^(\s*)joins\s*:\s*$/);
-                    if (m) {
-                        nestedJoinsLine = k;
-                        nestedJoinsIndent = m[1].length;
-                        break;
-                    }
-                }
-                if (nestedJoinsLine >= 0) {
-                    walk(
-                        currentParentLocal,
-                        nestedJoinsLine,
-                        nestedJoinsIndent,
-                        childEnd,
-                    );
-                }
-
-                j = childEnd;
-            }
-
-            return currentParentLocal;
-        };
-
-        walk(currentParent, joinsLine, joinsIndent, tlEnd);
-        i = tlEnd - 1;
-    }
-
-    monaco.editor.setModelMarkers(model, "transitive-validator", markers);
+  monaco.editor.setModelMarkers(model, "transitive-validator", markers);
 }
 
 /**
@@ -16324,29 +16526,29 @@ export function applyTransitiveMarkers(
  * с linkages из всех доменов кэша, а не только из текущего.
  */
 function resolveLinkageForMonaco(
-    ref: string | null | undefined,
-    currentDomain: string,
-    index: ModelIndex | null,
+  ref: string | null | undefined,
+  currentDomain: string,
+  index: ModelIndex | null,
 ): EntityLinkage | null {
-    if (!index || !ref) return null;
-    const trimmed = String(ref).trim();
-    if (!trimmed) return null;
+  if (!index || !ref) return null;
+  const trimmed = String(ref).trim();
+  if (!trimmed) return null;
 
-    const slash = trimmed.indexOf("/");
-    const targetDomain =
-        slash > 0
-            ? trimmed.slice(0, slash).toLowerCase()
-            : currentDomain.toLowerCase();
-    const id = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
-    const idLower = id.toLowerCase();
+  const slash = trimmed.indexOf("/");
+  const targetDomain =
+    slash > 0
+      ? trimmed.slice(0, slash).toLowerCase()
+      : currentDomain.toLowerCase();
+  const id = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+  const idLower = id.toLowerCase();
 
-    return (
-        (index.entityLinkages || []).find(
-            (l) =>
-                (l.domainId || "").toLowerCase() === targetDomain &&
-                l.id.toLowerCase() === idLower,
-        ) || null
-    );
+  return (
+    (index.entityLinkages || []).find(
+      (l) =>
+        (l.domainId || "").toLowerCase() === targetDomain &&
+        l.id.toLowerCase() === idLower,
+    ) || null
+  );
 }
 
 /**
@@ -16355,16 +16557,16 @@ function resolveLinkageForMonaco(
  * «связь не найдена» (Error) от «домен не загружен» (Info).
  */
 function isForeignDomainNotLoaded(
-    ref: string,
-    index: ModelIndex | null,
+  ref: string,
+  index: ModelIndex | null,
 ): string | null {
-    if (!index || !ref) return null;
-    const slash = ref.indexOf("/");
-    if (slash <= 0) return null;
-    const domain = ref.slice(0, slash).toLowerCase();
-    if (!domain) return null;
-    const loaded = (index.domains || []).some(
-        (d) => String(d.id).toLowerCase() === domain,
-    );
-    return loaded ? null : domain;
+  if (!index || !ref) return null;
+  const slash = ref.indexOf("/");
+  if (slash <= 0) return null;
+  const domain = ref.slice(0, slash).toLowerCase();
+  if (!domain) return null;
+  const loaded = (index.domains || []).some(
+    (d) => String(d.id).toLowerCase() === domain,
+  );
+  return loaded ? null : domain;
 }

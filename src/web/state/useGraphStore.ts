@@ -522,7 +522,7 @@ export interface GraphState {
     preservePositions?: boolean,
   ) => Promise<void>;
   yamlViewerPendingGoto:
-    | { kind: "fqid"; fqid: string }
+    | { kind: "fqid"; fqid: string; expectedPath?: string }
     | { kind: "line"; line: number; column?: number }
     | null;
   setYamlViewerPendingGoto: (v: GraphState["yamlViewerPendingGoto"]) => void;
@@ -568,6 +568,12 @@ export interface GraphState {
 
   freshnessMap: Map<string, number>;
   setFreshnessMap: (w: Map<string, number>) => void;
+
+  editorScrollPositions: Record<string, { lineNumber: number; column: number }>;
+  setEditorScrollPosition: (
+    filePath: string,
+    pos: { lineNumber: number; column: number },
+  ) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1190,10 +1196,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   editorTabs: [],
   addEditorTab: (path) =>
     set((s) => {
-      if (!s.editorTabs.includes(path)) {
-        return { editorTabs: [...s.editorTabs, path] };
-      }
-      return s;
+      // Если вкладка уже первая — ничего не делаем
+      if (s.editorTabs.includes(path)) return s;
+      // Иначе ставим в начало, а из старой позиции удаляем
+      return { editorTabs: [path, ...s.editorTabs.filter((t) => t !== path)] };
     }),
   removeEditorTab: (path) =>
     set((s) => ({
@@ -1364,6 +1370,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   freshnessMap: new Map<string, number>(),
   setFreshnessMap: (v) => set({ freshnessMap: v }),
+
+  editorScrollPositions: JSON.parse(
+    localStorage.getItem("dg-yaml-editor-scroll") || "{}",
+  ),
+  setEditorScrollPosition: (filePath, pos) =>
+    set((s) => {
+      const next = { ...s.editorScrollPositions, [filePath]: pos };
+      try {
+        localStorage.setItem("dg-yaml-editor-scroll", JSON.stringify(next));
+      } catch {}
+      return { editorScrollPositions: next };
+    }),
 
   // Сброс всего
   resetAll: () =>

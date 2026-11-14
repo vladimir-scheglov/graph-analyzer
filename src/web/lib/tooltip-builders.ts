@@ -78,7 +78,9 @@ export function buildNodeTooltip(node: RFNode): string {
 
   // ── Health ──
   const healthScore =
-    d.health && typeof d.health === "object" ? (d.health as Record<string, number>).score : d.health;
+    d.health && typeof d.health === "object"
+      ? (d.health as Record<string, number>).score
+      : d.health;
   if (healthScore != null && d.nodeType === "domain") {
     const healthCls =
       healthScore >= 80 ? "good" : healthScore >= 50 ? "mid" : "bad";
@@ -127,9 +129,10 @@ export function buildNodeTooltip(node: RFNode): string {
     html += '<div class="tooltip__fqid-list">';
     refs.forEach((ref) => {
       html += '<div class="tooltip__ref">';
-      html += `<div class="tooltip__fqid js-goto-domain" data-domain="${escapeHtml(
-        ref.targetDomainId || "",
-      )}" style="cursor:pointer">${escapeHtml(ref.fullFQID)}</div>`;
+      // Делаем сам FQID кнопкой открытия файла
+      html += `<div class="tooltip__fqid js-open-file" data-file="${escapeHtml(
+        ref.filePath || "",
+      )}" data-fqid="${escapeHtml(ref.fullFQID || "")}" style="cursor:pointer; color:var(--accent-hover); text-decoration:underline dotted">${escapeHtml(ref.fullFQID)}</div>`;
       html += `<div class="tooltip__path">${escapeHtml(ref.propertyPath)}</div>`;
       html += `<button class="tooltip__btn js-open-file" data-file="${escapeHtml(
         ref.filePath || "",

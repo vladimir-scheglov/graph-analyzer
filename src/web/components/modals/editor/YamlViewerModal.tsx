@@ -83,6 +83,9 @@ import { computePreSaveImpact } from '../../../lib/model/pre-save-impact';
 import { PinButton } from '../../annotations/PinButton';
 import { Annotation, annotationsStore, matchLineTarget } from '../../../lib/storage/annotations';
 import { isAutoFixable } from '../../../lib/monaco/quickfix-rules';
+import { setupRegexTester } from '../../../lib/monaco/regex-tester';
+import { setupIconWidgets } from '../../../lib/monaco/icon-widget';
+import { setupQuickInsertWidget } from '../../../lib/monaco/quick-insert-widget';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -102,6 +105,55 @@ const INLINE_SOURCES = [
     "tree-validator",
     "transitive-validator",
 ];
+
+const ARRAY_TEMPLATES: Record<string, string[]> = {
+    entities: ["- id: ", "  name: ", "  attributes:"],
+    linkages: ["- id: ", "  side1: ", "  side2: ", "  type: "],
+    dataTypes: ["- id: ", "  name: ", "  dataType: "],
+    actions: ["- id: ", "  name: ", "  type: "],
+    views: ["- id: ", "  type: "],
+    trees: ["- id: ", "  hierarchy:", "    entity: "],
+    attributes: ["- id: ", "  name: ", "  dataType: "],
+    constraints: ["- kind: "],
+    widgets: ["- id: ", "  type: "],
+    groups: ["- id: ", "  type: ", "  layout:"],
+    dataRules: ["- id: ", "  name: ", "  target: "],
+    mixins: ["- id: ", "  type: "],
+    medias: ["- id: ", "  type: ", "  iconName: "],
+    sequences: ["- id: ", "  startFrom: "],
+    uiRules: ["- id: ", "  name: ", "  target: ", "  effect: "],
+    uiPresets: ["- id: ", "  props:"],
+    items: ["- id: ", "  label: ", "  route: ", "  type: "],
+    menus: ["- id: ", "  label: ", "  route: ", "  type: "],
+    values: ["- id: ", "  name: "],
+    statuses: ["- id: ", "  name: "],
+    transitions: ["- from: ", "  to: "],
+    projection: ["- attribute: "],
+    sorting: ["- id: ", "  by:"],
+    searching: ["attributes:"],
+    joins: ["- id: ", "  linkage: "],
+    prefixRules: ["- id: ", "  attribute: "],
+    reconciliation: ["- attribute: ", "  sourcePriority:"],
+    identification: ["- id: ", "  rule:"],
+    counterColorPatterns: ["- id: ", "  red: ", "  yellow: "],
+    counterColorPattern: ["- id: ", "  red: ", "  yellow: "],
+    transitiveLinkages: ["- id: ", "  entity: ", "  joins:"],
+    accessRules: ["- target: ", "  edit: "],
+    permissions: ["- id: ", "  description: "],
+    localizations: ["- language: ", "  keys:"],
+    sourcePriority: ["- source: "],
+    types: ["- type: "],
+    columns: ["- id: ", "  attribute: "],
+};
+
+const OBJECT_KEYS = new Set([
+    "calculation", "control", "layout", "context", "source", "params",
+    "hooks", "bulkSettings", "attributeFormats", "graphView", "treeNode",
+    "sortingBy", "paging", "defaults", "rule", "nested", "position",
+    "pinnedView", "widgetParams", "automation", "transition",
+    "openBoardsFromGraph", "item", "mergeStrategy", "include", "exclude",
+    "enumView", "workflowView", "tableView"
+]);
 
 /**
  * Запускает серверную валидацию текущего контента.
@@ -328,6 +380,11 @@ export function YamlViewerModal() {
     const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
     const [quickJumpOpen, setQuickJumpOpen] = useState(false);
     const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState<string | null>(null);
+    const indexRef = useRef(index);
+    useEffect(() => {
+        indexRef.current = index;
+    }, [index]);
+
     // ref — чтобы window-обработчик видел актуальный open без пересоздания listener'а
     const quickJumpOpenRef = useRef(false);
     useLayoutEffect(() => {
@@ -701,6 +758,7 @@ export function YamlViewerModal() {
 
     // ============ Monaco refs ============
     const editorRef = useRef<any>(null);
+    const editorFilePathRef = useRef<string | null>(null);
     const previousFetchId = useRef(0);
     const containerRef = useRef<HTMLDivElement>(null);
     const saveRef = useRef<() => void>(() => { });
@@ -721,6 +779,46 @@ export function YamlViewerModal() {
     useEffect(() => {
         if (open && filePath) addTab(filePath);
     }, [open, filePath, addTab]);
+
+    // Очистка вкладок, если домен был удален из модели
+    useEffect(() => {
+        if (!index || tabs.length === 0) return;
+
+        // Оставляем только те вкладки, чьи домены есть в загруженной модели
+        const validTabs = tabs.filter((tab) => {
+            const base = tab.split(/[\\/]/).pop()?.replace(/\.ro$/i, "");
+            if (!base) return true;
+
+            // Проверяем наличие домена в модели
+            return !!index.schemasByDomain[base] || index.domains.some((d) => d.id === base);
+        });
+
+        if (validTabs.length !== tabs.length) {
+            const invalidTabs = new Set(tabs.filter((t) => !validTabs.includes(t)));
+
+            // Удаляем невалидные вкладки
+            invalidTabs.forEach((t) => removeTab(t));
+
+            // Уведомляем пользователя
+            useGraphStore.getState().showSnackbar(
+                invalidTabs.size === 1
+                    ? "Домен не найден в модели — вкладка закрыта"
+                    : `Удалено доменов: ${invalidTabs.size}. Вкладки закрыты`,
+            );
+
+            // Если среди удаленных был текущий открытый файл — переключаемся или закрываем редактор
+            if (filePath && invalidTabs.has(filePath)) {
+                const next = validTabs[0];
+                if (next) {
+                    // Открываем следующую доступную вкладку
+                    void openFileInEditor(next);
+                } else {
+                    // Если вкладок не осталось — закрываем модалку (без диалога сохранения)
+                    useGraphStore.getState().setYamlViewerOpen(false);
+                }
+            }
+        }
+    }, [index, tabs, filePath, removeTab]);
 
     const setYamlViewerLocked = useGraphStore((s) => s.setYamlViewerLocked);
 
@@ -790,6 +888,11 @@ export function YamlViewerModal() {
         if (!idleContent) return null;
         return buildLineMap(idleContent, schema);
     }, [idleContent, schema]);
+
+    const lineMapRef = useRef<LineMap | null>(null);
+    useEffect(() => {
+        lineMapRef.current = lineMap;
+    }, [lineMap]);
 
     const currentContext = useMemo(() => {
         if (!lineMap) return null;
@@ -1013,7 +1116,7 @@ export function YamlViewerModal() {
     }, [
         allIssues,
         lineMap,
-        idleContent, 
+        idleContent,
         recheckModel,
         index,
         inlineMarkersVersion,
@@ -1200,7 +1303,7 @@ export function YamlViewerModal() {
     // сразу, без необходимости сохранять.
     const unusedAnalysis = useMemo(() => {
         if (!yamlHighlightUnused) return null;
-        if (leftCollapsed !== false) return null; 
+        if (leftCollapsed !== false) return null;
         if (!lineMap || !idleContent) return null;
         try {
             return computeUnusedInYaml(idleContent, lineMap);
@@ -1834,6 +1937,9 @@ export function YamlViewerModal() {
         let ro: ResizeObserver | null = null;
         const layouts: ReturnType<typeof setTimeout>[] = [];
         let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+        let disposeRegexTester: (() => void) | null = null;
+        let disposeIconWidgets: (() => void) | null = null;
+        let disposeQuickInsert: (() => void) | null = null;
 
         try {
             isProgrammaticChange.current = true;
@@ -1874,7 +1980,7 @@ export function YamlViewerModal() {
                     showDetails: true,
                     showInlineDetails: true,
                     showStatusBar: false,
-                    delay: 500, 
+                    delay: 500,
                 } as any,
 
                 quickSuggestions: false,
@@ -1895,6 +2001,40 @@ export function YamlViewerModal() {
                 } as any, // Приводим к any, чтобы не реализовывать все методы интерфейса
             });
             editorRef.current = editor;
+
+            // Сбрасываем возможные «протечки» от предыдущего файла
+            pendingJumpLineRef.current = null;
+
+            try {
+                disposeIconWidgets = setupIconWidgets(editor, m, () => ({
+                    modelIndex: indexRef.current,
+                }));
+            } catch (err) {
+                console.warn("[yaml-viewer] icon widgets init failed", err);
+            }
+
+            try {
+                disposeQuickInsert = setupQuickInsertWidget(editor, m);
+            } catch (err) {
+                console.warn("[yaml-viewer] quick insert init failed", err);
+            }
+
+            // Восстанавливаем сохранённый скролл
+            const savedScroll = useGraphStore.getState().editorScrollPositions[filePath];
+            if (savedScroll && savedScroll.lineNumber > 1) {
+                restoreScrollRef.current = savedScroll;
+                try {
+                    editor.setPosition({
+                        lineNumber: savedScroll.lineNumber,
+                        column: savedScroll.column,
+                    });
+                    editor.revealLineInCenter(savedScroll.lineNumber);
+                } catch { }
+            } else {
+                restoreScrollRef.current = null;
+            }
+
+            editorFilePathRef.current = filePath;
             editor.onDidDispose(() => {
                 if (editorRef.current === editor) {
                     editorRef.current = null;
@@ -1902,6 +2042,13 @@ export function YamlViewerModal() {
                 setEditorCreated(false);
             });
             isProgrammaticChange.current = false;
+
+            try {
+                disposeRegexTester = setupRegexTester(editor, m);
+            } catch (err) {
+                console.warn("[yaml-viewer] regex tester init failed", err);
+            }
+            
             setTimeout(() => {
                 const suggestController = editor.getContribution('editor.contrib.suggestController');
                 if (suggestController && suggestController.widget) {
@@ -1931,20 +2078,83 @@ export function YamlViewerModal() {
             };
 
             editor.addCommand(m.KeyCode.Enter, () => {
-                // В заблокированном файле Enter не обрабатываем —
-                // его заблокирует наш editor.onKeyDown.
                 if (isLockedRef.current) return;
 
                 if (isSuggestWidgetOpen()) {
-                    // Принимаем выбранный. В Monaco 0.52 при открытии виджета
-                    // первый элемент selected автоматически — acceptSelectedSuggestion
-                    // принимает именно его, даже если пользователь не жал стрелки.
                     editor.trigger('dg-enter', 'acceptSelectedSuggestion', null);
                     return;
                 }
 
-                // Обычный Enter с auto-indent.
-                // 'keyboard', 'type' — встроенный handler, работает в 0.30–0.52.
+                const position = editor.getPosition();
+                const model = editor.getModel();
+
+                if (position && model) {
+                    const lineText = model.getLineContent(position.lineNumber);
+
+                    // Работаем только если курсор стоит в самом конце строки
+                    if (position.column === lineText.length + 1) {
+                        const match = lineText.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
+
+                        if (match) {
+                            const indent = match[1];
+                            const key = match[2];
+
+                            const ctx = lineMapRef.current?.lineContexts.get(position.lineNumber);
+                            const section = ctx?.section;
+
+                            let template: string[] | null = null;
+
+                            // 1. Специфичные исключения
+                            if (key === 'entities' && section === 'exchangeSettings') {
+                                template = []; // В exchangeSettings entities — это объект
+                            } else if (key === 'attributes' && ctx) {
+                                const isSearching = ctx.breadcrumbs.some(b => b.id === 'searching');
+                                const isRule = ctx.breadcrumbs.some(b => b.id === 'rule');
+                                if (isSearching || isRule || section === 'dataRules' || section === 'uiRules') {
+                                    template = ["- attribute: "];
+                                } else {
+                                    template = ARRAY_TEMPLATES[key] || ["- "];
+                                }
+                            }
+                            // 2. Объекты (только отступ без дефиса)
+                            else if (OBJECT_KEYS.has(key)) {
+                                template = [];
+                            }
+                            // 3. Массивы с готовым шаблоном
+                            else if (ARRAY_TEMPLATES[key]) {
+                                template = ARRAY_TEMPLATES[key];
+                            }
+                            // 4. Неизвестные ключи (по умолчанию ставим дефис)
+                            else {
+                                template = ["- "];
+                            }
+
+                            if (template) {
+                                const newIndent = indent + '  ';
+                                const textToInsert = template.length === 0
+                                    ? `\n${newIndent}`
+                                    : '\n' + template.map(line => newIndent + line).join('\n');
+
+                                editor.executeEdits('enter-array', [{
+                                    range: new m.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                                    text: textToInsert
+                                }]);
+
+                                const targetColumn = template.length === 0
+                                    ? newIndent.length + 1
+                                    : newIndent.length + template[0].length + 1;
+
+                                editor.setPosition({
+                                    lineNumber: position.lineNumber + 1,
+                                    column: targetColumn
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                // Стандартное поведение (включая авто-отступ) для остальных случаев
                 editor.trigger('keyboard', 'type', { text: '\n' });
             });
 
@@ -1953,12 +2163,42 @@ export function YamlViewerModal() {
             const forceLayout = () => {
                 if (!editorRef.current) return;
                 try { editorRef.current.layout(); } catch { }
+
+                const m = (window as any).monaco;
+
+                if (pendingJumpLineRef.current != null) {
+                    try {
+                        editorRef.current.revealLineInCenter(
+                            pendingJumpLineRef.current,
+                            m ? m.editor.ScrollType.Immediate : undefined,
+                        );
+                    } catch { }
+                    return;
+                }
+
+                if (restoreScrollRef.current) {
+                    try {
+                        editorRef.current.setPosition({
+                            lineNumber: restoreScrollRef.current.lineNumber,
+                            column: restoreScrollRef.current.column,
+                        });
+                        editorRef.current.revealLineInCenter(
+                            restoreScrollRef.current.lineNumber,
+                            m ? m.editor.ScrollType.Immediate : undefined,
+                        );
+                    } catch { }
+                }
             };
             setTimeout(forceLayout, 0);
             setTimeout(forceLayout, 50);
             setTimeout(forceLayout, 150);
             setTimeout(forceLayout, 400);
             setTimeout(forceLayout, 1000);
+
+            // После последнего layout восстанавливать больше не нужно
+            setTimeout(() => {
+                restoreScrollRef.current = null;
+            }, 1100);
 
             // Пересчитываем после загрузки Material Symbols (иконки в тулбаре меняют высоту)
             if (document.fonts && document.fonts.ready) {
@@ -2179,6 +2419,23 @@ export function YamlViewerModal() {
         return () => {
             document.removeEventListener("keydown", onKeyDownCapture, true);
 
+            try { disposeRegexTester?.(); } catch { }
+            try { disposeIconWidgets?.(); } catch { }
+            try { disposeQuickInsert?.(); } catch { }
+
+            // Сохраняем скролл перед dispose
+            try {
+                if (editor.getValue().length > 0) {
+                    const pos = editor.getPosition();
+                    if (pos && filePath) {
+                        useGraphStore.getState().setEditorScrollPosition(filePath, {
+                            lineNumber: pos.lineNumber,
+                            column: pos.column,
+                        });
+                    }
+                }
+            } catch { }
+
             // 1. Сначала отменяем всё, что могло запланировать обращение к editor
             layouts.forEach(clearTimeout);
             if (cursorTimer) clearTimeout(cursorTimer);
@@ -2187,6 +2444,7 @@ export function YamlViewerModal() {
             // 2. Обнуляем ref ДО dispose — любой pending setTimeout теперь видит null
             if (editorRef.current === editor) {
                 editorRef.current = null;
+                editorFilePathRef.current = null;
             }
             setEditorCreated(false);
 
@@ -2640,7 +2898,7 @@ export function YamlViewerModal() {
             try { applyAttributeRefMarkers(m, model, lines); } catch { /* ignore */ }
             try { applyWorkflowStatusRefMarkers(m, model, lines); } catch { /* ignore */ }
             try { applyRqlMarkers(m, model, lines); } catch { /* ignore */ }
-            try { applyTreeMarkers(m, model, lines, index, domainId); } catch { } 
+            try { applyTreeMarkers(m, model, lines, index, domainId); } catch { }
             try { applyTransitiveMarkers(m, model, lines, index, domainId); } catch { }
 
             // Post-filter по severityFilter: inline-валидаторы не знают про
@@ -2860,33 +3118,45 @@ export function YamlViewerModal() {
     }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent, idleContent]);
 
     // ============ Jump ============
+    // Ref для хранения строки, к которой нужно скроллить
+    const pendingJumpLineRef = useRef<number | null>(null);
+    const restoreScrollRef = useRef<{ lineNumber: number; column: number } | null>(null);
+
     const jumpTo = useCallback(
         (line: number, opts?: { focus?: boolean; column?: number }) => {
-            const editor = editorRef.current;
-            if (!editor) return;
+            pendingJumpLineRef.current = line;
+            restoreScrollRef.current = null;
 
-            try {
-                editor.revealLineInCenter(line);
-            } catch { }
+            const apply = () => {
+                const editor = editorRef.current;
+                if (!editor) return;
+                const m = (window as any).monaco;
+                try {
+                    editor.revealLineInCenter(
+                        line,
+                        m ? m.editor.ScrollType.Immediate : undefined,
+                    );
+                } catch { }
+                try {
+                    editor.setPosition({ lineNumber: line, column: opts?.column ?? 1 });
+                } catch { }
+                if (opts?.focus !== false) {
+                    try { editor.focus(); } catch { }
+                }
+            };
 
-            try {
-                editor.setPosition({ lineNumber: line, column: opts?.column ?? 1 });
-            } catch { }
-
-            try { editor.layout(); } catch { }
-
-            if (opts?.focus !== false) {
-                editor.focus();
-            } else {
-                requestAnimationFrame(() => {
-                    const ed = editorRef.current;
-                    if (!ed) return;
-                    try {
-                        ed.revealLineInCenter(line);
-                        ed.layout();
-                    } catch { }
-                });
-            }
+            apply();
+            requestAnimationFrame(() => {
+                apply();
+                setTimeout(apply, 50);
+                setTimeout(apply, 150);
+                setTimeout(() => {
+                    apply();
+                    if (pendingJumpLineRef.current === line) {
+                        pendingJumpLineRef.current = null;
+                    }
+                }, 1200);
+            });
         },
         [],
     );
@@ -3270,50 +3540,63 @@ export function YamlViewerModal() {
         idleContent
     ]);
 
-    useEffect(() => {
-        if (!open) return;
-        const goto = useGraphStore.getState().yamlViewerPendingGoto;
-        if (!goto) return;
-        if (!editorCreated || !editorRef.current) return;
-        if (loading) return;
-        if (!lineMap || !deferredContent) return;
+    const pendingGoto = useGraphStore((s) => s.yamlViewerPendingGoto);
 
-        const lines = deferredContent.split("\n");
+    useEffect(() => {
+        if (!open || !pendingGoto) return;
+
+        // Ждем загрузки нужного файла
+        if (pendingGoto.kind === "fqid" && pendingGoto.expectedPath) {
+            if (filePath !== pendingGoto.expectedPath) return;
+        }
+
+        if (!editorCreated || !editorRef.current || loading) return;
+
+        const model = editorRef.current.getModel();
+        if (!model) return;
+
+        const currentContent = model.getValue();
+        if (!currentContent) return;
+
         let targetLine: number | null = null;
 
-        if (goto.kind === "fqid") {
-            const entityId = goto.fqid.split("/").pop() || "";
-            const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+        if (pendingGoto.kind === "fqid") {
+            const entityId = pendingGoto.fqid.split("/").pop() || "";
+
+            const entitiesSection = lineMap?.sections.find((s) => s.key === "entities");
             const node = entitiesSection?.nodes.find(
                 (n) => n.id.toLowerCase() === entityId.toLowerCase(),
             );
+
             if (node) {
                 targetLine = node.line;
             } else {
+                // Фоллбэк на поиск по тексту
                 const re = new RegExp(
-                    `^\\s*-\\s+id\\s*:\\s*["']?${entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\\s*$`,
+                    `^\\s*-\\s+id\\s*:\\s*["']?${entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\\s*(?:#.*)?$`,
                     "m",
                 );
-                const m = re.exec(deferredContent);
+                const m = re.exec(currentContent);
                 if (m && typeof m.index === "number") {
-                    targetLine = deferredContent.slice(0, m.index).split("\n").length;
+                    targetLine = currentContent.slice(0, m.index).split("\n").length;
                 }
             }
-        } else if (goto.kind === "line") {
-            targetLine = Math.max(1, Math.min(goto.line, lines.length));
+        } else if (pendingGoto.kind === "line") {
+            targetLine = Math.max(1, Math.min(pendingGoto.line, model.getLineCount()));
         }
 
         useGraphStore.getState().setYamlViewerPendingGoto(null);
-        if (targetLine == null) return;
 
-        const t = setTimeout(() => {
-            if (!editorRef.current) return;
-            try {
-                jumpTo(targetLine!, { column: goto.kind === "line" ? goto.column : undefined });
-            } catch { }
-        }, 50);
-        return () => clearTimeout(t);
-    }, [open, editorCreated, loading, lineMap, deferredContent, jumpTo]);
+        if (targetLine != null) {
+            setTimeout(() => {
+                if (!editorRef.current) return;
+                jumpTo(targetLine!, {
+                    column: pendingGoto.kind === "line" ? pendingGoto.column : undefined,
+                    focus: true
+                });
+            }, 100);
+        }
+    }, [open, pendingGoto, editorCreated, loading, filePath, lineMap, jumpTo]);
 
     // ============ Toggle helpers ============
     const toggleNode = useCallback((key: string) => {
@@ -12785,7 +13068,7 @@ function findWidgetFieldLine(
             chosen = items.find((it) => it.attribute && normalizeRefName(it.attribute) === needle) || null;
         }
     }
-    
+
     if (!chosen) return null;
 
     if (fieldName === "") {
