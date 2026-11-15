@@ -13,7 +13,13 @@ export interface CheckContext {
   modelIndex: ModelIndex | null;
 }
 
-const RQL_FIELDS = new Set(["expression", "constraint", "condition"]);
+const RQL_FIELDS = new Set([
+  "expression",
+  "constraint",
+  "condition",
+  "rql",
+  "query",
+]);
 const BOOLEAN_LITERALS = new Set(["true", "false", "yes", "no"]);
 
 const SYSTEM_ATTRS = new Set([

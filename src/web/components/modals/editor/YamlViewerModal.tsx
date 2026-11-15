@@ -86,6 +86,10 @@ import { isAutoFixable } from '../../../lib/monaco/quickfix-rules';
 import { setupRegexTester } from '../../../lib/monaco/regex-tester';
 import { setupIconWidgets } from '../../../lib/monaco/icon-widget';
 import { setupQuickInsertWidget } from '../../../lib/monaco/quick-insert-widget';
+import { setupWidgetHost } from '../../../lib/monaco/widgets/host';
+import { ALL_WIDGETS } from '../../../lib/monaco/widgets/registry';
+import { alignPastedText } from '../../../lib/monaco/paste-align';
+import { applySemanticValidators } from '../../../lib/monaco/semantic-validator';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -104,6 +108,7 @@ const INLINE_SOURCES = [
     "workflow-status-validator",
     "tree-validator",
     "transitive-validator",
+    "semantic-validator",
 ];
 
 const ARRAY_TEMPLATES: Record<string, string[]> = {
@@ -639,9 +644,65 @@ export function YamlViewerModal() {
     useEffect(() => {
         if (!editorCreated || !editorRef.current) return;
 
-        const handler = () => {
+        const handler = (e: any) => {
             // Если изменение сделали мы программно (при загрузке файла) — игнорируем
             if (isProgrammaticChange.current) return;
+
+            // ── Автовыравнивание вставки из буфера ──
+            if (e && !e.isFlush && Array.isArray(e.changes) && e.changes.length === 1) {
+                const ch = e.changes[0];
+                const isInsert = ch.rangeLength === 0 && ch.text.length > 0;
+                if (isInsert && ch.text.includes("\n")) {
+                    const startLine = ch.range.startLineNumber;
+                    const startCol = ch.range.startColumn;
+
+                    // Откладываем до завершения текущей транзакции Monaco
+                    window.setTimeout(() => {
+                        const ed = editorRef.current;
+                        if (!ed) return;
+                        if (isProgrammaticChange.current) return;
+                        if (isLockedRef.current) return;
+
+                        const m = (window as any).monaco;
+                        const model = ed.getModel();
+                        if (!model || !m) return;
+
+                        const lineText = model.getLineContent(startLine);
+                        const expectedFirst = ch.text.split("\n")[0];
+                        if (!lineText.slice(startCol - 1).startsWith(expectedFirst)) return;
+
+                        const lines = ch.text.split("\n");
+                        const endLine = startLine + lines.length - 1;
+                        const lastLen = lines[lines.length - 1].length;
+                        const endCol = lines.length === 1 ? startCol + ch.text.length : lastLen + 1;
+
+                        const range = new m.Range(startLine, startCol, endLine, endCol);
+                        const actualText = model.getValueInRange(range);
+                        if (!actualText || !actualText.includes("\n")) return;
+
+                        const normalized = alignPastedText(ed, actualText, startLine, startCol);
+
+                        console.log("[paste-align]", {
+                            startLine,
+                            startCol,
+                            before: actualText.split("\n").slice(0, 3),
+                            after: normalized.split("\n").slice(0, 3),
+                            changed: normalized !== actualText,
+                        });
+
+                        if (normalized === actualText) return;
+
+                        isProgrammaticChange.current = true;
+                        try {
+                            ed.pushUndoStop();
+                            ed.executeEdits("paste-align", [{ range, text: normalized }]);
+                            ed.pushUndoStop();
+                        } finally {
+                            isProgrammaticChange.current = false;
+                        }
+                    }, 0);
+                }
+            }
 
             if (yamlSyntaxIssue !== null) {
                 const model = editorRef.current?.getModel();
@@ -771,6 +832,7 @@ export function YamlViewerModal() {
     const focusDecorationsRef = useRef<any>(null);
     const saveAbortRef = useRef<AbortController | null>(null);
     const editorTopLineRef = useRef(1);
+    const [contentReadyForPath, setContentReadyForPath] = useState<string | null>(null);
 
     const tabs = useGraphStore((s) => s.editorTabs);
     const addTab = useGraphStore((s) => s.addEditorTab);
@@ -837,6 +899,7 @@ export function YamlViewerModal() {
         if (open) return;
         useGraphStore.getState().setYamlViewerDirty(false);
         useGraphStore.getState().setYamlViewerPendingManifest(null);
+        setContentReadyForPath(null);
     }, [open]);
 
     useEffect(() => {
@@ -1893,7 +1956,14 @@ export function YamlViewerModal() {
             m.editor.defineTheme('dg-dark', {
                 base: 'vs-dark',
                 inherit: true,
-                rules: [],
+                rules: [
+                    { token: "rqlKeyword", foreground: "569CD6", fontStyle: "bold" },
+                    { token: "rqlFunction", foreground: "DCDCAA" },
+                    { token: "rqlAlias", foreground: "4EC9B0" },
+                    { token: "rqlString", foreground: "CE9178" },
+                    { token: "rqlNumber", foreground: "B5CEA8" },
+                    { token: "rqlOperator", foreground: "D4D4D4" },
+                ],
                 colors: {
                     'editor.background': '#0d1424',
                     'editor.foreground': '#e2e8f0',
@@ -1914,7 +1984,14 @@ export function YamlViewerModal() {
             m.editor.defineTheme("dg-light", {
                 base: "vs",
                 inherit: true,
-                rules: [],
+                rules: [
+                    { token: "rqlKeyword", foreground: "0000FF", fontStyle: "bold" },
+                    { token: "rqlFunction", foreground: "795E26" },
+                    { token: "rqlAlias", foreground: "267F99" },
+                    { token: "rqlString", foreground: "A31515" },
+                    { token: "rqlNumber", foreground: "098658" },
+                    { token: "rqlOperator", foreground: "333333" },
+                ],
                 colors: {
                     "editor.background": "#ffffff",
                     "editor.foreground": "#0f172a",
@@ -1940,6 +2017,7 @@ export function YamlViewerModal() {
         let disposeRegexTester: (() => void) | null = null;
         let disposeIconWidgets: (() => void) | null = null;
         let disposeQuickInsert: (() => void) | null = null;
+        let disposeWidgetHost: (() => void) | null = null;
 
         try {
             isProgrammaticChange.current = true;
@@ -1987,6 +2065,7 @@ export function YamlViewerModal() {
                 suggestOnTriggerCharacters: true,
                 acceptSuggestionOnEnter: 'off',
                 tabCompletion: 'on',
+                "semanticHighlighting.enabled": true,
             }, {
                 storageService: {
                     get: () => null,
@@ -2004,6 +2083,16 @@ export function YamlViewerModal() {
 
             // Сбрасываем возможные «протечки» от предыдущего файла
             pendingJumpLineRef.current = null;
+
+            try {
+                disposeWidgetHost = setupWidgetHost(editor, m, ALL_WIDGETS, {
+                    getIndex: () => indexRef.current,
+                    getLineMap: () => lineMapRef.current,
+                    getDomain: () => useGraphStore.getState().yamlViewerDomainId || "",
+                });
+            } catch (err) {
+                console.warn("[yaml-viewer] widget-host init failed", err);
+            }
 
             try {
                 disposeIconWidgets = setupIconWidgets(editor, m, () => ({
@@ -2048,7 +2137,7 @@ export function YamlViewerModal() {
             } catch (err) {
                 console.warn("[yaml-viewer] regex tester init failed", err);
             }
-            
+
             setTimeout(() => {
                 const suggestController = editor.getContribution('editor.contrib.suggestController');
                 if (suggestController && suggestController.widget) {
@@ -2126,7 +2215,7 @@ export function YamlViewerModal() {
                             }
                             // 4. Неизвестные ключи (по умолчанию ставим дефис)
                             else {
-                                template = ["- "];
+                                template = [];
                             }
 
                             if (template) {
@@ -2422,6 +2511,7 @@ export function YamlViewerModal() {
             try { disposeRegexTester?.(); } catch { }
             try { disposeIconWidgets?.(); } catch { }
             try { disposeQuickInsert?.(); } catch { }
+            try { disposeWidgetHost?.(); } catch { }
 
             // Сохраняем скролл перед dispose
             try {
@@ -2496,25 +2586,19 @@ export function YamlViewerModal() {
         toggleLockRef.current = handleToggleLock;
     });
 
-    // Shift+Tab — toggle поповера при открытой модалке.
-    // Перехватываем всегда при open=true, чтобы:
-    //  • не сработал outdent в Monaco;
-    //  • не сработал useHotkeys (глобальная палитра) — он на document:capture,
-    //    а мы — на window:capture → идём раньше;
-    //  • повторный Shift+Tab закрывал поповер, а не открывал палитру.
     useEffect(() => {
         if (!open) return;
 
         const handler = (e: KeyboardEvent) => {
-            if (
-                e.key !== "Tab" ||
-                !e.shiftKey ||
-                e.ctrlKey ||
-                e.metaKey ||
-                e.altKey
-            ) {
-                return;
-            }
+            // Ctrl+P (Cmd+P на Mac) — toggle Quick Jump
+            const isModP =
+                (e.ctrlKey || e.metaKey) &&
+                !e.shiftKey &&
+                !e.altKey &&
+                (e.code === "KeyP" || e.key === "p" || e.key === "P");
+
+            if (!isModP) return;
+
             e.preventDefault();
             e.stopPropagation();
 
@@ -2524,7 +2608,6 @@ export function YamlViewerModal() {
                 setQuickJumpInitialQuery(null);
                 setQuickJumpOpen(true);
             }
-
         };
 
         window.addEventListener("keydown", handler, true);
@@ -2900,6 +2983,9 @@ export function YamlViewerModal() {
             try { applyRqlMarkers(m, model, lines); } catch { /* ignore */ }
             try { applyTreeMarkers(m, model, lines, index, domainId); } catch { }
             try { applyTransitiveMarkers(m, model, lines, index, domainId); } catch { }
+            try { applySemanticValidators(m, model, lines, index, domainId); } catch (err) {
+                console.warn("[semantic-validator]", err);
+            }
 
             // Post-filter по severityFilter: inline-валидаторы не знают про
             // панельный фильтр, поэтому их маркеры оставались даже при
@@ -3122,8 +3208,18 @@ export function YamlViewerModal() {
     const pendingJumpLineRef = useRef<number | null>(null);
     const restoreScrollRef = useRef<{ lineNumber: number; column: number } | null>(null);
 
+    const jumpTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+    const jumpRafRef = useRef<number | null>(null);
     const jumpTo = useCallback(
         (line: number, opts?: { focus?: boolean; column?: number }) => {
+            // ── Отменяем все повторы предыдущего прыжка ──
+            for (const t of jumpTimersRef.current) clearTimeout(t);
+            jumpTimersRef.current = [];
+            if (jumpRafRef.current != null) {
+                cancelAnimationFrame(jumpRafRef.current);
+                jumpRafRef.current = null;
+            }
+
             pendingJumpLineRef.current = line;
             restoreScrollRef.current = null;
 
@@ -3136,26 +3232,28 @@ export function YamlViewerModal() {
                         line,
                         m ? m.editor.ScrollType.Immediate : undefined,
                     );
-                } catch { }
+                } catch { /* ignore */ }
                 try {
                     editor.setPosition({ lineNumber: line, column: opts?.column ?? 1 });
-                } catch { }
+                } catch { /* ignore */ }
                 if (opts?.focus !== false) {
-                    try { editor.focus(); } catch { }
+                    try { editor.focus(); } catch { /* ignore */ }
                 }
             };
 
             apply();
-            requestAnimationFrame(() => {
+            jumpRafRef.current = requestAnimationFrame(() => {
+                jumpRafRef.current = null;
                 apply();
-                setTimeout(apply, 50);
-                setTimeout(apply, 150);
-                setTimeout(() => {
+                const t1 = setTimeout(apply, 50);
+                const t2 = setTimeout(apply, 150);
+                const t3 = setTimeout(() => {
                     apply();
                     if (pendingJumpLineRef.current === line) {
                         pendingJumpLineRef.current = null;
                     }
                 }, 1200);
+                jumpTimersRef.current.push(t1, t2, t3);
             });
         },
         [],
@@ -4271,6 +4369,42 @@ export function YamlViewerModal() {
         return applyInlineDiffDecorations(editorRef.current, m, diffMarks);
     }, [editorCreated, diffMarks]);
 
+    const diffBlocks = useMemo(() => {
+        if (!diffMarks) return [] as Array<{ start: number; end: number }>;
+        const all = Array.from(
+            new Set([...diffMarks.added, ...diffMarks.modified]),
+        ).sort((a, b) => a - b);
+        if (all.length === 0) return [];
+
+        const blocks: Array<{ start: number; end: number }> = [];
+        let cur = { start: all[0], end: all[0] };
+        for (let i = 1; i < all.length; i++) {
+            if (all[i] === cur.end + 1) cur.end = all[i];
+            else { blocks.push(cur); cur = { start: all[i], end: all[i] }; }
+        }
+        blocks.push(cur);
+        return blocks;
+    }, [diffMarks]);
+
+    const goToDiff = useCallback((dir: 1 | -1) => {
+        if (diffBlocks.length === 0) return;
+        const ed = editorRef.current;
+        if (!ed) return;
+        const cur = ed.getPosition()?.lineNumber ?? 1;
+
+        if (dir === 1) {
+            const next =
+                diffBlocks.find((b) => b.start > cur) ?? diffBlocks[0];
+            jumpTo(next.start);
+        } else {
+            const reversed = [...diffBlocks].reverse();
+            const prev =
+                reversed.find((b) => b.end < cur) ??
+                diffBlocks[diffBlocks.length - 1];
+            jumpTo(prev.start);
+        }
+    }, [diffBlocks, jumpTo]);
+
     // ============ Keyboard nav ============
     useEffect(() => {
         if (!open) return;
@@ -5172,7 +5306,15 @@ export function YamlViewerModal() {
 
         const contentToSet = backupContent ?? fetchedContent;
         setContent(contentToSet);
+        // Синхронизируем idleContent сразу — иначе lineMap и все панели
+        // (nav / issues / minimap) покажут данные предыдущего файла 1.5с.
+        if (idleTimerRef.current) {
+            clearTimeout(idleTimerRef.current);
+            idleTimerRef.current = null;
+        }
+        setIdleContent(contentToSet);
         setSavedContent(fetchedContent);
+        setContentReadyForPath(filePath);
 
         if (backupContent) {
             // Дать UI знать, что есть что сохранять
@@ -5653,6 +5795,9 @@ export function YamlViewerModal() {
         const warns = filteredIssues.filter((i) => i.severity === "warning").length;
         return { errs, warns };
     }, [filteredIssues]);
+
+    const isContentReady = !!filePath && contentReadyForPath === filePath;
+    const showLoader = !loadError && (loading || !isContentReady);
 
     if (!open) return null;
 
@@ -6476,7 +6621,7 @@ export function YamlViewerModal() {
                 )}
 
                 {/* ============ BODY ============ */}
-                <div className="yaml-viewer-body">
+                <div className="yaml-viewer-body" style={{ position: "relative" }}>
                     {/* Nav */}
                     <div
                         className={"yaml-viewer-nav" + (leftCollapsed ? " yaml-viewer-nav--collapsed" : "")}
@@ -7068,6 +7213,51 @@ export function YamlViewerModal() {
                                         <MIcon name="my_location" size="sm" />
                                     </button>
                                 </Hint>
+                                {isDirty && diffBlocks.length > 0 && (
+                                    <div
+                                        className="yaml-viewer-diff-nav"
+                                        style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: 1,
+                                            marginRight: 4,
+                                        }}
+                                        title={
+                                            `Изменённых блоков: ${diffBlocks.length}` +
+                                            (diffMarks
+                                                ? ` (+${diffMarks.added.length} / ~${diffMarks.modified.length} строк)`
+                                                : "")
+                                        }
+                                    >
+                                        <button
+                                            type="button"
+                                            className="yaml-viewer-fold-btn"
+                                            onClick={() => goToDiff(-1)}
+                                            title="Предыдущий изменённый блок"
+                                        >
+                                            <MIcon name="keyboard_arrow_up" size="sm" />
+                                        </button>
+                                        <span
+                                            style={{
+                                                fontSize: 11,
+                                                minWidth: 18,
+                                                textAlign: "center",
+                                                color: "var(--text-400)",
+                                                fontFamily: "JetBrains Mono, monospace",
+                                            }}
+                                        >
+                                            {diffBlocks.length}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="yaml-viewer-fold-btn"
+                                            onClick={() => goToDiff(1)}
+                                            title="Следующий изменённый блок"
+                                        >
+                                            <MIcon name="keyboard_arrow_down" size="sm" />
+                                        </button>
+                                    </div>
+                                )}
                                 <div className="yaml-viewer-fold-controls">
                                     {([1, 2, 3, 4, 5] as const).map((lvl) => (
                                         <Hint key={lvl} info={HINTS.fold}>
@@ -7418,7 +7608,7 @@ export function YamlViewerModal() {
                                         title="Режим редактирования"
                                     >
                                         <MIcon name="lock_open" size="sm" />
-                                        editing
+                                        редактирование
                                     </span>
                                 )}
 
@@ -7696,6 +7886,42 @@ export function YamlViewerModal() {
                             </div>
                         )}
                     </div>
+
+                    {showLoader && (
+                        <div
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                background: "var(--bg-900, rgba(10,15,26,0.9))",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: 100,
+                                backdropFilter: "blur(2px)",
+                            }}
+                        >
+                            <div
+                                style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    alignItems: "center",
+                                    gap: 16,
+                                }}
+                            >
+                                <div className="yaml-viewer-editor__spinner" />
+                                <div style={{ color: "var(--text-300)", fontSize: 13 }}>
+                                    {mode === "remote"
+                                        ? "Загрузка актуальной схемы с сервера…"
+                                        : "Загрузка содержимого…"}
+                                </div>
+                                {filePath && (
+                                    <div style={{ color: "var(--text-500)", fontSize: 11 }}>
+                                        {filePath.split(/[\\/]/).pop()?.replace(/\.ro$/i, "")}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 

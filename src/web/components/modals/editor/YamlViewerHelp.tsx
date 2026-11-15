@@ -42,7 +42,13 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                                 <li><strong>Секции</strong> (entities, views, dataRules) — переход к началу секции.</li>
                                 <li><strong>Сущности/атрибуты/виджеты</strong> — переход к строке их объявления.</li>
                                 <li><strong>Номер строки</strong> справа — текущая позиция курсора.</li>
-                                <li><strong>Quick Jumps</strong> (иконки справа от крошек) — быстрый переход к секциям (<code>📦 entities</code>, <code>🔗 linkages</code>, <code>👁 views</code>, и т.д.).</li>
+                                <li>
+                                    <strong>Быстрый переход</strong> (<code>Ctrl+P</code> на Win/Linux, <code>Cmd+P</code> на Mac) — открыть окно поиска по id, секции, строке, содержимому, атрибуту, проблемам, соседям курсора.
+                                    <code> F2</code> — то же, но с подставленным словом под курсором.
+                                </li>
+                                <li>
+                                    <strong>Иконка 🎯</strong> справа в тулбаре — то же окно быстрого перехода.
+                                </li>
                             </List>
                         </Section>
 
@@ -50,6 +56,11 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                             <List>
                                 <li>
                                     <code>Ctrl+Shift+O</code> — список всех символов (секции, сущности, атрибуты).
+                                </li>
+                                <li>
+                                    <strong>FQID-ссылки</strong> — обычный клик (или Ctrl+Click) по
+                                    <code>domain.tld/Entity</code> открывает файл домена в новой вкладке и скроллит к сущности.
+                                    Подчёркнуты автоматически.
                                 </li>
                                 <li>
                                     <strong><code>Ctrl+Click</code></strong> — переход к определению.
@@ -355,6 +366,69 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                             </List>
                         </Section>
 
+                        <Section title="Умный Enter после ключей">
+                            <P>
+                                Нажатие <code>Enter</code> в конце строки <code>key:</code> автоматически подставляет заготовку с корректным отступом и полями:
+                            </P>
+                            <List>
+                                <li><code>entities:</code> → <code>- id:</code>, <code>name:</code>, <code>attributes:</code>.</li>
+                                <li><code>linkages:</code> → <code>- id:</code>, <code>side1:</code>, <code>side2:</code>, <code>type:</code>.</li>
+                                <li><code>dataTypes:</code> → <code>- id:</code>, <code>name:</code>, <code>dataType:</code>.</li>
+                                <li><code>actions:</code> → <code>- id:</code>, <code>name:</code>, <code>type:</code>.</li>
+                                <li><code>attributes:</code> → <code>- id:</code>, <code>name:</code>, <code>dataType:</code> (в сущности), или <code>- attribute:</code> (в правилах/searching).</li>
+                                <li><code>trees:</code> → <code>- id:</code>, <code>hierarchy:</code>, <code>entity:</code>.</li>
+                                <li><code>calculation:</code>, <code>control:</code>, <code>layout:</code> и другие объекты → только отступ без дефиса.</li>
+                                <li>Обычные поля (<code>id:</code>, <code>name:</code>, <code>description:</code>) → только отступ.</li>
+                            </List>
+                            <P>
+                                Вставка многострочного текста из буфера автоматически выравнивает отступы
+                                под текущий контекст — можно копировать куски из другого файла без ручной правки пробелов.
+                            </P>
+                        </Section>
+
+                        <Section title="Content Widgets — панели прямо в редакторе">
+                            <P>
+                                В некоторых местах YAML появляются всплывающие панели — они подсказывают и вставляют код одним кликом.
+                            </P>
+                            <List>
+                                <li>
+                                    <strong>🎯 Quick-insert</strong> — <code>+</code> появляется на пустой строке внутри
+                                    <code> entities:</code>, <code>attributes:</code>, <code>widgets:</code>, <code>groups:</code>,
+                                    <code>constraints:</code>, <code>dataRules.rule.*</code>, <code>linkages:</code>, <code>views:</code>.
+                                    Клик — меню релевантных сниппетов (аналог ввода <code>new</code> в автокомплите).
+                                </li>
+                                <li>
+                                    <strong>🧪 Regex-тестер</strong> — у <code>constraints[kind=regexp].regexp</code> появляется
+                                    <code> .*</code>. Клик — панель с полем для проверки строки. Проверка идёт
+                                    в двух режимах сразу: «без регистра» и «с регистром». Если результаты отличаются —
+                                    паттерн чувствителен к регистру (стоит добавить <code>/i</code>).
+                                    <code> Esc</code> сворачивает.
+                                </li>
+                                <li>
+                                    <strong>🎨 Иконки</strong> — превью для <code>iconName:</code> (в medias) и <code>icon:</code>
+                                    (в menus, widgets, columns, buttons). Показывает реальную SVG-иконку дизайн-системы справа от значения.
+                                </li>
+                                <li>
+                                    <strong>🎨 Color decorators</strong> — <code>color:</code> в enumView / workflowView показывает
+                                    квадратик цвета. Клик — Monaco ColorPicker.
+                                </li>
+                                <li>
+                                    <strong>🔧 Панель действий</strong> — набор кнопок над/под строкой по контексту:
+                                    <ul style={{ marginTop: 4, marginBottom: 0 }}>
+                                        <li>Типы <code>control</code> для текущего типа атрибута (<code>switch</code>, <code>select</code>, …).</li>
+                                        <li>Тип <code>action</code> для пустого блока (<code>open_modal</code>, <code>open_page</code>, …).</li>
+                                        <li>Чипсы плейсхолдеров для <code>template:</code> (<code>@prefix</code>, <code>@inc</code>, …) — вставка в позицию курсора.</li>
+                                        <li>Поля сущности, которых нет (<code>+ sorting</code>, <code>+ searching</code>, <code>+ identification</code>, …).</li>
+                                        <li>Кандидаты-сущности из другого домена, если <code>entity:</code> не найдена локально.</li>
+                                        <li>Готовые skeleton'ы action / dataRule / entity-view / bulk / меню для view.</li>
+                                        <li>Виджеты для атрибута в сущностных view (<code>+ editors_hostname → viewAsset</code>).</li>
+                                        <li>Копирование атрибута из другой сущности (combobox-панель).</li>
+                                    </ul>
+                                    <code>Esc</code> — скрыть панель, пока курсор не сдвинется.
+                                </li>
+                            </List>
+                        </Section>
+
                         <Section title="Сниппеты — шаблоны блоков">
                             <P>
                                 Наберите префикс в нужном месте (под секцией или внутри неё) и выберите
@@ -436,6 +510,83 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                                     ['newmixinlinkage', 'Миксин на связи (type: linkage)', 'mixins'],
                                     ['newexchange', 'Настройки обмена данными', 'exchangeSettings'],
                                     ['newexchangeentity', 'Обмен для одной сущности', 'exchangeSettings.entities'],
+                                    // ENTITIES
+                                    ['newentitymin', 'Минимальная сущность (только id)', 'entities'],
+                                    // ATTRIBUTES
+                                    ['newattrtext', 'Text + comments', 'entities[].attributes'],
+                                    ['newattrcounter', 'Counter + counterColorPattern', 'entities[].attributes'],
+                                    ['newattrcase', 'Attachment с mime_types и size', 'entities[].attributes'],
+                                    ['newattrcaseopt', 'Attachment без ограничений', 'entities[].attributes'],
+                                    ['newattrcalc', 'Calculation { schemaId, id }', 'entities[].attributes'],
+                                    ['newattrworkflow', 'Workflow user-defined', 'entities[].attributes'],
+                                    ['newattrtable', 'Table user-defined', 'entities[].attributes'],
+                                    ['newattrarrayref', 'Array<Reference>', 'entities[].attributes'],
+                                    ['newattrreadonly', 'String readonly', 'entities[].attributes'],
+                                    ['newattrunique', 'String unique', 'entities[].attributes'],
+                                    // IDENTIFIER
+                                    ['newidseq', 'Identifier через sequence', 'entities[].attributes'],
+                                    ['newiddate', 'Identifier с шаблоном даты', 'entities[].attributes'],
+                                    ['newidprefix', 'Identifier + prefixRules', 'entities[].attributes'],
+                                    // CONSTRAINTS
+                                    ['newreq', 'Constraint: required', 'constraints'],
+                                    ['newrange', 'Constraint: range', 'constraints'],
+                                    ['newregexp', 'Constraint: regexp', 'constraints'],
+                                    ['newlength', 'Constraint: length', 'constraints'],
+                                    ['newmime', 'Constraint: mime_types', 'constraints'],
+                                    ['newsize', 'Constraint: size', 'constraints'],
+                                    ['newunique', 'Constraint: unique', 'constraints'],
+                                    // LINKAGES
+                                    ['newlinkage11', 'Связь 1_1', 'linkages'],
+                                    ['newlinkage1n', 'Связь 1_n', 'linkages'],
+                                    ['newlinkagenn', 'Связь n_n (undirected)', 'linkages'],
+                                    ['newlinkageattr', 'Связь с атрибутом', 'linkages'],
+                                    ['newlinkagesearch', 'Связь с useForSearch', 'linkages'],
+                                    // ACTIONS
+                                    ['newactopenpanel', 'open_panel', 'actions'],
+                                    ['newactopenpage', 'open_page (operation: view)', 'actions'],
+                                    ['newactopenlist', 'open_list', 'actions'],
+                                    ['newactopenlistref', 'open_list по Reference', 'actions'],
+                                    ['newactremovesingle', 'remove', 'actions'],
+                                    ['newactqr', 'generate_qr_code', 'actions'],
+                                    ['newactcopylink', 'copy_entity_link', 'actions'],
+                                    ['newactgraph', 'open_graph_view', 'actions'],
+                                    // DATA TYPES
+                                    ['newenumstd', 'Enum CRITICAL/HIGH/MEDIUM/LOW', 'dataTypes'],
+                                    // VIEWS
+                                    ['newlistbasic', 'list-view только source', 'views'],
+                                    ['newlistfilter', 'filter блок', 'views'],
+                                    ['newpanelinfo', 'Панель с tabs', 'views[].views'],
+                                    ['newmodaledit', 'Модалка редактирования', 'views[].views'],
+                                    ['newmodal', 'Модалка без buttons', 'views[].views'],
+                                    ['newmodalbtn', 'Модалка с кастомными buttons', 'views[].views'],
+                                    ['newpage', 'Полноэкранная карточка', 'views[].views'],
+                                    ['newtabslist', 'tabs_list', 'views'],
+                                    ['newtreeview', 'tree-view splitted', 'views'],
+                                    ['newtreemerged', 'tree-view merged', 'views'],
+                                    ['newdash', 'dashboard + card', 'views'],
+                                    ['newdashnav', 'dashboard_tree', 'views'],
+                                    // WIDGETS / GROUPS
+                                    ['newwidgetmin', 'Минимальный виджет (id/type/attribute)', 'views[].widgets'],
+                                    ['newwidgetbulk', 'Виджет bulk действия', 'views[].widgets'],
+                                    ['newwidgetconv', 'Виджет conversation', 'views[].widgets'],
+                                    ['newgroupform', 'Форма (alias newform)', 'views[].groups'],
+                                    ['newgroupres', 'resizable_block_pair', 'views[].groups'],
+                                    ['newgrouptabs', 'Панель вкладок', 'views[].groups'],
+                                    ['newpinned', 'pinnedView (page)', 'views[].views'],
+                                    ['newfooter', 'footer (modal)', 'views[].views'],
+                                    // INHERIT
+                                    ['newinhappend', 'inherit: append', 'views/groups/menu'],
+                                    ['newinhexcept', 'inherit: except', 'views/groups/menu'],
+                                    ['newinhoverride', 'inherit: override', 'views/groups/menu'],
+                                    // DATA RULES
+                                    ['newrulerequired', 'required (condition: true)', 'dataRules'],
+                                    ['newrulehidden', 'hidden (condition: true)', 'dataRules'],
+                                    ['newruleallowedref', 'allowed для Reference', 'dataRules'],
+                                    ['newrulenested', 'nested table/array', 'dataRules'],
+                                    ['newrulelinkage', 'target: linkage', 'dataRules'],
+                                    // MISC
+                                    ['newmediatime', 'Иконка (icon_name)', 'medias'],
+                                    ['newlabeltemplate', 'label: "{attr1}: {attr2}"', 'entities'],
                                 ].map(([prefix, desc, ctx]) => (
                                     <div key={prefix} className="snippets-table__row">
                                         <code>✨ {prefix}</code>
@@ -474,7 +625,24 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                             </List>
                         </Section>
 
-                        <Section title="Проверки RQL">
+                        <Section title="RQL: подсветка и проверки">
+                            <P>
+                                RQL-код подсвечивается синтаксически прямо в YAML. Работает в полях:
+                                <code> condition:</code>, <code> expression:</code>, <code> constraint:</code>,
+                                <code> rql:</code> (в <code>visualization.variables</code>), <code> query:</code>,
+                                а также везде, где значение начинается с тега <code>!rql</code>.
+                            </P>
+                            <List>
+                                <li><strong style={{ color: "#569CD6" }}>Синие жирные</strong> — ключевые слова: <code>SELECT</code>, <code>FROM</code>, <code>WHERE</code>, <code>JOIN</code>, <code>ON</code>, <code>AND</code>, <code>OR</code>, <code>NOT</code>, <code>IN</code>, <code>IS</code>, <code>NULL</code>, <code>LIKE</code>, <code>BETWEEN</code>, <code>GROUP BY</code>, <code>ORDER BY</code>.</li>
+                                <li><strong style={{ color: "#DCDCAA" }}>Жёлтые</strong> — функции: <code>count</code>, <code>sum</code>, <code>avg</code>, <code>eq</code>, <code>ne</code>, <code>lt</code>, <code>gt</code>, <code>hasAny</code>, <code>hasRole</code>, <code>isSuperAdmin</code>.</li>
+                                <li><strong style={{ color: "#4EC9B0" }}>Бирюзовые</strong> — псевдонимы: <code>@doc.status</code>, <code>@CurrentUser</code>, <code>@alias.field</code>.</li>
+                                <li><strong style={{ color: "#CE9178" }}>Оранжевые</strong> — строки: <code>'closed'</code>, <code>"text"</code>.</li>
+                                <li><strong style={{ color: "#B5CEA8" }}>Зелёные</strong> — числа.</li>
+                                <li><strong>Нейтральные</strong> — операторы <code>=</code>, <code>!=</code>, <code>&lt;&gt;</code>, <code>&gt;=</code>, <code>&lt;=</code>, <code>(</code>, <code>)</code>, <code>,</code>.</li>
+                            </List>
+                            <P>
+                                Проверки (<code>rql-check</code>):
+                            </P>
                             <List>
                                 <li><strong>Синтаксис</strong> — незакрытые скобки, кавычки, обрезанные операторы.</li>
                                 <li><strong>Поля</strong> — <code>@field</code> проверяется на существование в контекстной сущности.</li>
@@ -534,11 +702,94 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                             </List>
                         </Section>
 
-                        <Section title="Подсказки при наведении">
+                        <Section title="Подсказки при наведении (hover)">
+                            <P>
+                                Hover работает практически на всём YAML — секции, поля, значения-ссылки, литералы.
+                            </P>
+
+                            <P><strong>Секции</strong> — <code>entities:</code>, <code>views:</code>, <code>dataRules:</code>, … — краткое описание + важные предупреждения.</P>
+
+                            <P><strong>Поля</strong> — с учётом контекста. Одноимённые поля в разных местах получают разные подсказки:</P>
                             <List>
-                                <li>Наведите на <code>id: Device</code> или <code>inherits: Device</code> — тултип с полной цепочкой наследования и списком наследников.</li>
-                                <li>Наведите на <code>dataType: enumIocTypes</code> — тип, значения (для Enum), статусы (для Workflow), колонки (для Table).</li>
-                                <li>Наведите на <code>attribute: Requirement.identifier</code> — тип, ограничения, ссылки.</li>
+                                <li><code>id:</code> — правила Data ID / View ID для текущей секции.</li>
+                                <li><code>entity:</code> — в атрибуте Reference / в linkage / в mixin (объект <code>{"{from, to}"}</code>) — три разных семантики.</li>
+                                <li><code>inherits:</code> (с <code>s</code>) — наследование от родителя. <code>inherit:</code> (без <code>s</code>) — режим наследования в views/groups.</li>
+                                <li><code>weight:</code> (миксины) — <em>меньше = выше</em>. <code>priority:</code> (меню) — <em>больше = выше</em>. Прямая противоположность, подсвечивается в hover.</li>
+                                <li><code>effect:</code> — ограничения по типам данных в dataRules.</li>
+                                <li><code>readonly:</code> в атрибуте — нельзя изменить никогда. <code>constraints[kind=readonly]</code> в dataRules — эффект правила.</li>
+                            </List>
+
+                            <P><strong>Ссылки</strong>:</P>
+                            <List>
+                                <li><code>inherits: Device</code> — цепочка наследования + список наследников.</li>
+                                <li><code>dataType: enumIocTypes</code> — значения enum (первые 8), статусы workflow, колонки Table.</li>
+                                <li><code>entity: Asset</code> — сущность, число атрибутов, есть ли в цепочке наследования.</li>
+                                <li><code>linkage: Incident_Ioc</code> — тип, стороны, <code>nameFrom</code>, где используется.</li>
+                                <li><code>attribute: Requirement.identifier</code> — тип, constraints, ссылки.</li>
+                                <li><code>action: actions_createIoc</code> — тип, entity, operation, modal/panel/view.</li>
+                                <li><code>widget: buttons_exchange</code> — тип, control, view, attribute, linkage, actions.</li>
+                                <li><code>sequence: IOCSeq</code> — startFrom и пример.</li>
+                                <li><code>counterColorPattern: counterTime</code> — пороги red/yellow.</li>
+                                <li><code>iconName: iconsassets</code> — превью SVG.</li>
+                                <li><code>route: /iocs</code> — если есть дубликат в текущем файле, показывает строки.</li>
+                            </List>
+
+                            <P><strong>Литералы</strong>:</P>
+                            <List>
+                                <li><code>regexp:</code> — расшифровка (<code>^</code>, <code>$</code>, <code>\d</code>, …) + ссылка на regex101.</li>
+                                <li><code>mimeTypes:</code> — тип файла.</li>
+                                <li><code>color:</code> — HEX → rgb.</li>
+                                <li><code>template:</code> — на каждом <code>@inc</code>, <code>@prefix</code>, <code>@YYYY</code> подсказка о смысле.</li>
+                                <li><code>label:</code> — на <code>{"{attr}"}</code> показывает «подстановка значения атрибута».</li>
+                                <li><code>condition: true</code> — «правило применяется всегда, обычно не нужно».</li>
+                                <li><code>{"{{id}}"}</code> в <code>variables.rql</code> — подстановка значения из контекста.</li>
+                            </List>
+                        </Section>
+
+                        <Section title="Навигация по изменениям">
+                            <P>
+                                В тулбаре над редактором (перед кнопками сворачивания) появляются стрелки навигации по изменениям, если файл грязный.
+                            </P>
+                            <List>
+                                <li><strong>⬆ Prev</strong> — к предыдущему изменённому блоку. Если выше ничего нет — к последнему (обёртка).</li>
+                                <li><strong>⬇ Next</strong> — к следующему изменённому блоку. Если ниже ничего нет — к первому.</li>
+                                <li><strong>Счётчик между стрелками</strong> — количество изменённых блоков. Подряд идущие изменённые строки считаются одним блоком.</li>
+                                <li>Hover на кнопке — детализация: «Изменённых блоков: N (+M / ~K строк)».</li>
+                            </List>
+                        </Section>
+
+                        <Section title="Вкладки и позиция скролла">
+                            <List>
+                                <li><strong>Новые вкладки</strong> открываются в начале полосы. Существующие вкладки не перемещаются, если на них кликнуть.</li>
+                                <li><strong>Позиция скролла сохраняется</strong> отдельно для каждого файла — при возврате на вкладку редактор откроется на той же строке.</li>
+                                <li>Если <strong>домен был удалён из модели</strong> — вкладка автоматически закрывается, и редактор переключается на соседнюю.</li>
+                                <li>Если среди закрытых был текущий открытый файл и не осталось ни одной вкладки — редактор закрывается.</li>
+                            </List>
+                        </Section>
+
+                        <Section title="Семантический линтер (inline-валидатор)">
+                            <P>
+                                Помимо серверного линтера, работают inline-проверки в редакторе. Они срабатывают через 800 мс после последнего нажатия клавиши и не требуют сохранения. Маркеры сразу видны в панели «Проблемы».
+                            </P>
+                            <List>
+                                <li><strong>Reference без entity</strong> — <code>dataType: Reference</code> требует <code>entity:</code>.</li>
+                                <li><strong>Identifier — конфликт</strong> — <code>sequence:</code> и <code>template:</code> взаимоисключающие.</li>
+                                <li><strong>template без {"{@inc}"}</strong> — обязательный плейсхолдер.</li>
+                                <li><strong>template с повторяющейся датой</strong> — например <code>{"{@MM}"}</code> дважды.</li>
+                                <li><strong>prefix без источника</strong> — <code>{"{@prefix}"}</code> без <code>defaultPrefix:</code> и <code>prefixRules:</code>.</li>
+                                <li><strong>searchable игнорируется</strong> — <code>searchable: true</code> при <code>useForSearch: false</code>.</li>
+                                <li><strong>excludeOnGraph: off</strong> — связь невидима на графе без фильтра.</li>
+                                <li><strong>open_page</strong> с <code>operation: create</code> без <code>view:</code>.</li>
+                                <li><strong>open_list</strong> без контекста (<code>attribute</code> / <code>linkage</code> / <code>join</code> / <code>contextPin</code>).</li>
+                                <li><strong>open_list</strong> с одновременными <code>attribute:</code> и <code>linkage:</code>.</li>
+                                <li><strong>bulk edit</strong> без <code>attributes:</code> и <code>linkages:</code>.</li>
+                                <li><strong>bulk edit_attribute</strong> без <code>values:</code>, либо с атрибутом не-Bool/Workflow.</li>
+                                <li><strong>target: entityAttribute</strong> без <code>nested:</code>.</li>
+                                <li><strong>nested.type: array</strong> без <code>items:</code>; <strong>nested.type: table</strong> без <code>attributes:</code>.</li>
+                                <li><strong>Конфликт эффектов</strong> — <code>hidden</code> + <code>readonly</code> / <code>hidden</code> + <code>required</code> на один атрибут в разных правилах.</li>
+                                <li><strong>Workflow initial</strong> не в <code>statuses[]</code>; отсутствие <code>transition</code> из <code>initial</code>.</li>
+                                <li><strong>menus[].priority &lt; 1000</strong>; дубликат <code>route</code>; <code>items:</code> у <code>root_menu</code>.</li>
+                                <li><strong>label: {"{unknownAttr}"}</strong> — атрибут не найден в сущности.</li>
                             </List>
                         </Section>
 

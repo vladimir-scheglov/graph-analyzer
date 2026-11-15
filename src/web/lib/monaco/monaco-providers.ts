@@ -29,6 +29,8 @@ import { useGraphStore } from "../../state/useGraphStore";
 import { openFileInEditor } from "../open-file";
 import { registerColorProvider } from "./color-provider";
 import { registerSnippetsCompletion } from "./snippets-completion";
+import { registerRqlSemanticTokens } from "./rql-tokens";
+import { registerYamlHovers } from "./hovers";
 
 /**
  * Поля, для которых в provideCompletionItems есть value-ветка
@@ -2205,6 +2207,43 @@ function computeItemTypeFast(
   return "";
 }
 
+function findWidgetTypeForLine(model: any, lineNumber: number): string {
+  const currentIndent = (model.getLineContent(lineNumber).match(/^(\s*)/) || [
+    "",
+    "",
+  ])[1].length;
+  let widgetStart = -1;
+  let widgetIndent = -1;
+
+  for (let i = lineNumber; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const dashM = line.match(/^(\s*)-\s+[a-zA-Z_][\w]*\s*:/);
+    if (dashM && dashM[1].length < currentIndent) {
+      widgetStart = i;
+      widgetIndent = dashM[1].length;
+      break;
+    }
+    if (ind === 0) break;
+  }
+  if (widgetStart < 0) return "";
+
+  const fieldIndent = widgetIndent + 2;
+  for (let i = widgetStart; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (i > widgetStart && ind <= widgetIndent && /^\s*-\s/.test(line)) break;
+    if (i > widgetStart && ind < fieldIndent) break;
+    if (ind === fieldIndent) {
+      const m = line.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+      if (m) return m[1];
+    }
+  }
+  return "";
+}
+
 function findWidgetTypeForControl(model: any, controlLine: number): string {
   if (controlLine < 1 || controlLine > model.getLineCount()) return "";
   const controlText = model.getLineContent(controlLine);
@@ -2908,6 +2947,283 @@ export interface FieldDef {
 }
 
 export const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
+  widgetLinkedObjectsGroups: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор виджета",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "linked_objects_groups",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "linkages",
+      type: "array",
+      description: "Источники: [{ linkage, side? }]",
+    },
+    { name: "displayMode", type: "enum", description: "flat | grouped" },
+    {
+      name: "groupingBy",
+      type: "array",
+      description: "Атрибуты для группировки",
+    },
+    {
+      name: "columns",
+      type: "array",
+      description: "Колонки: [{ id, attribute?, join?, linkageAttribute? }]",
+    },
+    {
+      name: "actionIds",
+      type: "array",
+      description: "Действия в контекстном меню строки",
+    },
+    {
+      name: "control",
+      type: "object",
+      description: "Настройки отображения (type: table)",
+    },
+  ],
+
+  widgetJoin: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "join", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "joinId",
+      type: "ref",
+      description: "Транзитивная связь",
+      required: true,
+    },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут связанной сущности",
+    },
+    { name: "aggregate", type: "object", description: "Агрегация по join" },
+    { name: "openView", type: "ref", description: "Список при переходе" },
+  ],
+
+  widgetHistory: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "history", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "eventStorageId",
+      type: "string",
+      description: "Id event-storage",
+      required: true,
+    },
+    { name: "filter", type: "rql", description: "RQL-фильтр событий" },
+  ],
+
+  widgetRunsHistory: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "runs_history", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "eventStorageId",
+      type: "string",
+      description: "Id event-storage",
+      required: true,
+    },
+    { name: "filter", type: "rql", description: "RQL-фильтр" },
+    {
+      name: "filterSchemaId",
+      type: "string",
+      description: "Схема для RQL-фильтра",
+    },
+  ],
+
+  widgetComments: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "comments", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут Text с комментариями",
+    },
+  ],
+
+  widgetConversation: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "conversation", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь с Message (из comm домена)",
+      required: true,
+    },
+    {
+      name: "conversationTransports",
+      type: "array",
+      description: "Доступные транспорты",
+    },
+  ],
+
+  widgetVisualization: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "visualization",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "schemaId",
+      type: "string",
+      description: "Схема визуализации",
+      required: true,
+    },
+    {
+      name: "variables",
+      type: "object",
+      description: "Параметры визуализации: { rql: 'SELECT …' }",
+    },
+    {
+      name: "aggregate",
+      type: "object",
+      description: "Настройки агрегации (тип графика)",
+    },
+    {
+      name: "join",
+      type: "ref",
+      description: "Транзитивная связь для агрегации",
+    },
+  ],
+
+  widgetDiagram: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "diagram", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "schemaId",
+      type: "string",
+      description: "Схема визуализации",
+      required: true,
+    },
+    { name: "aggregate", type: "object", description: "Настройки агрегации" },
+  ],
+
+  widgetCalculation: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "calculation", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "calculation",
+      type: "object",
+      description: "Ссылка на расчёт { schemaId, id }",
+      required: true,
+    },
+  ],
+
+  widgetTemplateEditor: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "template_editor",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут Attachment/Text для шаблона",
+    },
+  ],
+
+  widgetAddressBook: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "addressBook", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут Reference для адресной книги",
+    },
+  ],
+
+  widgetExternal: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор",
+      required: true,
+    },
+    { name: "type", type: "enum", description: "external", required: true },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок" },
+    { name: "widget", type: "string", description: "Id внешнего виджета" },
+  ],
   sortingItem: [
     {
       name: "id",
@@ -6465,50 +6781,42 @@ interface SnippetDef {
 }
 
 export const SNIPPETS: SnippetDef[] = [
-  {
-    prefix: "newdataruleattr",
-    description: "Действие правила: атрибут",
-    contexts: ["dataRuleAttributeAction"],
-    body: [
-      "- attribute: ${1:attrId}",
-      "  constraint: !rql ${2:true}",
-      '  message: "${3:Сообщение об ошибке}"',
-    ].join("\n"),
-  },
-  {
-    prefix: "newdatarulelink",
-    description: "Действие правила: связь",
-    contexts: ["dataRuleLinkageAction"],
-    body: [
-      "- linkage: ${1:myLinkage}",
-      "  side: ${2:1}",
-      "  constraint: !rql ${3:true}",
-      '  message: "${4:Сообщение об ошибке}"',
-    ].join("\n"),
-  },
+  // ═══════════════════════════════════════════════════════════════════
+  // ENTITIES
+  // ═══════════════════════════════════════════════════════════════════
   {
     prefix: "newentity",
-    description: "Новая сущность",
-    contexts: ["entityList", "entity"],
+    description: "Сущность с полями и примером атрибута",
+    contexts: ["entityList"],
     body: [
-      "- id: ${1:NewEntity}",
-      "  name: ${2:Новая сущность}",
+      "- id: ${1:EntityId}",
+      "  name: ${2:Entity Name}",
       '  label: "{${3:id}}"',
-      "  description: ${4:Описание сущности}",
+      "  description: ${4:Description}",
       "  attributes:",
       "    - id: ${5:name}",
-      "      name: ${6:Имя}",
+      "      name: ${6:Name}",
       "      dataType: String",
     ].join("\n"),
   },
   {
+    prefix: "newentitymin",
+    description: "Минимальная сущность (только id)",
+    contexts: ["entityList"],
+    body: "- id: ${1:EntityId}",
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ATTRIBUTES — базовые
+  // ═══════════════════════════════════════════════════════════════════
+  {
     prefix: "newattr",
-    description: "Новый атрибут",
+    description: "Базовый атрибут (String)",
     contexts: ["attribute"],
     body: [
       "- id: ${1:attrId}",
-      "  name: ${2:Новый атрибут}",
-      "  description: ${3:Описание атрибута}",
+      "  name: ${2:Attribute Name}",
+      "  description: ${3:Description}",
       "  dataType: ${4:String}",
     ].join("\n"),
   },
@@ -6518,7 +6826,7 @@ export const SNIPPETS: SnippetDef[] = [
     contexts: ["attribute"],
     body: [
       "- id: ${1:refAttr}",
-      "  name: ${2:Ссылка на сущность}",
+      "  name: ${2:Reference Name}",
       "  dataType: Reference",
       "  entity: ${3:TargetEntity}",
     ].join("\n"),
@@ -6529,220 +6837,586 @@ export const SNIPPETS: SnippetDef[] = [
     contexts: ["attribute"],
     body: [
       "- id: ${1:arrayAttr}",
-      "  name: ${2:Массив}",
+      "  name: ${2:Array Name}",
       "  dataType: Array",
       "  item:",
       "    dataType: ${3:String}",
     ].join("\n"),
   },
   {
-    prefix: "newidentifier",
-    description: "Атрибут-Identifier (шаблон + префикс)",
+    prefix: "newattrarrayref",
+    description: "Array<Reference>",
     contexts: ["attribute"],
     body: [
-      "- id: ${1:iocId}",
-      "  name: ${2:Идентификатор}",
+      "- id: ${1:arrayRef}",
+      "  name: ${2:Array Reference}",
+      "  dataType: Array",
+      "  item:",
+      "    dataType: Reference",
+      "    entity: ${3:TargetEntity}",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ATTRIBUTES — типы данных
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "newattrtext",
+    description: "Text с поддержкой комментариев",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Text}",
+      "  dataType: Text",
+      "  comments: true",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrcounter",
+    description: "Counter + counterColorPattern",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Counter}",
+      "  dataType: Counter",
+      "  counterColorPattern: ${3:counterColorId}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrcase",
+    description: "Attachment с mime_types и size",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Attachment}",
+      "  dataType: Attachment",
+      "  constraints:",
+      "    - kind: mime_types",
+      "      mimeTypes:",
+      "        - ${3:image/png}",
+      "    - kind: size",
+      "      min: ${4:0}",
+      "      max: ${5:1024}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrcaseopt",
+    description: "Attachment без ограничений",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Attachment}",
+      "  dataType: Attachment",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrcalc",
+    description: "Calculation",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Calculation}",
+      "  dataType: Calculation",
+      "  calculation:",
+      "    schemaId: ${3:schemaId}",
+      "    id: ${4:calcId}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrworkflow",
+    description: "Workflow (user-defined)",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Workflow}",
+      "  dataType: ${3:MyWorkflow}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrtable",
+    description: "Table (user-defined)",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Table}",
+      "  dataType: ${3:MyTable}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrreadonly",
+    description: "String readonly",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Readonly}",
+      "  dataType: String",
+      "  readonly: true",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattrunique",
+    description: "String unique",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Unique}",
+      "  dataType: String",
+      "  constraints:",
+      "    - kind: unique",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // IDENTIFIER — 3 варианта
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "newidseq",
+    description: "Identifier через sequence",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:identAttr}",
+      "  name: ${2:Identifier}",
       "  dataType: Identifier",
-      '  template: "{@prefix}-{@YYYY}-{@MM}-{@inc}"',
-      "  defaultPrefix: ${3:INC}",
+      "  sequence: ${3:sequenceId}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newiddate",
+    description: "Identifier с шаблоном даты",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:identAttr}",
+      "  name: ${2:Identifier}",
+      "  dataType: Identifier",
+      '  template: "{@prefix}-{@YYYY}-{@MM}-{@DD}-{@inc}"',
+      "  defaultPrefix: ${3:ID}",
       '  incrementTemplate: "0000"',
     ].join("\n"),
   },
   {
+    prefix: "newidprefix",
+    description: "Identifier + prefixRules",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:identAttr}",
+      "  name: ${2:Identifier}",
+      "  dataType: Identifier",
+      '  template: "{@prefix}-{@inc}"',
+      "  defaultPrefix: ${3:ID}",
+      '  incrementTemplate: "0000"',
+      "  prefixRules:",
+      "    - id: ${4:ruleId}",
+      "      attribute: ${5:sourceAttr}",
+      "      source:",
+      "        entity: ${6:SourceEntity}",
+      "        key: ${7:keyAttr}",
+      "        value: ${8:valueAttr}",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONSTRAINTS — по одному
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "newreq",
+    description: "Constraint: required",
+    contexts: ["attributeConstraint"],
+    body: ["- kind: required", "  message: ${1:Field is required}"].join("\n"),
+  },
+  {
+    prefix: "newrange",
+    description: "Constraint: range",
+    contexts: ["attributeConstraint"],
+    body: [
+      "- kind: range",
+      "  min: ${1:0}",
+      "  max: ${2:100}",
+      "  message: ${3:Out of range}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newregexp",
+    description: "Constraint: regexp",
+    contexts: ["attributeConstraint"],
+    body: [
+      "- kind: regexp",
+      '  regexp: "${1:^[a-z]+$}"',
+      "  message: ${2:Invalid format}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlength",
+    description: "Constraint: length",
+    contexts: ["attributeConstraint"],
+    body: [
+      "- kind: length",
+      "  min: ${1:1}",
+      "  max: ${2:255}",
+      "  message: ${3:Invalid length}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmime",
+    description: "Constraint: mime_types",
+    contexts: ["attributeConstraint"],
+    body: [
+      "- kind: mime_types",
+      "  mimeTypes:",
+      "    - ${1:image/png}",
+      "    - ${2:image/jpeg}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newsize",
+    description: "Constraint: size",
+    contexts: ["attributeConstraint"],
+    body: [
+      "- kind: size",
+      "  min: ${1:0}",
+      "  max: ${2:1024}",
+      "  message: ${3:Invalid size}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newunique",
+    description: "Constraint: unique",
+    contexts: ["attributeConstraint"],
+    body: ["- kind: unique", "  message: ${1:Must be unique}"].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // LINKAGES
+  // ═══════════════════════════════════════════════════════════════════
+  {
     prefix: "newlinkage",
-    description: "Новая связь",
+    description: "Связь 1_n",
     contexts: ["linkageList", "linkage"],
     body: [
-      "- id: ${1:EntityA_EntityB}",
-      "  name: ${2:Связь сущностей}",
+      "- id: ${1:LinkageId}",
+      "  name: ${2:Linkage Name}",
       "  side1: ${3:EntityA}",
       "  side2: ${4:EntityB}",
-      "  type: ${5:1_n}",
-      "  undirected: ${6:false}",
+      "  type: 1_n",
+      "  undirected: false",
       "  nameFrom:",
-      "    side1: ${7:Содержит}",
-      "    side2: ${8:Входит в}",
+      "    side1: ${5:Contains}",
+      "    side2: ${6:Belongs to}",
     ].join("\n"),
   },
   {
-    prefix: "newrule",
-    description: "Правило данных",
-    contexts: ["dataRuleList", "dataRule"],
+    prefix: "newlinkage11",
+    description: "Связь 1_1",
+    contexts: ["linkageList", "linkage"],
     body: [
-      "- id: ${1:dataR_newRule}",
-      "  name: ${2:Новое правило}",
-      "  target: entity",
-      "  entity: ${3:SomeEntity}",
-      "  condition: !rql ${4:someAttr IS NOT NULL}",
-      "  rule:",
-      "    effect: ${5:required}",
-      "    attributes:",
-      "      - attribute: ${6:targetAttr}",
+      "- id: ${1:LinkageId}",
+      "  name: ${2:Linkage Name}",
+      "  side1: ${3:EntityA}",
+      "  side2: ${4:EntityB}",
+      "  type: 1_1",
+      "  undirected: false",
     ].join("\n"),
   },
+  {
+    prefix: "newlinkage1n",
+    description: "Связь 1_n",
+    contexts: ["linkageList", "linkage"],
+    body: [
+      "- id: ${1:LinkageId}",
+      "  name: ${2:Linkage Name}",
+      "  side1: ${3:EntityA}",
+      "  side2: ${4:EntityB}",
+      "  type: 1_n",
+      "  undirected: false",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlinkagenn",
+    description: "Связь n_n (undirected)",
+    contexts: ["linkageList", "linkage"],
+    body: [
+      "- id: ${1:LinkageId}",
+      "  name: ${2:Linkage Name}",
+      "  side1: ${3:EntityA}",
+      "  side2: ${4:EntityB}",
+      "  type: n_n",
+      "  undirected: true",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlinkageattr",
+    description: "Связь 1_n с атрибутом",
+    contexts: ["linkageList", "linkage"],
+    body: [
+      "- id: ${1:LinkageId}",
+      "  name: ${2:Linkage Name}",
+      "  side1: ${3:EntityA}",
+      "  side2: ${4:EntityB}",
+      "  type: 1_n",
+      "  attributes:",
+      "    - id: ${5:attrId}",
+      "      name: ${6:Attribute Name}",
+      "      dataType: String",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlinkagesearch",
+    description: "Связь с useForSearch",
+    contexts: ["linkageList", "linkage"],
+    body: [
+      "- id: ${1:LinkageId}",
+      "  name: ${2:Linkage Name}",
+      "  side1: ${3:EntityA}",
+      "  side2: ${4:EntityB}",
+      "  type: 1_n",
+      "  useForSearch: true",
+      "  attributes:",
+      "    - id: ${5:attrId}",
+      "      name: ${6:Attribute Name}",
+      "      dataType: String",
+      "      searchable: true",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ACTIONS
+  // ═══════════════════════════════════════════════════════════════════
   {
     prefix: "newaction",
-    description: "Действие открытия модалки",
+    description: "Действие open_modal",
     contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:actions_newAction}",
-      "  name: ${2:Новое действие}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Action Name}",
       "  type: open_modal",
-      "  modal: ${3:forms_newModal}",
-      "  entity: ${4:SomeEntity}",
-      "  operation: create",
+      "  modal: ${3:forms_modal}",
+      "  entity: ${4:Entity}",
+      "  operation: ${5:create}",
     ].join("\n"),
   },
   {
-    prefix: "newview",
-    description: "Entity-view с виджетами и блоком",
-    contexts: ["viewList", "view"],
+    prefix: "newactopenpanel",
+    description: "open_panel",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:viewMyEntity}",
-      "  type: entity",
-      "  entity: ${2:MyEntity}",
-      "  widgets:",
-      "    - id: ${3:editors_id}",
-      "      type: attribute",
-      "      attribute: ${4:id}",
-      "  groups:",
-      "    - id: ${5:blocks_info}",
-      "      type: block",
-      "      layout:",
-      "        direction: column",
-      "      components:",
-      "        - widget: ${6:editors_id}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Open Panel}",
+      "  type: open_panel",
+      "  entity: ${3:Entity}",
+      "  panel: ${4:panelId}",
     ].join("\n"),
   },
   {
-    prefix: "newlist",
-    description: "List-view (список объектов)",
-    contexts: ["viewList", "view"],
+    prefix: "newactopenpage",
+    description: "open_page",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:lists_MyEntity}",
-      "  type: list",
-      "  source:",
-      "    type: operational",
-      "    entity: ${2:MyEntity}",
-      "  table:",
-      "    columns:",
-      "      - id: ${3:name}",
-      "        attribute: ${4:id}",
-      "        label: ${5:Название}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Open Page}",
+      "  type: open_page",
+      "  entity: ${3:Entity}",
+      "  view: ${4:pageId}",
+      "  operation: view",
     ].join("\n"),
   },
   {
-    prefix: "newwidget",
-    description: "Виджет атрибута",
-    contexts: ["widget"],
+    prefix: "newactopenlist",
+    description: "open_list",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:editors_attr}",
-      "  type: attribute",
-      "  attribute: ${2:attrId}",
-      "  description: ${3:Поле для редактирования}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Open List}",
+      "  type: open_list",
+      "  entity: ${3:Entity}",
+      "  view: ${4:listId}",
     ].join("\n"),
   },
   {
-    prefix: "newgroup",
-    description: "Группа типа block",
-    contexts: ["group"],
+    prefix: "newactopenlistref",
+    description: "open_list по Reference",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:blocks_info}",
-      "  type: block",
-      "  description: ${2:Блок информации}",
-      "  layout:",
-      "    direction: column",
-      "  components:",
-      "    - widget: ${3:editors_id}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Open List by Ref}",
+      "  type: open_list",
+      "  entity: ${3:Entity}",
+      "  view: ${4:listId}",
+      "  attribute: ${5:refAttr}",
     ].join("\n"),
   },
   {
-    prefix: "newsequence",
-    description: "Последовательность",
-    contexts: ["sequenceList", "sequence"],
+    prefix: "newactremovesingle",
+    description: "remove",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:MySequence}",
-      "  startFrom: ${2:1}",
-      "  description: ${3:Описание последовательности}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Remove}",
+      "  type: remove",
+      "  entity: ${3:Entity}",
     ].join("\n"),
   },
   {
-    prefix: "newmixin",
-    description: "Миксин на панель",
-    contexts: ["mixinList", "mixin"],
+    prefix: "newactqr",
+    description: "generate_qr_code",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:mixin_new}",
-      "  type: view",
-      "  entity: ${2:TargetEntity}",
-      "  views:",
-      "    - id: ${3:mixin_view}",
-      "      type: tab",
-      "      to:",
-      "        tab: ${4:tabs_info}",
-      "      change:",
-      "        add:",
-      "          components:",
-      "            - widget: ${5:editors_id}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Generate QR}",
+      "  type: generate_qr_code",
+      "  entity: ${3:Entity}",
     ].join("\n"),
   },
   {
-    prefix: "newmenu",
-    description: "Пункт меню с подпунктом",
-    contexts: ["menuList", "menu", "menuItem"],
+    prefix: "newactcopylink",
+    description: "copy_entity_link",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:menus_root}",
-      '  label: "${2:Название раздела}"',
-      "  route: ${3:/my-domain}",
-      "  type: root_group",
-      "  placement: top",
-      "  items:",
-      "    - id: ${4:menu_item}",
-      "      label: ${5:Пункт меню}",
-      "      route: ${6:/my-domain/item}",
-      "      type: menu",
-      "      view: ${7:lists_MyEntity}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Copy Link}",
+      "  type: copy_entity_link",
+      "  entity: ${3:Entity}",
     ].join("\n"),
   },
   {
-    prefix: "newmedia",
-    description: "Иконка",
-    contexts: ["mediaList", "media"],
+    prefix: "newactgraph",
+    description: "open_graph_view",
+    contexts: ["actionList", "action"],
     body: [
-      "- id: ${1:iconsMyIcon}",
-      "  description: ${2:Иконка для ...}",
-      "  type: icon_name",
-      "  iconName: ${3:folder}",
+      "- id: ${1:actionId}",
+      "  name: ${2:Open Graph}",
+      "  type: open_graph_view",
+      "  entity: ${3:Entity}",
+      "  openBoards: ${4:false}",
     ].join("\n"),
   },
+  {
+    prefix: "newbulkdelete",
+    description: "bulk remove",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actionId}",
+      "  name: ${2:Bulk Remove}",
+      "  type: bulk",
+      "  entity: ${3:Entity}",
+      "  operation: remove",
+    ].join("\n"),
+  },
+  {
+    prefix: "newbulkedit",
+    description: "bulk edit",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actionId}",
+      "  name: ${2:Bulk Edit}",
+      "  type: bulk",
+      "  entity: ${3:Entity}",
+      "  operation: edit",
+      "  attributes:",
+      "    type: specific",
+      "    use:",
+      "      - attribute: ${4:attr1}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newbulkattr",
+    description: "bulk edit_attribute",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actionId}",
+      "  name: ${2:Bulk Set Bool}",
+      "  type: bulk",
+      "  entity: ${3:Entity}",
+      "  operation: edit_attribute",
+      "  values:",
+      "    - attribute: ${4:isActive}",
+      "      value: ${5:true}",
+      "  control:",
+      "    type: bool_text",
+      '    trueText: "${6:Active}"',
+      '    falseText: "${7:Inactive}"',
+    ].join("\n"),
+  },
+  {
+    prefix: "newautomationaction",
+    description: "automation",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actionId}",
+      "  name: ${2:Run Automation}",
+      "  type: automation",
+      "  entity: ${3:Entity}",
+      "  automation:",
+      "    id: ${4:00000000-0000-0000-0000-000000000000}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newscenarioaction",
+    description: "scenario",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actionId}",
+      "  name: ${2:Run Scenario}",
+      "  type: scenario",
+      "  entity: ${3:Entity}",
+      "  scenario: ${4:MyScenario}",
+      "  workerTag: ${5:default}",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DATA TYPES
+  // ═══════════════════════════════════════════════════════════════════
   {
     prefix: "newenum",
-    description: "Enum-тип данных",
+    description: "Enum",
     contexts: ["dataTypeList", "dataType"],
     body: [
-      "- id: ${1:enumMyType}",
-      "  name: ${2:Новый enum}",
+      "- id: ${1:enumId}",
+      "  name: ${2:Enum Name}",
       "  dataType: Enum",
       "  values:",
       "    - id: ${3:value1}",
-      "      name: ${4:Значение 1}",
+      "      name: ${4:Value 1}",
       "    - id: ${5:value2}",
-      "      name: ${6:Значение 2}",
+      "      name: ${6:Value 2}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newenumstd",
+    description: "Enum: CRITICAL/HIGH/MEDIUM/LOW",
+    contexts: ["dataTypeList", "dataType"],
+    body: [
+      "- id: ${1:enumId}",
+      "  name: ${2:Severity}",
+      "  dataType: Enum",
+      "  values:",
+      "    - id: CRITICAL",
+      "      name: Critical",
+      '      color: "#EF4444"',
+      "    - id: HIGH",
+      "      name: High",
+      '      color: "#F97316"',
+      "    - id: MEDIUM",
+      "      name: Medium",
+      '      color: "#F59E0B"',
+      "    - id: LOW",
+      "      name: Low",
+      '      color: "#10B981"',
     ].join("\n"),
   },
   {
     prefix: "newworkflow",
-    description: "Workflow-тип данных",
+    description: "Workflow",
     contexts: ["dataTypeList", "dataType"],
     body: [
-      "- id: ${1:workflowMyProcess}",
-      "  name: ${2:Новый workflow}",
+      "- id: ${1:workflowId}",
+      "  name: ${2:Workflow Name}",
       "  dataType: Workflow",
       "  initial: ${3:New}",
       "  statuses:",
       "    - id: ${4:New}",
-      "      name: ${5:Новый}",
+      "      name: ${5:New}",
       "    - id: ${6:Done}",
-      "      name: ${7:Завершён}",
+      "      name: ${7:Done}",
       "  transitions:",
       "    - from: ${8:New}",
       "      to: ${9:Done}",
@@ -6750,16 +7424,16 @@ export const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newtable",
-    description: "Table-тип данных",
+    description: "Table",
     contexts: ["dataTypeList", "dataType"],
     body: [
-      "- id: ${1:tableMyTable}",
-      "  name: ${2:Новая таблица}",
+      "- id: ${1:tableId}",
+      "  name: ${2:Table Name}",
       "  dataType: Table",
       "  maxRows: ${3:100}",
       "  attributes:",
       "    - id: ${4:col1}",
-      "      name: ${5:Колонка 1}",
+      "      name: ${5:Column 1}",
       "      dataType: String",
     ].join("\n"),
   },
@@ -6767,7 +7441,7 @@ export const SNIPPETS: SnippetDef[] = [
     prefix: "newenumvalue",
     description: "Значение Enum",
     contexts: ["enumValue"],
-    body: ["- id: ${1:value1}", "  name: ${2:Значение 1}"].join("\n"),
+    body: ["- id: ${1:value1}", "  name: ${2:Value 1}"].join("\n"),
   },
   {
     prefix: "newworkflowstatus",
@@ -6775,8 +7449,8 @@ export const SNIPPETS: SnippetDef[] = [
     contexts: ["workflowStatus"],
     body: [
       "- id: ${1:status1}",
-      "  name: ${2:Статус 1}",
-      "  description: ${3:Описание}",
+      "  name: ${2:Status 1}",
+      "  description: ${3:Description}",
     ].join("\n"),
   },
   {
@@ -6785,289 +7459,51 @@ export const SNIPPETS: SnippetDef[] = [
     contexts: ["transition"],
     body: ["- from: ${1:StatusA}", "  to: ${2:StatusB}"].join("\n"),
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // VIEWS
+  // ═══════════════════════════════════════════════════════════════════
   {
-    prefix: "newconstraint",
-    description: "Constraint (required / range / regexp...)",
-    contexts: ["constraintsItem"],
-    body: ["- kind: ${1:required}", "  message: ${2:Текст ошибки}"].join("\n"),
-  },
-  {
-    prefix: "newconstraintlen",
-    description: "Constraint: length с min/max",
-    contexts: ["constraintsItem"],
+    prefix: "newlistbasic",
+    description: "list-view (только source)",
+    contexts: ["viewList", "view"],
     body: [
-      "- kind: length",
-      "  min: ${1:1}",
-      "  max: ${2:255}",
-      "  message: ${3:Недопустимая длина}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newprefixrule",
-    description: "Правило подстановки префикса",
-    contexts: ["prefixRule"],
-    body: [
-      "- id: ${1:Rule_1}",
-      "  attribute: ${2:attrId}",
+      "- id: ${1:listId}",
+      "  label: ${2:List Label}",
+      "  type: list",
       "  source:",
-      "    entity: ${3:SomeDict}",
-      "    key: ${4:fullName}",
-      "    value: ${5:shortCode}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newprojection",
-    description: "Проекция сущности",
-    contexts: ["entity"],
-    body: [
-      "projection:",
-      "  - attribute: ${1:name}",
-      "  - attribute: ${2:description}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newsearching",
-    description: "Правила поиска сущности",
-    contexts: ["entity"],
-    body: [
-      "searching:",
-      "  attributes:",
-      "    - ${1:id}",
-      "    - ${2:name}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newcountercolor",
-    description: "Цветовая схема счётчика",
-    contexts: ["counterColorPattern"],
-    body: [
-      "- id: ${1:counterColorTime}",
-      "  red: ${2:60%}",
-      "  yellow: ${3:40%}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newtree",
-    description: "Дерево связей (1 уровень)",
-    contexts: ["treeList", "tree"],
-    body: [
-      "- id: ${1:MyTree}",
-      "  type: ordinary",
-      "  maxDepth: ${2:5}",
-      "  hierarchy:",
-      "    entity: ${3:RootEntity}",
-      "    maxInstances: ${4:1}",
-      "    children:",
-      "      - linkage: ${5:RootToChild}",
-      "        entity: ${6:ChildEntity}",
-      "        side: ${7:1}",
-      "  sorting:",
-      "    - id: ${8:sorting_name}",
-      "      name: ${9:По наименованию}",
-      "      by:",
-      "        - entity: ${10:RootEntity}",
-      "          by:",
-      "            - attribute: ${11:name}",
-      "              direction: asc",
-    ].join("\n"),
-  },
-  {
-    prefix: "newtransitive",
-    description: "Транзитивная связь (1 хоп)",
-    contexts: ["transitiveLinkageList", "transitiveLinkage"],
-    body: [
-      "- id: ${1:MyTransitiveTree}",
-      "  entity: ${2:StartEntity}",
-      "  description: ${3:Цепочка связей}",
-      "  joins:",
-      "    - id: ${4:join1}",
-      "      linkage: ${5:StartToMiddle}",
-      "      search:",
-      "        enable: true",
-      "        mode: both",
-    ].join("\n"),
-  },
-  {
-    prefix: "newjoins",
-    description: "Следующий хоп в транзитивной связи",
-    contexts: ["transitiveJoin"],
-    body: [
-      "- id: ${1:join_next}",
-      "  linkage: ${2:NextLinkage}",
-      "  search:",
-      "    enable: ${3:true}",
-      "    mode: ${4:both}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newuirule",
-    description: "UI Rule: скрыть виджет",
-    contexts: ["uiRuleList", "uiRule"],
-    body: [
-      "- id: ${1:hiddenWidget}",
-      "  name: ${2:Скрыть виджет}",
-      "  target: entity_view",
-      "  view: ${3:entityView}",
-      "  condition: !rql ${4:true}",
-      "  rule:",
-      "    effect: hidden",
-      "    widgets:",
-      "      - widget: ${5:editors_id}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newuirulevariant",
-    description: "UI Rule: вариант с пресетами",
-    contexts: ["uiRuleList", "uiRule"],
-    body: [
-      "- id: ${1:variantRule}",
-      "  name: ${2:Цветовая вариация}",
-      "  target: entity_view",
-      "  view: ${3:entityView}",
-      '  condition: !rql ${4:@doc.status = "CRITICAL"}',
-      "  rule:",
-      "    effect: variant",
-      "    widgets:",
-      "      - widget: ${5:editors_status}",
-      "        presets:",
-      "          - ${6:redPreset}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newuirulenested",
-    description: "UI Rule: скрыть колонку таблицы",
-    contexts: ["uiRuleList", "uiRule"],
-    body: [
-      "- id: ${1:hiddenTableColumn}",
-      "  name: ${2:Скрыть колонку в таблице}",
-      "  target: entity_attribute",
-      "  view: ${3:entityView}",
-      "  condition: !rql ${4:true}",
-      "  rule:",
-      "    effect: hidden",
-      "    widgets:",
-      "      - widget: ${5:editors_table}",
-      "        nested:",
-      "          type: table",
-      "          attributes:",
-      "            - attribute: ${6:col1}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newuipreset",
-    description: "UI Preset (стили)",
-    contexts: ["uiPresetList", "uiPreset"],
-    body: [
-      "- id: ${1:redPreset}",
-      "  description: ${2:Красный фон}",
-      "  props:",
-      "    color: ${3:#ff0000}",
-      "    font-weight: ${4:bold}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newpresetref",
-    description: "Ссылка на пресет в widgets/groups/columns",
-    contexts: ["uiRuleWidget", "uiRuleGroup", "uiRuleColumn"],
-    body: ["presets:", "  - ${1:redPreset}"].join("\n"),
-  },
-  {
-    prefix: "newbulkdelete",
-    description: "Массовое действие: удаление",
-    contexts: ["actionList", "action"],
-    body: [
-      "- id: ${1:actions_bulkRemove}",
-      "  name: ${2:Удалить}",
-      "  type: bulk",
-      "  entity: ${3:SomeEntity}",
-      "  operation: remove",
-    ].join("\n"),
-  },
-  {
-    prefix: "newbulkedit",
-    description: "Массовое действие: редактирование атрибутов",
-    contexts: ["actionList", "action"],
-    body: [
-      "- id: ${1:actions_bulkEdit}",
-      "  name: ${2:Изменить}",
-      "  type: bulk",
-      "  entity: ${3:SomeEntity}",
-      "  operation: edit",
-      "  attributes:",
-      "    type: specific",
-      "    use:",
-      "      - attribute: ${4:attr1}",
-      "      - attribute: ${5:attr2}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newbulkattr",
-    description: "Массовое действие: изменить атрибут (bool/workflow)",
-    contexts: ["actionList", "action"],
-    body: [
-      "- id: ${1:actions_bulkSetBool}",
-      "  name: ${2:Установить флаг}",
-      "  type: bulk",
-      "  entity: ${3:SomeEntity}",
-      "  operation: edit_attribute",
-      "  values:",
-      "    - attribute: ${4:isActive}",
-      "      value: ${5:true}",
-      "  control:",
-      "    type: ${6:bool_text}",
-      '    trueText: "${7:Активен}"',
-      '    falseText: "${8:Неактивен}"',
-    ].join("\n"),
-  },
-  {
-    prefix: "newautomationaction",
-    description: "Действие запуска автоматизации",
-    contexts: ["actionList", "action"],
-    body: [
-      "- id: ${1:actions_runAutomation}",
-      "  name: ${2:Запустить автоматизацию}",
-      "  type: automation",
-      "  entity: ${3:SomeEntity}",
-      "  automation:",
-      "    id: ${4:3c521909-cc55-4b0c-b645-f79eb0263296}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newscenarioaction",
-    description: "Действие запуска сценария",
-    contexts: ["actionList", "action"],
-    body: [
-      "- id: ${1:actions_runScenario}",
-      "  name: ${2:Запустить сценарий}",
-      "  type: scenario",
-      "  entity: ${3:SomeEntity}",
-      "  scenario: ${4:MyScenario}",
-      "  workerTag: ${5:default}",
+      "    type: operational",
+      "    entity: ${3:Entity}",
     ].join("\n"),
   },
   {
     prefix: "newlisttable",
-    description: "Таблица с 3 колонками",
+    description: "list-view с таблицей",
     contexts: ["viewList", "view"],
     body: [
       "table:",
       "  columns:",
       "    - id: ${1:id}",
-      "      attribute: ${2:id}",
-      "      label: ${3:Идентификатор}",
+      "      attribute: id",
+      "      label: ID",
       "      layout:",
       "        width:",
-      "          default: ${4:100}",
-      "          min: 50",
-      "          max: 200",
-      "    - id: ${5:name}",
-      "      attribute: ${6:name}",
-      "      label: ${7:Название}",
-      "    - id: ${8:createdAt}",
-      "      attribute: createdAt",
-      "      label: Дата создания",
-      "      control:",
-      "        type: timestamp",
+      "          default: ${2:100}",
+      "    - id: ${3:name}",
+      "      attribute: name",
+      "      label: Name",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlistfilter",
+    description: "filter блок",
+    contexts: ["viewList", "view", "viewTable"],
+    body: [
+      "filter:",
+      "  attributes:",
+      "    type: ${1:all}",
+      "  linkages:",
+      "    type: ${2:all}",
     ].join("\n"),
   },
   {
@@ -7077,17 +7513,15 @@ export const SNIPPETS: SnippetDef[] = [
     body: [
       "- id: ${1:colId}",
       "  attribute: ${2:attrId}",
-      "  label: ${3:Название колонки}",
+      "  label: ${3:Column Label}",
       "  layout:",
       "    width:",
       "      default: ${4:150}",
-      "      min: 50",
-      "      max: 300",
     ].join("\n"),
   },
   {
     prefix: "newtablefilter",
-    description: "Настройка фильтрации таблицы",
+    description: "filter для таблицы",
     contexts: ["viewTable"],
     body: [
       "filter:",
@@ -7099,7 +7533,7 @@ export const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newtablesorting",
-    description: "Сортировка по колонке",
+    description: "sortingBy",
     contexts: ["viewTable"],
     body: [
       "sortingBy:",
@@ -7113,7 +7547,7 @@ export const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newtablepaging",
-    description: "Пагинация таблицы",
+    description: "paging",
     contexts: ["viewTable"],
     body: [
       "paging:",
@@ -7126,7 +7560,7 @@ export const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newtablerefresh",
-    description: "Автообновление таблицы",
+    description: "refresh",
     contexts: ["viewTable"],
     body: [
       "refresh:",
@@ -7139,134 +7573,216 @@ export const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newtablerowclick",
-    description: "Действие при клике на строку",
+    description: "row_click",
     contexts: ["viewTable"],
-    body: [
-      "actions:",
-      "  - type: row_click",
-      "    action: ${1:actions_openPanel}",
-    ].join("\n"),
+    body: ["actions:", "  - type: row_click", "    action: ${1:actionId}"].join(
+      "\n",
+    ),
   },
   {
     prefix: "newtablecontextmenu",
-    description: "Контекстное меню строки",
+    description: "row_context_menu",
     contexts: ["viewTable"],
     body: [
       "actions:",
       "  - type: row_context_menu",
       "    items:",
-      "      - action: ${1:actions_edit}",
-      "        label: ${2:Изменить}",
-      "      - action: ${3:actions_remove}",
-      "        label: ${4:Удалить}",
+      "      - action: ${1:actionId}",
+      "        label: ${2:Edit}",
+      "      - action: ${3:actionId}",
+      "        label: ${4:Remove}",
     ].join("\n"),
   },
   {
     prefix: "newtableaggregate",
-    description: "Колонка с агрегацией (count)",
+    description: "Агрегат count",
     contexts: ["viewTable"],
     body: [
-      "- id: ${1:linkedCount}",
-      "  label: ${2:Связанных}",
-      "  join: ${3:my_join_id}",
+      "- id: ${1:aggId}",
+      "  label: ${2:Count}",
+      "  join: ${3:joinId}",
       "  aggregate:",
       "    type: count",
       "    condition: !rql ${4:true}",
     ].join("\n"),
   },
   {
-    prefix: "newlistfull",
-    description: "Полный list-view с таблицей и фильтрами",
-    contexts: ["viewList", "view"],
+    prefix: "newpanelinfo",
+    description: "Панель с tabs + block",
+    contexts: ["viewNested"],
     body: [
-      "- id: ${1:lists_MyEntity}",
-      "  type: list",
-      "  label: ${2:Список MyEntity}",
-      "  source:",
-      "    type: operational",
-      "    entity: ${3:MyEntity}",
-      "  table:",
-      "    columns:",
-      "      - id: ${4:id}",
-      "        attribute: id",
-      "        label: Идентификатор",
-      "      - id: ${5:name}",
-      "        attribute: name",
-      "        label: Название",
-      "    filter:",
-      "      attributes:",
-      "        type: all",
-      "      linkages:",
-      "        type: all",
-      "    sortingBy:",
-      "      defaults:",
-      "        column: ${6:name}",
-      "        direction: asc",
-      "    paging:",
-      "      sizes: [10, 50, 100]",
-      "      defaultSize: 20",
-      "    selection: true",
-      "    actions:",
-      "      - type: row_click",
-      "        action: ${7:actions_openPanel}",
+      "- id: ${1:panelId}",
+      "  type: panel",
+      "  label: ${2:Details}",
+      "  tabs:",
+      "    - tab: ${3:tabId}",
     ].join("\n"),
   },
   {
-    prefix: "newentityview",
-    description: "Entity-view с панелью и модалкой",
+    prefix: "newmodaledit",
+    description: "Модалка редактирования",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:modalId}",
+      "  type: modal",
+      "  form: ${2:formId}",
+      "  label: ${3:Edit}",
+      "  buttons:",
+      "    - type: submit",
+      "      label: ${4:Save}",
+      "    - type: close",
+      "      label: ${5:Cancel}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmodal",
+    description: "Модалка без buttons",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:modalId}",
+      "  type: modal",
+      "  form: ${2:formId}",
+      "  label: ${3:Create}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmodalbtn",
+    description: "Модалка с кастомными buttons",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:modalId}",
+      "  type: modal",
+      "  form: ${2:formId}",
+      "  label: ${3:Create}",
+      "  buttons:",
+      "    - type: submit",
+      "      label: ${4:Create}",
+      "      actions:",
+      "        - action: ${5:actionId}",
+      "    - type: close",
+      "      label: ${6:Cancel}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newpage",
+    description: "Полноэкранная карточка",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:pageId}",
+      "  type: page",
+      "  menuItem: ${2:menuItemId}",
+      "  actionPanel:",
+      "    - widget: ${3:widgetId}",
+      "  tabs:",
+      "    - tab: ${4:tabId}",
+      "  pinnedView:",
+      "    block: ${5:blockId}",
+      "    position: top",
+      "    height: 30%",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtabslist",
+    description: "tabs_list",
     contexts: ["viewList", "view"],
     body: [
-      "- id: ${1:viewMyEntity}",
-      "  type: entity",
-      "  entity: ${2:MyEntity}",
+      "- id: ${1:viewId}",
+      "  type: tabs_list",
+      "  tabs:",
+      "    - ${1:listId}",
+      "  defaultTab: ${2:listId}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtreeview",
+    description: "tree-view splitted",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:viewId}",
+      "  type: tree",
+      "  entity: ${2:Entity}",
+      "  tree: ${3:treeId}",
+      "  variant: splitted",
+      "  catalogTitle: ${4:Catalog}",
+      "  list: ${5:listId}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtreemerged",
+    description: "tree-view merged",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:viewId}",
+      "  type: tree",
+      "  entity: ${2:Entity}",
+      "  tree: ${3:treeId}",
+      "  variant: merged",
+      "  table:",
+      "    columns: []",
+    ].join("\n"),
+  },
+  {
+    prefix: "newdash",
+    description: "dashboard + 1 card",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:viewId}",
+      "  type: dashboard",
       "  widgets:",
-      "    - id: ${3:editors_id}",
-      "      type: attribute",
-      "      attribute: ${4:id}",
-      "    - id: ${5:editors_name}",
-      "      type: attribute",
-      "      attribute: ${6:name}",
-      "  groups:",
-      "    - id: ${7:blocks_info}",
-      "      type: block",
-      "      layout:",
-      "        direction: column",
-      "      components:",
-      "        - widget: ${8:editors_id}",
-      "        - widget: ${9:editors_name}",
-      "    - id: ${10:tabs_info}",
-      "      type: tab",
-      "      label: ${11:Детали}",
-      "      components:",
-      "        - block: ${12:blocks_info}",
-      "    - id: ${13:blocks_forms_new}",
-      "      type: form",
-      "      layout:",
-      "        direction: column",
-      "      components:",
-      "        - widget: ${14:editors_id}",
-      "        - widget: ${15:editors_name}",
-      "  views:",
-      "    - id: ${16:panels_info}",
-      "      type: panel",
-      "      label: ${17:Детали}",
-      "      tabs:",
-      "        - tab: ${18:tabs_info}",
-      "    - id: ${19:forms_new}",
-      "      type: modal",
-      "      form: ${20:blocks_forms_new}",
-      "      label: ${21:Добавление}",
+      "    - id: ${2:widgetId}",
+      "      type: card",
+      "  layout:",
+      "    type: grid",
+      "    columns: ${3:2}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newdashnav",
+    description: "dashboard_tree",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:viewId}",
+      "  type: dashboard_tree",
+      "  tree:",
+      "    - id: ${2:nodeId}",
+      "      entity: ${3:Entity}",
+      "      view: ${4:listId}",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WIDGETS / GROUPS
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "newwidget",
+    description: "Виджет атрибута",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:widgetId}",
+      "  type: ${2:attribute}",
+      "  attribute: ${3:attrId}",
+      "  description: ${4:Widget Description}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidgetmin",
+    description: "Минимальный виджет",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:widgetId}",
+      "  type: ${2:attribute}",
+      "  attribute: ${3:attrId}",
     ].join("\n"),
   },
   {
     prefix: "newwidgetattr",
-    description: "Виджет атрибута с контролом",
+    description: "Виджет атрибута с control",
     contexts: ["widget"],
     body: [
-      "- id: ${1:editors_attr}",
+      "- id: ${1:widgetId}",
       "  type: attribute",
       "  attribute: ${2:attrId}",
-      "  description: ${3:Поле для редактирования}",
+      "  description: ${3:Widget Description}",
       "  control:",
       "    type: ${4:text}",
     ].join("\n"),
@@ -7276,14 +7792,14 @@ export const SNIPPETS: SnippetDef[] = [
     description: "Виджет связи с таблицей",
     contexts: ["widget"],
     body: [
-      "- id: ${1:editors_linkage}",
+      "- id: ${1:widgetId}",
       "  type: linkage",
-      "  linkage: ${2:my_linkage_id}",
-      "  label: ${3:Связанные объекты}",
+      "  linkage: ${2:linkageId}",
+      "  label: ${3:Linked Objects}",
       "  side: ${4:2}",
       "  control:",
       "    type: table",
-      "    addLinksView: ${5:lists_MyEntity}",
+      "    addLinksView: ${5:listId}",
       "    columns:",
       "      - id: ${6:name}",
       "        attribute: name",
@@ -7294,26 +7810,64 @@ export const SNIPPETS: SnippetDef[] = [
     description: "Виджет транзитивной связи",
     contexts: ["widget"],
     body: [
-      "- id: ${1:widget_join}",
+      "- id: ${1:widgetId}",
       "  type: join",
-      "  joinId: ${2:my_join_id}",
+      "  joinId: ${2:joinId}",
       "  attribute: ${3:Name}",
-      "  label: ${4:Связанные}",
+      "  label: ${4:Linked}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidgetbulk",
+    description: "Виджет bulk действия",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:widgetId}",
+      "  type: action",
+      "  action: ${2:actionId}",
+      "  control:",
+      "    type: dropdown",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidgetconv",
+    description: "Виджет conversation",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:widgetId}",
+      "  type: conversation",
+      "  linkage: ${2:linkageId}",
+      "  conversationTransports:",
+      "    - ${3:transport}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newgroup",
+    description: "Группа block",
+    contexts: ["group"],
+    body: [
+      "- id: ${1:groupId}",
+      "  type: ${2:block}",
+      "  description: ${3:Group Description}",
+      "  layout:",
+      "    direction: column",
+      "  components:",
+      "    - widget: ${4:widgetId}",
     ].join("\n"),
   },
   {
     prefix: "newblock",
-    description: "Группа типа block",
+    description: "Блок",
     contexts: ["group"],
     body: [
-      "- id: ${1:blocks_info}",
+      "- id: ${1:blockId}",
       "  type: block",
-      "  label: ${2:Информация}",
+      "  label: ${2:Info}",
       "  layout:",
       "    direction: column",
       "    expandable: false",
       "  components:",
-      "    - widget: ${3:editors_id}",
+      "    - widget: ${3:widgetId}",
     ].join("\n"),
   },
   {
@@ -7321,19 +7875,19 @@ export const SNIPPETS: SnippetDef[] = [
     description: "Вкладка",
     contexts: ["group"],
     body: [
-      "- id: ${1:tabs_info}",
+      "- id: ${1:tabId}",
       "  type: tab",
-      "  label: ${2:Детали}",
+      "  label: ${2:Details}",
       "  components:",
-      "    - block: ${3:blocks_info}",
+      "    - block: ${3:blockId}",
     ].join("\n"),
   },
   {
     prefix: "newform",
-    description: "Форма (modal form)",
+    description: "Форма",
     contexts: ["group"],
     body: [
-      "- id: ${1:blocks_forms_new}",
+      "- id: ${1:formId}",
       "  type: form",
       "  layout:",
       "    direction: column",
@@ -7343,175 +7897,265 @@ export const SNIPPETS: SnippetDef[] = [
     ].join("\n"),
   },
   {
-    prefix: "newpanel",
-    description: "Панель (компактное представление)",
-    contexts: ["viewNested"],
+    prefix: "newgroupform",
+    description: "Форма (alias)",
+    contexts: ["group"],
     body: [
-      "- id: ${1:panels_info}",
-      "  type: panel",
-      "  label: ${2:Детали}",
-      "  menu:",
-      "    - action: ${3:actions_edit}",
-      "  tabs:",
-      "    - tab: ${4:tabs_info}",
+      "- id: ${1:formId}",
+      "  type: form",
+      "  layout:",
+      "    direction: column",
+      "  components:",
+      "    - widget: ${2:editors_id}",
+      "    - widget: ${3:editors_name}",
     ].join("\n"),
   },
   {
-    prefix: "newmodal",
-    description: "Модальное окно",
-    contexts: ["viewNested"],
+    prefix: "newgroupres",
+    description: "resizable_block_pair",
+    contexts: ["group"],
     body: [
-      "- id: ${1:forms_new}",
-      "  type: modal",
-      "  form: ${2:blocks_forms_new}",
-      "  label: ${3:Добавление}",
-      "  buttons:",
-      "    - type: submit",
-      "      label: ${4:Создать}",
-      "    - type: close",
-      "      label: ${5:Отмена}",
+      "- id: ${1:groupId}",
+      "  type: resizable_block_pair",
+      "  layout:",
+      "    direction: column",
+      "    minHeight: ${2:100px}",
+      "    maxHeight: ${3:300px}",
+      "    sizeRatio:",
+      "      left: 50",
+      "      right: 50",
     ].join("\n"),
   },
   {
-    prefix: "newpage",
-    description: "Полноэкранная карточка",
-    contexts: ["viewNested"],
+    prefix: "newgrouptabs",
+    description: "Панель вкладок",
+    contexts: ["group"],
     body: [
-      "- id: ${1:pages_info}",
-      "  type: page",
-      "  menuItem: ${2:menu_item_id}",
-      "  actionPanel:",
-      "    - widget: ${3:buttons_edit}",
-      "  tabs:",
-      "    - tab: ${4:tabs_info}",
-      "  pinnedView:",
-      "    block: ${5:blocks_header}",
-      "    position: top",
-      "    height: 30%",
+      "- id: ${1:groupId}",
+      "  type: tabs",
+      "  label: ${2:Tabs Label}",
     ].join("\n"),
   },
+  {
+    prefix: "newpinned",
+    description: "pinnedView",
+    contexts: ["viewNested"],
+    body: [
+      "pinnedView:",
+      "  block: ${1:blockId}",
+      "  position: top",
+      "  minHeight: ${2:20%}",
+      "  maxHeight: ${3:50%}",
+      "  height: ${4:30%}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newfooter",
+    description: "footer (modal)",
+    contexts: ["viewNested"],
+    body: [
+      "footer:",
+      "  - action: ${1:actionId}",
+      "    behavior: run_submit",
+      "    control:",
+      "      type: regular_button",
+      "      icon: ${2:iconName}",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // INHERIT — 3 варианта
+  // ═══════════════════════════════════════════════════════════════════
   {
     prefix: "newinherit",
-    description: "Наследование группы / меню",
+    description: "inherit (generic)",
     contexts: ["inheritSettings"],
     body: ["inherit:", "  type: ${1:append}"].join("\n"),
   },
   {
-    prefix: "newmenuroot",
-    description: "Корневая группа меню с подпунктом",
-    contexts: ["menuRootList", "menuRoot"],
+    prefix: "newinhappend",
+    description: "inherit: append",
+    contexts: ["inheritSettings"],
+    body: ["inherit:", "  type: append"].join("\n"),
+  },
+  {
+    prefix: "newinhexcept",
+    description: "inherit: except",
+    contexts: ["inheritSettings"],
+    body: ["inherit:", "  type: except", "  except:", "    - ${1:id}"].join(
+      "\n",
+    ),
+  },
+  {
+    prefix: "newinhoverride",
+    description: "inherit: override",
+    contexts: ["inheritSettings"],
+    body: ["inherit:", "  type: override"].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DATA RULES
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "newrule",
+    description: "Правило данных",
+    contexts: ["dataRuleList", "dataRule"],
     body: [
-      "- id: ${1:menus_root}",
-      "  route: ${2:/my-domain}",
-      '  label: "${3:Название раздела}"',
-      "  type: root_group",
-      "  placement: top",
-      "  priority: ${4:1000}",
-      "  items:",
-      "    - id: ${5:menu_item}",
-      "      route: ${6:/my-domain/item}",
-      "      label: ${7:Пункт меню}",
-      "      type: menu",
-      "      view: ${8:lists_MyEntity}",
-      "      priority: ${9:1000}",
+      "- id: ${1:ruleId}",
+      "  name: ${2:Rule Name}",
+      "  target: entity",
+      "  entity: ${3:Entity}",
+      "  condition: !rql ${4:true}",
+      "  rule:",
+      "    effect: ${5:required}",
+      "    attributes:",
+      "      - attribute: ${6:attrId}",
     ].join("\n"),
   },
   {
-    prefix: "newmenuitem",
-    description: "Пункт меню",
-    contexts: ["menuItemList", "menuItem"],
+    prefix: "newrulerequired",
+    description: "required (condition: true)",
+    contexts: ["dataRuleList", "dataRule"],
     body: [
-      "- id: ${1:menu_item}",
-      "  route: ${2:/my-domain/item}",
-      "  label: ${3:Пункт меню}",
-      "  type: menu",
-      "  view: ${4:lists_MyEntity}",
-      "  priority: ${5:1000}",
+      "- id: ${1:ruleId}",
+      "  name: ${2:Required Rule}",
+      "  target: entity",
+      "  entity: ${3:Entity}",
+      "  condition: true",
+      "  rule:",
+      "    effect: required",
+      "    attributes:",
+      "      - attribute: ${4:attrId}",
     ].join("\n"),
   },
   {
-    prefix: "newmedia",
-    description: "Иконка",
+    prefix: "newrulehidden",
+    description: "hidden (condition: true)",
+    contexts: ["dataRuleList", "dataRule"],
+    body: [
+      "- id: ${1:ruleId}",
+      "  name: ${2:Hidden Rule}",
+      "  target: entity",
+      "  entity: ${3:Entity}",
+      "  condition: true",
+      "  rule:",
+      "    effect: hidden",
+      "    attributes:",
+      "      - attribute: ${4:attrId}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newruleallowedref",
+    description: "allowed для Reference",
+    contexts: ["dataRuleList", "dataRule"],
+    body: [
+      "- id: ${1:ruleId}",
+      "  name: ${2:Allowed Reference}",
+      "  target: entity",
+      "  entity: ${3:Entity}",
+      "  condition: !rql ${4:true}",
+      "  rule:",
+      "    effect: allowed",
+      "    attributes:",
+      "      - attribute: ${5:refAttr}",
+      "        constraint: ${6:condition}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newrulenested",
+    description: "nested table/array",
+    contexts: ["dataRuleList", "dataRule"],
+    body: [
+      "- id: ${1:ruleId}",
+      "  name: ${2:Nested Rule}",
+      "  target: entity",
+      "  entity: ${3:Entity}",
+      "  condition: true",
+      "  rule:",
+      "    effect: readonly",
+      "    nested:",
+      "      type: ${4:table}",
+      "      attributes:",
+      "        - attribute: ${5:col1}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newrulelinkage",
+    description: "target: linkage",
+    contexts: ["dataRuleList", "dataRule"],
+    body: [
+      "- id: ${1:ruleId}",
+      "  name: ${2:Linkage Rule}",
+      "  target: linkage",
+      "  linkage: ${3:linkageId}",
+      "  condition: true",
+      "  rule:",
+      "    effect: required",
+      "    linkages:",
+      "      - linkage: ${3:linkageId}",
+      "        min_count: ${4:1}",
+    ].join("\n"),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RQL — для использования внутри !rql / condition / expression
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "rqlcountlinks",
+    description: "RQL: count related links",
+    contexts: ["rql"],
+    body: "SELECT(count(id), FROM('current', @${1:linkageId}, @link), WHERE(eq(@link.side1, @doc.id))) > 0",
+  },
+  {
+    prefix: "rqlcurrentuser",
+    description: "RQL: current user check",
+    contexts: ["rql"],
+    body: "@CurrentUser = @doc.${1:createdBy}",
+  },
+  {
+    prefix: "rqlrolecheck",
+    description: "RQL: role check",
+    contexts: ["rql"],
+    body: "hasRole('${1:roleName}') AND NOT isSuperAdmin()",
+  },
+  {
+    prefix: "rqltsrange",
+    description: "RQL: timestamp range",
+    contexts: ["rql"],
+    body: "TSRANGE('${1:2025-01-01}', '${2:2025-12-31}', '[)')",
+  },
+  {
+    prefix: "rqlhasany",
+    description: "RQL: hasAny на массиве",
+    contexts: ["rql"],
+    body: "hasAny(@doc.${1:arrayAttr}, ['${2:a}', '${3:b}'])",
+  },
+  {
+    prefix: "rqlinenum",
+    description: "RQL: @doc IN enum",
+    contexts: ["rql"],
+    body: "@doc.${1:status} IN SELECT(UNNEST(ARRAY(@${2:enumId}.A, @${3:enumId}.B)))",
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MISC
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    prefix: "newmediatime",
+    description: "Иконка (icon_name)",
     contexts: ["mediaList", "media"],
     body: [
-      "- id: ${1:iconsMyIcon}",
-      "  description: ${2:Иконка для ...}",
+      "- id: ${1:mediaId}",
+      "  description: ${2:Icon Description}",
       "  type: icon_name",
-      "  iconName: ${3:folder}",
+      "  iconName: ${3:iconName}",
     ].join("\n"),
   },
   {
-    prefix: "newmixinview",
-    description: "Миксин на вкладку (тип view)",
-    contexts: ["mixinList", "mixin"],
-    body: [
-      "- id: ${1:mixin_tab}",
-      "  name: ${2:Примесь вкладки}",
-      "  type: view",
-      "  entity: ${3:TargetEntity}",
-      "  views:",
-      "    - id: ${4:mixin_view}",
-      "      type: tab",
-      "      fromView: ${5:views_source}",
-      "      to:",
-      "        tab: ${6:tabs_info}",
-      "      change:",
-      "        add:",
-      "          components:",
-      "            - widget: ${7:editors_id}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newmixinlinkage",
-    description: "Миксин на основе связи (тип linkage)",
-    contexts: ["mixinList", "mixin"],
-    body: [
-      "- id: ${1:mixin_linkage}",
-      "  type: linkage",
-      "  entity:",
-      "    to: ${2:TargetEntity}",
-      "    from: ${3:SourceEntity}",
-      "  linkage: ${4:my_linkage_id}",
-      "  views:",
-      "    - id: ${5:mixin_panel}",
-      "      type: panel",
-      "      to:",
-      "        panel: ${6:panels_info}",
-      "      change:",
-      "        add:",
-      "          tabs:",
-      "            tabs:",
-      "              - tab: ${7:tabs_mixin}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newexchange",
-    description: "Настройки обмена данными",
-    contexts: ["exchangeSettings"],
-    body: [
-      "exchangeSettings:",
-      "  enable: ${1:true}",
-      "  label: ${2:Обмен данными}",
-      "  attributeFormats:",
-      "    Date: DD-MM-YYYY",
-      "    Time: HH:mm:ss",
-      "    Timestamp: DD-MM-YYYYTHH:mm:ss",
-      "  entities:",
-      "    ${3:MyEntity}:",
-      "      enable: true",
-      "      forExport: ${4:id}",
-    ].join("\n"),
-  },
-  {
-    prefix: "newexchangeentity",
-    description: "Настройки обмена для сущности",
-    contexts: ["exchangeEntitySettings"],
-    body: [
-      "enable: ${1:true}",
-      "label: ${2:MyEntity}",
-      "forExport: ${3:id}",
-      "upsertWith: ${4:name}",
-    ].join("\n"),
+    prefix: "newlabeltemplate",
+    description: "Шаблон label",
+    contexts: ["entity"],
+    body: 'label: "{${1:attr1}}: {${2:attr2}}"',
   },
 ];
 
@@ -7595,8 +8239,7 @@ function findContainerPath(model: any, position: any): string[] {
     if (!line.trim() || line.trim().startsWith("#")) continue;
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
 
-    if (indent > boundary) continue;
-    if (indent === boundary && boundary > 0) continue;
+    if (indent >= boundary) continue;
 
     if (indent === 0) {
       const m = line.match(/^([a-zA-Z_][\w]*)\s*:/);
@@ -8003,6 +8646,35 @@ export function detectContextAtPosition(
 
   if (!parentKey) return null;
 
+  // ═══════ Внутри виджета: контекст по его `type` ═══════
+  // Срабатывает для любого поля виджета: и `- id: w1`, и `description:`,
+  // и новой пустой строки — везде, где путь кончается на `widgets`.
+  const _containerPath = findContainerPath(model, position);
+  const _lastKey = _containerPath[_containerPath.length - 1];
+  if (
+    _containerPath.length >= 2 &&
+    _containerPath[0] === "views" &&
+    _lastKey === "widgets"
+  ) {
+    const wt = findWidgetTypeForLine(model, position.lineNumber);
+    const WIDGET_CTX: Record<string, string> = {
+      linked_objects_groups: "widgetLinkedObjectsGroups",
+      join: "widgetJoin",
+      history: "widgetHistory",
+      runs_history: "widgetRunsHistory",
+      comments: "widgetComments",
+      conversation: "widgetConversation",
+      visualization: "widgetVisualization",
+      diagram: "widgetDiagram",
+      calculation: "widgetCalculation",
+      template_editor: "widgetTemplateEditor",
+      addressBook: "widgetAddressBook",
+      external: "widgetExternal",
+    };
+    if (wt && WIDGET_CTX[wt]) return WIDGET_CTX[wt];
+    return "widget"; // для attribute/linkage/action/card или пока type не задан
+  }
+
   // ============ Actions: nested containers ============
   if (section === "actions") {
     if (parentKey === "attributes" || parentKey === "linkages") {
@@ -8245,9 +8917,7 @@ export function detectContextAtPosition(
   if (parentKey === "graphView") return "graphView";
   // ============ views: list-view ============
   if (section === "views") {
-    // widgets[]
     if (parentKey === "widgets") {
-      // Внутри виджета мы уже в контексте widget, это поле control/linkage...
       return "widget";
     }
     if (parentKey === "control") {
@@ -9910,7 +10580,13 @@ function withKind(items: RefSuggestion[], kind: number): RefSuggestion[] {
 
 // ============ RQL: определение контекста и предложения ============
 
-const RQL_FIELDS = new Set(["expression", "constraint", "condition"]);
+const RQL_FIELDS = new Set([
+  "expression",
+  "constraint",
+  "condition",
+  "rql",
+  "query",
+]);
 
 /** Курсор внутри RQL? */
 function isInsideRql(model: any, position: any): boolean {
@@ -10320,6 +10996,22 @@ export function registerMonacoProviders(monaco: any): void {
     registerSnippetsCompletion(monaco);
   } catch (err) {
     console.warn("[monaco] snippets completion init failed", err);
+  }
+
+  try {
+    registerRqlSemanticTokens(monaco);
+  } catch (err) {
+    console.warn("[monaco] rql tokens init failed", err);
+  }
+
+  try {
+    registerYamlHovers(monaco, () => ({
+      lineMap: ctx.lineMap,
+      modelIndex: ctx.modelIndex,
+      currentDomain: ctx.currentDomainId || "",
+    }));
+  } catch (err) {
+    console.warn("[monaco] yaml hovers init failed", err);
   }
 
   registerColorProvider(monaco, () => ctx);
@@ -10934,64 +11626,6 @@ export function registerMonacoProviders(monaco: any): void {
               lineIndent === 0 &&
               /^[a-zA-Z_][a-zA-Z0-9_]*\s*$/.test(beforeCursor)
             ) {
-              let foundArrayCtx: string | null = null;
-              try {
-                // Проверяем, не находимся ли мы внутри top-level массива
-                // (набрали "new" на пустой строке между `entities:` и `  - id: ...`)
-                const TOP_LEVEL_ARRAYS: Record<string, string> = {
-                  entities: "entityList",
-                  linkages: "linkageList",
-                  dataTypes: "dataTypeList",
-                  sequences: "sequenceList",
-                  actions: "actionList",
-                  views: "viewList",
-                  trees: "treeList",
-                  transitiveLinkages: "transitiveLinkageList",
-                  mixins: "mixinList",
-                  dataRules: "dataRuleList",
-                  medias: "mediaList",
-                  menus: "menuRootList",
-                  uiRules: "uiRuleList",
-                  uiPresets: "uiPresetList",
-                  accessRules: "accessRule",
-                  localizations: "localization",
-                  counterColorPatterns: "counterColorPattern",
-                  counterColorPattern: "counterColorPattern",
-                  widgets: "widget",
-                  permissions: "permission",
-                };
-
-                for (let i = position.lineNumber - 1; i >= 1; i--) {
-                  const pl = model.getLineContent(i);
-                  if (!pl.trim() || pl.trim().startsWith("#")) continue;
-                  const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-                  if (pIndent !== 0) continue;
-                  const m = pl.match(/^([a-zA-Z_][\w]*)\s*:\s*(#.*)?$/);
-                  if (m && TOP_LEVEL_ARRAYS[m[1]]) {
-                    foundArrayCtx = TOP_LEVEL_ARRAYS[m[1]];
-                  }
-                  break;
-                }
-              } catch (e) {
-                console.warn("[suggest] array-context detection failed", e);
-              }
-
-              if (foundArrayCtx) {
-                const snippetRange = {
-                  startLineNumber: position.lineNumber,
-                  startColumn: 1,
-                  endLineNumber: position.lineNumber,
-                  endColumn: wordAtPos.endColumn,
-                };
-                // Индент для элемента массива — 2 пробела
-                const suggestions = SNIPPETS.filter((sn) =>
-                  sn.contexts.includes(foundArrayCtx!),
-                ).map((sn) =>
-                  buildSnippetSuggestion(monaco, sn, snippetRange, "  "),
-                );
-                if (suggestions.length > 0) return { suggestions };
-              }
-
               const rootItems = [
                 ["id", "Уникальный идентификатор домена (FQDN)"],
                 ["name", "Название домена"],
@@ -11106,18 +11740,6 @@ export function registerMonacoProviders(monaco: any): void {
               endLineNumber: position.lineNumber,
               endColumn: wordAtPos.endColumn,
             };
-            SNIPPETS.forEach((sn) => {
-              if (sn.contexts.includes(context)) {
-                suggestions.push(
-                  buildSnippetSuggestion(
-                    monaco,
-                    sn,
-                    snippetRange,
-                    currentIndent,
-                  ),
-                );
-              }
-            });
             const fields =
               FIELD_DEFINITIONS[context] ??
               FIELD_DEFINITIONS[context.replace(/List$/, "")];

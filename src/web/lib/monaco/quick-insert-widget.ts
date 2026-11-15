@@ -1,124 +1,13 @@
 import { SNIPPETS } from "./monaco-providers";
+import { detectSnippetContext } from "./snippets-completion";
 
-function countIndent(line: string): number {
-  const m = line.match(/^(\s*)/);
-  if (!m) return 0;
-  let count = 0;
-  for (const ch of m[1]) {
-    count += ch === "\t" ? 2 : 1;
-  }
-  return count;
-}
-
-function getQuickInsertContext(
-  model: any,
-  position: any,
-): { context: string; indent: string } | null {
-  const lineText = model.getLineContent(position.lineNumber);
-  if (lineText.trim() !== "") return null;
-
-  let cursorIndent = countIndent(lineText);
-
-  // Если строка пустая (0 отступов), смотрим на соседние строки
-  if (cursorIndent === 0) {
-    // 1. Ищем следующую непустую строку. Если это элемент списка `- `, берем его отступ.
-    let nextLineNum = position.lineNumber + 1;
-    while (nextLineNum <= model.getLineCount()) {
-      const nextText = model.getLineContent(nextLineNum);
-      if (nextText.trim() !== "") {
-        if (/^\s*-\s+/.test(nextText)) {
-          cursorIndent = countIndent(nextText);
-        }
-        break;
-      }
-      nextLineNum++;
-    }
-
-    // 2. Если не нашли, смотрим предыдущую непустую строку.
-    if (cursorIndent === 0) {
-      let prevLineNum = position.lineNumber - 1;
-      while (prevLineNum >= 1) {
-        const prevText = model.getLineContent(prevLineNum);
-        if (prevText.trim() !== "") {
-          if (/^\s*-\s+/.test(prevText)) {
-            cursorIndent = countIndent(prevText);
-          }
-          break;
-        }
-        prevLineNum--;
-      }
-    }
-  }
-
-  if (cursorIndent === 0) return null;
-
-  // Собираем цепочку контейнеров
-  const chain: Array<{ key: string; indent: number }> = [];
-  for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const line = model.getLineContent(i);
-    if (!line.trim() || line.trim().startsWith("#")) continue;
-    const ind = countIndent(line);
-
-    // Нас интересуют только контейнеры, которые строго выше нашего отступа
-    if (ind >= cursorIndent) continue;
-
-    const m = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
-    if (m) {
-      chain.unshift({ key: m[1], indent: ind });
-      if (ind === 0) break;
-    }
-  }
-
-  if (chain.length === 0) return null;
-
-  const deepest = chain[chain.length - 1];
-  const expectedItemIndent = deepest.indent + 2;
-
-  if (cursorIndent !== expectedItemIndent) return null;
-
-  const path = chain.map((c) => c.key).join(".");
-
-  const map: Record<string, string> = {
-    entities: "entityList",
-    "entities.attributes": "attribute",
-    linkages: "linkageList",
-    "linkages.attributes": "linkageAttribute",
-    "linkages.attributes.constraints": "attributeConstraint",
-    "entities.attributes.constraints": "attributeConstraint",
-    views: "viewList",
-    "views.widgets": "widget",
-    "views.groups": "group",
-    "views.views": "viewNested",
-    dataTypes: "dataTypeList",
-    "dataTypes.values": "enumValue",
-    "dataTypes.statuses": "workflowStatus",
-    "dataTypes.transitions": "transition",
-    actions: "actionList",
-    dataRules: "dataRuleList",
-    "dataRules.rule.attributes": "dataRuleAttributeAction",
-    "dataRules.rule.linkages": "dataRuleLinkageAction",
-    menus: "menuRootList",
-    "menus.items": "menuItem",
-    medias: "mediaList",
-    uiRules: "uiRuleList",
-    uiPresets: "uiPresetList",
-    sequences: "sequenceList",
-    mixins: "mixinList",
-    trees: "treeList",
-    transitiveLinkages: "transitiveLinkageList",
-    "transitiveLinkages.joins": "transitiveJoin",
-    counterColorPattern: "counterColorPattern",
-    counterColorPatterns: "counterColorPattern",
-    accessRules: "accessRule",
-    permissions: "permission",
-    localizations: "localization",
-  };
-
-  const ctx = map[path];
-  if (!ctx) return null;
-
-  const indentStr = " ".repeat(expectedItemIndent);
-  return { context: ctx, indent: indentStr };
+function prepareSnippetInsert(body: string, indent: string): string {
+  return body
+    .replace(/^\n+/, "")
+    .replace(/\n+$/, "")
+    .split("\n")
+    .map((l) => (l ? indent + l : l))
+    .join("\n");
 }
 
 export function setupQuickInsertWidget(editor: any, monaco: any) {
@@ -146,7 +35,6 @@ export function setupQuickInsertWidget(editor: any, monaco: any) {
     width: "20px",
     height: "20px",
     boxSizing: "border-box",
-    transition: "background 0.15s, color 0.15s",
   });
   btnNode.addEventListener("mouseenter", () => {
     btnNode.style.background = "var(--bg-700, #334155)";
@@ -205,44 +93,34 @@ export function setupQuickInsertWidget(editor: any, monaco: any) {
     editor.layoutContentWidget(widget);
   };
 
-    const insertSnippet = (snippet: any) => {
-      closeMenu();
-      const model = editor.getModel();
-      if (!model) return;
+  const insertSnippet = (snippet: any) => {
+    closeMenu();
+    const model = editor.getModel();
+    if (!model) return;
 
-      // Формируем текст сниппета с отступами
-      const indented = snippet.body
-        .split("\n")
-        .map((l: string) => currentIndent + l)
-        .join("\n");
+    const indented = prepareSnippetInsert(snippet.body, currentIndent);
 
-      // Выделяем текущую строку целиком, чтобы заменить её
-      const lineLen = model.getLineMaxColumn(currentLine);
-      editor.setSelection(
-        new monaco.Selection(currentLine, 1, currentLine, lineLen),
-      );
+    const lineLen = model.getLineMaxColumn(currentLine);
+    editor.setSelection(
+      new monaco.Selection(currentLine, 1, currentLine, lineLen),
+    );
 
-      // Оборачиваем в пустые строки в начале и в конце
-      const textToInsert = "\n" + indented + "\n";
+    const sc = editor.getContribution?.("snippetController2") as any;
+    if (sc && typeof sc.insert === "function") {
+      sc.insert(indented);
+      return;
+    }
 
-      // Вставляем через snippetController2 (сохраняет табы ${1:...})
-      const sc = editor.getContribution?.("snippetController2") as any;
-      if (sc && typeof sc.insert === "function") {
-        sc.insert(textToInsert);
-        return;
-      }
-
-      // Fallback (если контроллер недоступен)
-      const plain = textToInsert
-        .replace(/\$\{\d+:([^}]*)\}/g, "$1")
-        .replace(/\$\d+/g, "");
-      editor.executeEdits("quick-insert", [
-        {
-          range: new monaco.Range(currentLine, 1, currentLine, lineLen),
-          text: plain,
-        },
-      ]);
-    };
+    const plain = indented
+      .replace(/\$\{\d+:([^}]*)\}/g, "$1")
+      .replace(/\$\d+/g, "");
+    editor.executeEdits("quick-insert", [
+      {
+        range: new monaco.Range(currentLine, 1, currentLine, lineLen),
+        text: plain,
+      },
+    ]);
+  };
 
   btnNode.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -263,54 +141,66 @@ export function setupQuickInsertWidget(editor: any, monaco: any) {
   document.addEventListener("mousedown", onDocMouseDown, true);
 
   const updateWidget = () => {
-    if (isMenuOpen) return;
+    try {
+      if (isMenuOpen) return;
 
-    const position = editor.getPosition();
-    const model = editor.getModel();
-    if (!position || !model) return;
+      const position = editor.getPosition();
+      const model = editor.getModel();
+      if (!position || !model) return;
 
-    const hit = getQuickInsertContext(model, position);
-    const available = hit
-      ? SNIPPETS.filter((s) => s.contexts.includes(hit.context))
-      : [];
+      const lineText = model.getLineContent(position.lineNumber);
+      if (lineText.trim() !== "") {
+        currentSnippets = [];
+        currentLine = -1;
+        editor.layoutContentWidget(widget);
+        return;
+      }
 
-    if (available.length === 0) {
-      currentSnippets = [];
-      currentLine = -1;
+      const hit = detectSnippetContext(model, position);
+      const available = hit
+        ? SNIPPETS.filter((s) => s.contexts.includes(hit.context))
+        : [];
+
+      if (available.length === 0) {
+        currentSnippets = [];
+        currentLine = -1;
+        editor.layoutContentWidget(widget);
+        return;
+      }
+
+      currentSnippets = available;
+      currentIndent = hit!.indent;
+      currentLine = position.lineNumber;
+
+      menuNode.innerHTML = "";
+      available.forEach((sn) => {
+        const item = document.createElement("div");
+        item.textContent = sn.description;
+        Object.assign(item.style, {
+          padding: "6px 10px",
+          cursor: "pointer",
+          borderRadius: "4px",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        });
+        item.addEventListener("mouseenter", () => {
+          item.style.background = "var(--bg-700, #334155)";
+        });
+        item.addEventListener("mouseleave", () => {
+          item.style.background = "transparent";
+        });
+        item.addEventListener("click", (e) => {
+          e.stopPropagation();
+          insertSnippet(sn);
+        });
+        menuNode.appendChild(item);
+      });
+
       editor.layoutContentWidget(widget);
-      return;
+    } catch (err) {
+      console.warn("[quick-insert] updateWidget failed", err);
     }
-
-    currentSnippets = available;
-    currentIndent = hit!.indent;
-    currentLine = position.lineNumber;
-
-    menuNode.innerHTML = "";
-    available.forEach((sn) => {
-      const item = document.createElement("div");
-      item.textContent = sn.description;
-      Object.assign(item.style, {
-        padding: "6px 10px",
-        cursor: "pointer",
-        borderRadius: "4px",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-      });
-      item.addEventListener("mouseenter", () => {
-        item.style.background = "var(--bg-700, #334155)";
-      });
-      item.addEventListener("mouseleave", () => {
-        item.style.background = "transparent";
-      });
-      item.addEventListener("click", (e) => {
-        e.stopPropagation();
-        insertSnippet(sn);
-      });
-      menuNode.appendChild(item);
-    });
-
-    editor.layoutContentWidget(widget);
   };
 
   const scheduleUpdate = () => {

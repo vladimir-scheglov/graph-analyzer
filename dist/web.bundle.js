@@ -44026,7 +44026,13 @@ var RQL_FIELDS, BOOLEAN_LITERALS, SYSTEM_ATTRS;
 var init_rql_check = __esm({
   "src/web/lib/monaco/rql-check.ts"() {
     "use strict";
-    RQL_FIELDS = /* @__PURE__ */ new Set(["expression", "constraint", "condition"]);
+    RQL_FIELDS = /* @__PURE__ */ new Set([
+      "expression",
+      "constraint",
+      "condition",
+      "rql",
+      "query"
+    ]);
     BOOLEAN_LITERALS = /* @__PURE__ */ new Set(["true", "false", "yes", "no"]);
     SYSTEM_ATTRS = /* @__PURE__ */ new Set([
       "id",
@@ -53934,97 +53940,214 @@ var init_color_provider = __esm({
 });
 
 // src/web/lib/monaco/snippets-completion.ts
+function isInsideRql(model, position) {
+  const line = position.lineNumber;
+  const lineText = model.getLineContent(line);
+  const RQL_FIELDS_RE = "(?:condition|expression|constraint|rql|query)";
+  if (/!rql\b/.test(lineText))
+    return true;
+  if (new RegExp(`^\\s*(?:-\\s+)?${RQL_FIELDS_RE}\\s*:\\s*`).test(lineText)) {
+    if (/[|>]/.test(lineText)) {
+      const fieldIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+      for (let i = line - 1; i >= 1; i--) {
+        const prev = model.getLineContent(i);
+        if (!prev.trim())
+          continue;
+        const prevIndent = (prev.match(/^(\s*)/) || ["", ""])[1].length;
+        if (prevIndent < fieldIndent)
+          break;
+        if (new RegExp(
+          `^\\s*(?:-\\s+)?${RQL_FIELDS_RE}\\s*:\\s*(?:!rql\\b)?\\s*[|>]`
+        ).test(prev)) {
+          return true;
+        }
+      }
+    }
+    return true;
+  }
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = line - 1; i >= 1; i--) {
+    const prev = model.getLineContent(i);
+    if (!prev.trim())
+      continue;
+    const prevIndent = (prev.match(/^(\s*)/) || ["", ""])[1].length;
+    if (prevIndent < currentIndent) {
+      if (new RegExp(
+        `^\\s*(?:-\\s+)?${RQL_FIELDS_RE}\\s*:\\s*(?:!rql\\b)?\\s*[|>]`
+      ).test(prev)) {
+        return true;
+      }
+      if (/!rql\b/.test(prev))
+        return true;
+      return false;
+    }
+  }
+  return false;
+}
+function countIndent(line) {
+  let n = 0;
+  for (const ch of line.match(/^(\s*)/)?.[1] || "") {
+    n += ch === "	" ? 2 : 1;
+  }
+  return n;
+}
+function detectSnippetContext(model, position) {
+  if (isInsideRql(model, position)) {
+    return { context: "rql", indent: "" };
+  }
+  const lineText = model.getLineContent(position.lineNumber);
+  const beforeCursor = lineText.slice(0, position.column - 1);
+  const trimmed = beforeCursor.trim();
+  if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s+\S/.test(beforeCursor))
+    return null;
+  if (trimmed.startsWith("#"))
+    return null;
+  let lineIndent = countIndent(lineText);
+  if (lineText.trim() === "") {
+    let upIndent = -1;
+    for (let n = position.lineNumber - 1; n >= 1; n--) {
+      const t = model.getLineContent(n);
+      if (t.trim() === "")
+        continue;
+      upIndent = countIndent(t);
+      break;
+    }
+    let downIndent = -1;
+    for (let n = position.lineNumber + 1; n <= model.getLineCount(); n++) {
+      const t = model.getLineContent(n);
+      if (t.trim() === "")
+        continue;
+      downIndent = countIndent(t);
+      break;
+    }
+    if (upIndent >= 0 && downIndent >= 0) {
+      lineIndent = Math.min(upIndent, downIndent);
+    } else if (upIndent >= 0) {
+      lineIndent = upIndent;
+    } else if (downIndent >= 0) {
+      lineIndent = downIndent;
+    } else {
+      return null;
+    }
+  }
+  if (lineIndent === 0) {
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const pl = model.getLineContent(i);
+      if (!pl.trim() || pl.trim().startsWith("#"))
+        continue;
+      if (countIndent(pl) !== 0)
+        continue;
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:\s*(#.*)?$/);
+      if (m && TOP_LEVEL_ARRAYS[m[1]]) {
+        return { context: TOP_LEVEL_ARRAYS[m[1]], indent: "  " };
+      }
+      break;
+    }
+    return null;
+  }
+  const chain = [];
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = countIndent(line);
+    if (ind >= lineIndent)
+      continue;
+    const m = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
+    if (m) {
+      chain.unshift({ key: m[1], indent: ind });
+      if (ind === 0)
+        break;
+    }
+  }
+  if (chain.length === 0)
+    return null;
+  const deepest = chain[chain.length - 1];
+  const expectedItemIndent = deepest.indent + 2;
+  const path = chain.map((c) => c.key).join(".");
+  if (lineIndent === expectedItemIndent) {
+    const ctx2 = PATH_TO_CONTEXT[path];
+    if (!ctx2)
+      return null;
+    return { context: ctx2, indent: " ".repeat(lineIndent) };
+  }
+  if (path === "entities" && lineIndent === expectedItemIndent + 2) {
+    return { context: "entity", indent: " ".repeat(lineIndent) };
+  }
+  return null;
+}
 function registerSnippetsCompletion(monaco) {
   if (registered)
     return;
   registered = true;
-  const TOP_LEVEL_ARRAYS = {
-    entities: "entityList",
-    linkages: "linkageList",
-    dataTypes: "dataTypeList",
-    sequences: "sequenceList",
-    actions: "actionList",
-    views: "viewList",
-    trees: "treeList",
-    transitiveLinkages: "transitiveLinkageList",
-    mixins: "mixinList",
-    dataRules: "dataRuleList",
-    medias: "mediaList",
-    menus: "menuRootList",
-    uiRules: "uiRuleList",
-    uiPresets: "uiPresetList",
-    accessRules: "accessRule",
-    localizations: "localization",
-    counterColorPatterns: "counterColorPattern",
-    counterColorPattern: "counterColorPattern",
-    widgets: "widget",
-    permissions: "permission"
-  };
-  function countIndent2(line) {
-    let n = 0;
-    for (const ch of line.match(/^(\s*)/)?.[1] || "") {
-      n += ch === "	" ? 2 : 1;
-    }
-    return n;
-  }
-  function detectSnippetContext(model, position) {
-    const lineText = model.getLineContent(position.lineNumber);
-    const beforeCursor = lineText.slice(0, position.column - 1);
-    const trimmed = beforeCursor.trim();
-    if (!/^[a-zA-Z_][\w]*$/.test(trimmed))
-      return null;
-    let lineIndent = countIndent2(lineText);
-    if (lineIndent === 0) {
-      for (let d = -1; d <= 1; d += 2) {
-        let n = position.lineNumber + d;
-        while (n >= 1 && n <= model.getLineCount()) {
-          const t = model.getLineContent(n);
-          if (t.trim() !== "") {
-            if (/^\s*-\s+/.test(t))
-              lineIndent = countIndent2(t);
-            break;
-          }
-          n += d;
-        }
-        if (lineIndent > 0)
-          break;
+  monaco.languages.registerCompletionItemProvider("yaml", {
+    triggerCharacters: ["e", "r", "t", "w", "a", "n"],
+    provideCompletionItems: (model, position) => {
+      try {
+        const hit = detectSnippetContext(model, position);
+        if (!hit)
+          return { suggestions: [] };
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: word.endColumn
+        };
+        const suggestions = SNIPPETS.filter(
+          (sn) => Array.isArray(sn.contexts) && sn.contexts.includes(hit.context)
+        ).map((sn) => ({
+          label: `\u2728 ${sn.prefix}`,
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: prepareSnippetInsert(sn.body, hit.indent),
+          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          filterText: sn.prefix,
+          sortText: "zzzz_" + sn.prefix,
+          detail: sn.description,
+          documentation: `Snippet: ${sn.description}`,
+          range
+        }));
+        return { suggestions };
+      } catch (err) {
+        console.warn("[snippets-completion] failed", err);
+        return { suggestions: [] };
       }
     }
-    if (lineIndent === 0) {
-      for (let i = position.lineNumber - 1; i >= 1; i--) {
-        const pl = model.getLineContent(i);
-        if (!pl.trim() || pl.trim().startsWith("#"))
-          continue;
-        if (countIndent2(pl) !== 0)
-          continue;
-        const m = pl.match(/^([a-zA-Z_][\w]*)\s*:\s*(#.*)?$/);
-        if (m && TOP_LEVEL_ARRAYS[m[1]]) {
-          return { context: TOP_LEVEL_ARRAYS[m[1]], indent: "  " };
-        }
-        break;
-      }
-      return null;
-    }
-    const chain = [];
-    for (let i = position.lineNumber - 1; i >= 1; i--) {
-      const line = model.getLineContent(i);
-      if (!line.trim() || line.trim().startsWith("#"))
-        continue;
-      const ind = countIndent2(line);
-      if (ind >= lineIndent)
-        continue;
-      const m = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
-      if (m) {
-        chain.unshift({ key: m[1], indent: ind });
-        if (ind === 0)
-          break;
-      }
-    }
-    if (chain.length === 0)
-      return null;
-    const path = chain.map((c) => c.key).join(".");
-    const map2 = {
-      entities: "entity",
+  });
+}
+function prepareSnippetInsert(body, indent) {
+  return body.replace(/^\n+/, "").replace(/\n+$/, "").split("\n").map((l) => l ? indent + l : l).join("\n");
+}
+var registered, TOP_LEVEL_ARRAYS, PATH_TO_CONTEXT;
+var init_snippets_completion = __esm({
+  "src/web/lib/monaco/snippets-completion.ts"() {
+    "use strict";
+    init_monaco_providers();
+    registered = false;
+    TOP_LEVEL_ARRAYS = {
+      entities: "entityList",
+      linkages: "linkageList",
+      dataTypes: "dataTypeList",
+      sequences: "sequenceList",
+      actions: "actionList",
+      views: "viewList",
+      trees: "treeList",
+      transitiveLinkages: "transitiveLinkageList",
+      mixins: "mixinList",
+      dataRules: "dataRuleList",
+      medias: "mediaList",
+      menus: "menuRootList",
+      uiRules: "uiRuleList",
+      uiPresets: "uiPresetList",
+      accessRules: "accessRule",
+      localizations: "localization",
+      counterColorPatterns: "counterColorPattern",
+      counterColorPattern: "counterColorPattern",
+      widgets: "widget",
+      permissions: "permission"
+    };
+    PATH_TO_CONTEXT = {
+      entities: "entityList",
       "entities.attributes": "attribute",
       linkages: "linkage",
       "linkages.attributes": "linkageAttribute",
@@ -54058,55 +54181,1103 @@ function registerSnippetsCompletion(monaco) {
       permissions: "permission",
       localizations: "localization"
     };
-    const ctx2 = map2[path];
-    if (!ctx2)
-      return null;
-    return {
-      context: ctx2,
-      indent: " ".repeat(countIndent2(lineText))
+  }
+});
+
+// src/web/lib/monaco/rql-tokens.ts
+function countIndent2(line) {
+  const m = line.match(/^(\s*)/);
+  if (!m)
+    return 0;
+  let n = 0;
+  for (const ch of m[1])
+    n += ch === "	" ? 2 : 1;
+  return n;
+}
+function stripYamlComment(s) {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inSingle) {
+      if (ch === "'")
+        inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"')
+        inDouble = false;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === "#" && (i === 0 || /\s/.test(s[i - 1]))) {
+      return s.slice(0, i).trimEnd();
+    }
+  }
+  return s;
+}
+function stripYamlQuotes(value) {
+  if (value.length >= 2 && (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'"))) {
+    return { inner: value.slice(1, -1), offset: 1 };
+  }
+  return { inner: value, offset: 0 };
+}
+function findRqlRanges(model) {
+  const ranges = [];
+  const lineCount = model.getLineCount();
+  let inBlock = false;
+  let blockStartLine = -1;
+  let blockKeyIndent = -1;
+  const flushBlock = (endLineExclusive) => {
+    for (let ln = blockStartLine; ln < endLineExclusive; ln++) {
+      const t = model.getLineContent(ln);
+      if (!t.trim())
+        continue;
+      const ind = countIndent2(t);
+      if (ind <= blockKeyIndent)
+        continue;
+      ranges.push({ line: ln, startCol: ind + 1, endCol: t.length + 1 });
+    }
+    inBlock = false;
+    blockStartLine = -1;
+    blockKeyIndent = -1;
+  };
+  for (let i = 1; i <= lineCount; i++) {
+    const raw = model.getLineContent(i);
+    if (inBlock) {
+      if (raw.trim() === "")
+        continue;
+      const ind = countIndent2(raw);
+      if (ind <= blockKeyIndent) {
+        flushBlock(i);
+      } else {
+        continue;
+      }
+    }
+    const prefixMatch = raw.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*/);
+    if (!prefixMatch)
+      continue;
+    const field = prefixMatch[1];
+    const keyIndent = countIndent2(
+      prefixMatch[0].slice(0, prefixMatch[0].indexOf(field))
+    );
+    let searchFrom = prefixMatch[0].length;
+    const restRaw = raw.slice(searchFrom);
+    const restClean = stripYamlComment(restRaw);
+    const rqlTag = restClean.match(/^\s*!rql\b\s*(.*)$/);
+    const isRqlField = RQL_FIELDS2.has(field);
+    if (!rqlTag && !isRqlField)
+      continue;
+    let valueRaw = rqlTag ? rqlTag[1] : restClean;
+    if (/^[|>][+\-]?\s*$/.test(valueRaw)) {
+      inBlock = true;
+      blockStartLine = i + 1;
+      blockKeyIndent = keyIndent;
+      continue;
+    }
+    if (!valueRaw.trim())
+      continue;
+    if (rqlTag) {
+      const tagIdx = raw.indexOf("!rql", searchFrom);
+      if (tagIdx < 0)
+        continue;
+      searchFrom = tagIdx + 4;
+      while (searchFrom < raw.length && /\s/.test(raw[searchFrom]))
+        searchFrom++;
+    }
+    const { inner, offset } = stripYamlQuotes(valueRaw);
+    searchFrom += offset;
+    if (!inner)
+      continue;
+    const endCol1 = searchFrom + inner.length + 1;
+    if (endCol1 > raw.length + 1)
+      continue;
+    ranges.push({ line: i, startCol: searchFrom + 1, endCol: endCol1 });
+  }
+  if (inBlock)
+    flushBlock(lineCount + 1);
+  return ranges;
+}
+function tokenizeRql(text) {
+  const tokens = [];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      const q = ch;
+      let j = i + 1;
+      while (j < text.length) {
+        if (text[j] === "\\" && j + 1 < text.length) {
+          j += 2;
+          continue;
+        }
+        if (text[j] === q) {
+          j++;
+          break;
+        }
+        j++;
+      }
+      tokens.push({ start: i, length: j - i, type: "string" });
+      i = j;
+      continue;
+    }
+    if (ch === "@") {
+      let j = i + 1;
+      while (j < text.length && /[A-Za-z0-9_.]/.test(text[j]))
+        j++;
+      if (j > i + 1) {
+        tokens.push({ start: i, length: j - i, type: "alias" });
+        i = j;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (/[0-9]/.test(ch)) {
+      let j = i;
+      while (j < text.length && /[0-9.]/.test(text[j]))
+        j++;
+      tokens.push({ start: i, length: j - i, type: "number" });
+      i = j;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i;
+      while (j < text.length && /[A-Za-z0-9_]/.test(text[j]))
+        j++;
+      const word = text.slice(i, j).toLowerCase();
+      if (RQL_KEYWORDS.has(word)) {
+        tokens.push({ start: i, length: j - i, type: "keyword" });
+      } else if (RQL_FUNCTIONS.has(word)) {
+        tokens.push({ start: i, length: j - i, type: "function" });
+      }
+      i = j;
+      continue;
+    }
+    const two = text.slice(i, i + 2);
+    if (two === "<>" || two === "!=" || two === "<=" || two === ">=") {
+      tokens.push({ start: i, length: 2, type: "operator" });
+      i += 2;
+      continue;
+    }
+    if ("=<>+-*/%".includes(ch)) {
+      tokens.push({ start: i, length: 1, type: "operator" });
+      i++;
+      continue;
+    }
+    if ("()[],;".includes(ch)) {
+      tokens.push({ start: i, length: 1, type: "operator" });
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return tokens;
+}
+function buildSemanticData(model, ranges) {
+  const data = [];
+  let prevLine = -1;
+  let prevCol = -1;
+  for (const r of ranges) {
+    const lineText = model.getLineContent(r.line);
+    const start0 = r.startCol - 1;
+    const end0 = r.endCol - 1;
+    if (start0 < 0 || end0 > lineText.length || start0 >= end0)
+      continue;
+    const sub = lineText.slice(start0, end0);
+    const tokens = tokenizeRql(sub);
+    for (const t of tokens) {
+      const line0 = r.line - 1;
+      const col0 = start0 + t.start;
+      let deltaLine;
+      let deltaCol;
+      if (prevLine < 0) {
+        deltaLine = line0;
+        deltaCol = col0;
+      } else {
+        deltaLine = line0 - prevLine;
+        deltaCol = deltaLine === 0 ? col0 - prevCol : col0;
+      }
+      data.push(deltaLine, deltaCol, t.length, T[t.type], 0);
+      prevLine = line0;
+      prevCol = col0;
+    }
+  }
+  return new Uint32Array(data);
+}
+function registerRqlSemanticTokens(monaco) {
+  if (registered2)
+    return;
+  registered2 = true;
+  const legend = {
+    tokenTypes: LEGEND_TOKENS.slice(),
+    tokenModifiers: []
+  };
+  monaco.languages.registerDocumentSemanticTokensProvider("yaml", {
+    getLegend: () => legend,
+    provideDocumentSemanticTokens: (model, lastResultId) => {
+      const versionId = model.getVersionId();
+      const resultId = String(versionId);
+      if (cachedData && lastResultId === resultId && versionId === cachedVersion) {
+        return { resultId, data: cachedData };
+      }
+      const ranges = findRqlRanges(model);
+      const data = buildSemanticData(model, ranges);
+      cachedVersion = versionId;
+      cachedData = data;
+      return { resultId, data };
+    },
+    releaseDocumentSemanticTokens: () => {
+    }
+  });
+}
+var RQL_KEYWORDS, RQL_FUNCTIONS, RQL_FIELDS2, LEGEND_TOKENS, T, registered2, cachedVersion, cachedData;
+var init_rql_tokens = __esm({
+  "src/web/lib/monaco/rql-tokens.ts"() {
+    "use strict";
+    RQL_KEYWORDS = /* @__PURE__ */ new Set([
+      "select",
+      "from",
+      "where",
+      "group",
+      "having",
+      "order",
+      "limit",
+      "join",
+      "on",
+      "in",
+      "as",
+      "and",
+      "or",
+      "not",
+      "is",
+      "null",
+      "like",
+      "between",
+      "true",
+      "false",
+      "exists",
+      "asc",
+      "desc",
+      "cast",
+      "distinct",
+      "from_ext",
+      "join_ext",
+      "array_agg"
+    ]);
+    RQL_FUNCTIONS = /* @__PURE__ */ new Set([
+      "count",
+      "sum",
+      "avg",
+      "min",
+      "max",
+      "eq",
+      "ne",
+      "lt",
+      "gt",
+      "lte",
+      "gte",
+      "has",
+      "hasall",
+      "hasany",
+      "hasrole",
+      "hasusergroup",
+      "issuperadmin"
+    ]);
+    RQL_FIELDS2 = /* @__PURE__ */ new Set([
+      "condition",
+      "expression",
+      "constraint",
+      "rql",
+      "query"
+    ]);
+    LEGEND_TOKENS = [
+      "rqlKeyword",
+      "rqlFunction",
+      "rqlAlias",
+      "rqlString",
+      "rqlNumber",
+      "rqlOperator"
+    ];
+    T = {
+      keyword: 0,
+      // → rqlKeyword
+      function: 1,
+      // → rqlFunction
+      alias: 2,
+      // → rqlAlias
+      string: 3,
+      // → rqlString
+      number: 4,
+      // → rqlNumber
+      operator: 5
+      // → rqlOperator
+    };
+    registered2 = false;
+    cachedVersion = -1;
+    cachedData = null;
+  }
+});
+
+// src/web/lib/monaco/hovers/section-hints.ts
+var SECTION_HINTS;
+var init_section_hints = __esm({
+  "src/web/lib/monaco/hovers/section-hints.ts"() {
+    "use strict";
+    SECTION_HINTS = {
+      entities: "**entities** \u2014 \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u0430. \u041A\u043B\u044E\u0447\u0435\u0432\u044B\u0435 \u043F\u043E\u043B\u044F: `id` (PascalCase, \u226430), `attributes`, `label`, `description`.\n\n\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (`id`, `createdAt`, `createdBy`, `label`, `organizationId`, `domainId`, `entityId`, `version`, `updatedAt`, `updatedBy`, `tenantId`) \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u2014 \u043D\u0435 \u043E\u0431\u044A\u044F\u0432\u043B\u044F\u0439\u0442\u0435 \u0438\u0445.",
+      linkages: "**linkages** \u2014 \u0421\u0432\u044F\u0437\u0438 \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438. `type`: `1_1`, `1_n`, `n_n`. \u041F\u043E\u043B\u0435 `undirected: true` \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F `n_n`. `nameFrom` \u2014 \u0433\u043B\u0430\u0433\u043E\u043B\u044C\u043D\u044B\u0435 \u0444\u043E\u0440\u043C\u044B \u0441\u0442\u043E\u0440\u043E\u043D.",
+      dataTypes: "**dataTypes** \u2014 \u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u0441\u043A\u0438\u0435 \u0442\u0438\u043F\u044B: `Enum`, `Workflow`, `Table`. \u0421\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 `dataType:` \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0438\u043B\u0438 `entities[].attributes[].dataType`.",
+      views: "**views** \u2014 \u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F: `entity`, `list`, `tabs_list`, `dashboard`, `tree`, `dashboard_tree`.\n\n\u041D\u0435 \u043F\u0443\u0442\u0430\u0442\u044C \u0441 `views[].views[]` (panel/modal/page) \u0438 `views[].widgets[]`.",
+      actions: "**actions** \u2014 \u041D\u0430\u0431\u043E\u0440 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u043F\u043E\u043B\u0435\u0439 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 `type`:\n- `open_modal` \u2192 `modal` + `entity` + `operation`\n- `open_panel` \u2192 `panel` + `entity`\n- `open_page` \u2192 `view` + `entity` + `operation`\n- `bulk` \u2192 `entity` + `operation`\n- `automation` \u2192 `automation.id` (UUID)\n- `scenario` \u2192 `scenario` + `workerTag`",
+      menus: "**menus** \u2014 `root_group` (\u0440\u0430\u0437\u0434\u0435\u043B \u0441 `items[]`) \u0438\u043B\u0438 `root_menu` (\u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u043F\u0443\u043D\u043A\u0442). `route` \u0443\u043D\u0438\u043A\u0430\u043B\u0435\u043D. `placement`: `top` (\u0433\u043B\u0430\u0432\u043D\u043E\u0435 \u043C\u0435\u043D\u044E) \u0438\u043B\u0438 `settings`.",
+      dataRules: "**dataRules** \u2014 \u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445. `condition`: `true` \u0438\u043B\u0438 `!rql \u2026`. `readonly: true` \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u043D\u0435\u043B\u044C\u0437\u044F \u043E\u0441\u043B\u0430\u0431\u0438\u0442\u044C \u043F\u0440\u0430\u0432\u0438\u043B\u043E\u043C.",
+      mixins: "**mixins** \u2014 `type: view` (\u0442\u043E\u043B\u044C\u043A\u043E \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441) \u0438\u043B\u0438 `type: linkage` (\u0434\u0430\u043D\u043D\u044B\u0435 + \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441 \u0447\u0435\u0440\u0435\u0437 `1_1`/`1_n`). `weight` \u2014 \u043C\u0435\u043D\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442.",
+      sequences: "**sequences** \u2014 \u041D\u0435\u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u044B. `startFrom` \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E 1. \u0421\u0441\u044B\u043B\u0430\u0442\u044C\u0441\u044F \u0447\u0435\u0440\u0435\u0437 `attributes[].sequence`.",
+      counterColorPattern: "**counterColorPattern** \u2014 \u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432. `red` > `yellow`. \u0424\u043E\u0440\u043C\u0430\u0442\u044B: `1w2d3h5m` (\u0432\u0440\u0435\u043C\u044F) \u0438\u043B\u0438 `60%` \u2014 \u0432 \u0440\u0430\u043C\u043A\u0430\u0445 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0444\u043E\u0440\u043C\u0430\u0442 \u0435\u0434\u0438\u043D\u044B\u0439.",
+      trees: "**trees** \u2014 \u0414\u0435\u0440\u0435\u0432\u044C\u044F \u0441\u0432\u044F\u0437\u0435\u0439. `type`: `ordinary` / `orderable` (\u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430) / `multiparent` (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u041A\u0430\u0442\u0430\u043B\u043E\u0433\u0430, `n_n`). `maxDepth` \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0432\u0430\u0435\u0442 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C.",
+      transitiveLinkages: "**transitiveLinkages** \u2014 \u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u0447\u0435\u0440\u0435\u0437 `joins`. \u0414\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430 \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0441\u0432\u044F\u0437\u0438: `useForSearch: true` \u0432 linkage + `searchable: true` \u0432 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0435.",
+      exchangeSettings: "**exchangeSettings** \u2014 \u0418\u043C\u043F\u043E\u0440\u0442/\u044D\u043A\u0441\u043F\u043E\u0440\u0442. `noCmsSyn\u0441` \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u043A\u0438\u0440\u0438\u043B\u043B\u0438\u0447\u0435\u0441\u043A\u0443\u044E `\u0441` (U+0441) \u2014 \u0438\u0441\u0442\u043E\u0440\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0430\u0440\u0442\u0435\u0444\u0430\u043A\u0442 \u0441\u0438\u0441\u0442\u0435\u043C\u044B.",
+      uiRules: "**uiRules** \u2014 \u0423\u0441\u043B\u043E\u0432\u043D\u043E\u0435 \u0441\u043A\u0440\u044B\u0442\u0438\u0435, \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0438\u043B\u0435\u0439 \u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0441\u0442\u0438 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432/\u0433\u0440\u0443\u043F\u043F/\u043A\u043E\u043B\u043E\u043D\u043E\u043A. `effect`: `hidden`, `show`, `hiddenEmpty`, `readonly`, `editable`, `inherit`, `variant`.",
+      uiPresets: "**uiPresets** \u2014 \u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043D\u0430\u0431\u043E\u0440\u044B CSS-\u0441\u0432\u043E\u0439\u0441\u0442\u0432 (`color`, `font-weight`, `background-color`, `collapsed`). \u0421\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0438\u0437 `uiRules.rule.widgets[].presets`.",
+      medias: "**medias** \u2014 \u0418\u043A\u043E\u043D\u043A\u0438 \u0434\u0438\u0437\u0430\u0439\u043D-\u0441\u0438\u0441\u0442\u0435\u043C\u044B. `type: icon_name`, `iconName: <ID>`.",
+      accessRules: "**accessRules** \u2014 \u041F\u0440\u0430\u0432\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430: `create` / `edit` / `view` / `delete` / `launch`. `kind`: `permission`, `pass`, `condition`.",
+      localizations: "**localizations** \u2014 \u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 \u043F\u043E \u044F\u0437\u044B\u043A\u0430\u043C. \u041A\u043B\u044E\u0447\u0438 \u0447\u0435\u0440\u0435\u0437 `- key:`. `ordinal` \u2014 \u0444\u043E\u0440\u043C\u044B \u043C\u043D\u043E\u0436\u0435\u0441\u0442\u0432\u0435\u043D\u043D\u043E\u0433\u043E \u0447\u0438\u0441\u043B\u0430.",
+      permissions: "**permissions** \u2014 \u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F (\u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0438\u0437 `accessRules`)."
     };
   }
-  monaco.languages.registerCompletionItemProvider("yaml", {
-    triggerCharacters: ["e", "r", "t", "w", "a", "n"],
-    provideCompletionItems: (model, position) => {
-      try {
-        const hit = detectSnippetContext(model, position);
-        if (!hit)
-          return { suggestions: [] };
-        const word = model.getWordUntilPosition(position);
-        const range = {
-          startLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endLineNumber: position.lineNumber,
-          endColumn: word.endColumn
+});
+
+// src/web/lib/monaco/hovers/field-hints.ts
+var FIELD_HINTS, NESTED_VIEW_TYPE_HINT, GROUP_TYPE_HINT;
+var init_field_hints = __esm({
+  "src/web/lib/monaco/hovers/field-hints.ts"() {
+    "use strict";
+    FIELD_HINTS = {
+      id: {
+        entities: "**Data ID** \u2014 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 id \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. PascalCase, \u226430 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432. \u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043A\u0430\u043A `domain.tld/EntityId` \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430.",
+        views: "**View ID**. \u0414\u043B\u044F top-level \u2014 `entity_*`, `lists_*`, `tree_*`. \u0414\u043B\u044F nested \u2014 `panels_*`, `forms_*`, `pages_*`. \u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u0438\u0437 `actions[].view`.",
+        dataTypes: "**Data ID** \u0442\u0438\u043F\u0430 \u0434\u0430\u043D\u043D\u044B\u0445. PascalCase. \u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u0438\u0437 `attributes[].dataType`.",
+        linkages: "**Data ID** \u0441\u0432\u044F\u0437\u0438. PascalCase. \u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u0438\u0437 `widgets[].linkage`, `dataRules[].linkage`.",
+        menus: "**Data ID** \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0433\u043E \u043F\u0443\u043D\u043A\u0442\u0430 \u043C\u0435\u043D\u044E \u0438\u043B\u0438 `menu_*` (\u043F\u0443\u043D\u043A\u0442).",
+        "*": "**Data ID** \u2014 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435."
+      },
+      attributes: {
+        entities: "**attributes** \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u043B\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430: `id`, `name`, `dataType`, `constraints`. \u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 (`id`, `createdAt`, `createdBy`, `label`, `updatedAt`, `updatedBy`, `organizationId`, `domainId`, `entityId`, `tenantId`, `version`) \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u2014 \u0438\u0445 \u043D\u0435\u043B\u044C\u0437\u044F \u043F\u0435\u0440\u0435\u043E\u043F\u0440\u0435\u0434\u0435\u043B\u044F\u0442\u044C.",
+        linkages: "**attributes** \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u0432\u044F\u0437\u0438 (\u0441\u0432\u043E\u0438 \u043F\u043E\u043B\u044F, \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0435 \u043E\u0442 \u043F\u043E\u043B\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439).",
+        dataTypes: "**attributes** \u2014 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u0441\u043A\u043E\u0439 `Table`.",
+        views: "**attributes** \u2014 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B \u0441\u0432\u044F\u0437\u0438 (`widgets[].control.columns[]`) \u0438\u043B\u0438 \u0444\u0438\u043B\u044C\u0442\u0440.",
+        dataRules: "**attributes** \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u043A \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F `effect` \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (`hidden` / `readonly` / `required` / `default` / `allowed`).",
+        "*": "**attributes** \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432 \u0441 \u043F\u043E\u043B\u044F\u043C\u0438 `id`, `name`, `dataType`."
+      },
+      entity: {
+        attributes: "**entity** \u2014 \u0446\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0434\u043B\u044F `Reference`-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430. \u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u0430 \u043F\u0440\u0438 `dataType: Reference`. FQID \u2014 \u0435\u0441\u043B\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u0434\u0440\u0443\u0433\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435.",
+        linkages: "**side1 / side2** \u2014 \u0441\u0442\u043E\u0440\u043E\u043D\u044B \u0441\u0432\u044F\u0437\u0438. \u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u2014 `EntityId`, \u043A\u0440\u043E\u0441\u0441-\u0434\u043E\u043C\u0435\u043D \u2014 `domain.tld/EntityId`.",
+        mixins: "**entity** \u2014 \u043E\u0431\u044A\u0435\u043A\u0442 \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u043F\u0440\u0438\u043C\u0435\u0441\u0438: `{ from: <FQID>, to: <FQID> }`. \u041D\u0435 \u0441\u0442\u0440\u043E\u043A\u0430!",
+        views: "**entity** \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043A \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u043F\u0440\u0438\u0432\u044F\u0437\u0430\u043D view. \u0414\u043B\u044F `list` \u2014 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u0430.",
+        dataRules: "**entity** \u2014 \u0446\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (\u0434\u043B\u044F `target: entity` / `entityAttribute`).",
+        "*": "**entity** \u2014 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C."
+      },
+      label: {
+        entities: '**label** \u2014 \u0448\u0430\u0431\u043B\u043E\u043D \u043B\u0435\u0439\u0431\u043B\u0430. \u041F\u0440\u0438\u043C\u0435\u0440: `"{name} ({severity})"`. \u0412 \u0444\u0438\u0433\u0443\u0440\u043D\u044B\u0445 \u0441\u043A\u043E\u0431\u043A\u0430\u0445 \u2014 id \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0438\u0445 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F. \u041D\u0430\u0447\u043D\u0438\u0442\u0435 `{` \u2014 \u0443\u0432\u0438\u0434\u0438\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432.',
+        views: "**label** \u2014 \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F / \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438.",
+        "*": "**label** \u2014 \u0447\u0435\u043B\u043E\u0432\u0435\u043A\u043E\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u0439 \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A."
+      },
+      sequence: {
+        attributes: "**sequence** \u2014 \u043D\u0435\u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 Identifier (\u0441\u0447\u0451\u0442\u0447\u0438\u043A \u0438\u0437 `sequences[]`). **\u0412\u0437\u0430\u0438\u043C\u043E\u0438\u0441\u043A\u043B\u044E\u0447\u0430\u044E\u0449\u0435 \u0441 `template`** \u2014 \u0435\u0441\u043B\u0438 \u0443\u043A\u0430\u0437\u0430\u043D `template`, `sequence` \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F.",
+        "*": "**sequence** \u2014 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 `sequences[].id`."
+      },
+      template: {
+        attributes: "**template** \u2014 \u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 Identifier. \u041F\u043B\u0435\u0439\u0441\u0445\u043E\u043B\u0434\u0435\u0440\u044B: `{@inc}` (\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D), `{@prefix}`, `{@YYYY}`, `{@YY}`, `{@MM}`, `{@DD}`. **\u0412\u0437\u0430\u0438\u043C\u043E\u0438\u0441\u043A\u043B\u044E\u0447\u0430\u044E\u0449\u0435 \u0441 `sequence`**.",
+        "*": "**template** \u2014 \u0448\u0430\u0431\u043B\u043E\u043D \u0441\u0431\u043E\u0440\u043A\u0438 Identifier."
+      },
+      defaultPrefix: {
+        attributes: "**defaultPrefix** \u2014 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0434\u043B\u044F `{@prefix}`, \u0435\u0441\u043B\u0438 \u043D\u0438 \u043E\u0434\u043D\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E `prefixRules` \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u043B\u043E. \u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D, \u0435\u0441\u043B\u0438 \u0432 `template` \u0435\u0441\u0442\u044C `{@prefix}`."
+      },
+      incrementTemplate: {
+        attributes: "**incrementTemplate** \u2014 \u0441\u0442\u0440\u043E\u043A\u0430 \u0438\u0437 2\u201310 \u043D\u0443\u043B\u0435\u0439. \u0414\u043E\u0431\u0430\u0432\u043B\u044F\u0435\u0442 \u0432\u0435\u0434\u0443\u0449\u0438\u0435 \u043D\u0443\u043B\u0438: `0000` + `inc=16` \u2192 `0016`. \u041F\u0440\u0438 \u043F\u0435\u0440\u0435\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u0438 \u043D\u0443\u043B\u0438 \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442\u0441\u044F."
+      },
+      inherits: {
+        entities: "**inherits** (\u0441 `s`) \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044C\u0441\u043A\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041A\u0440\u043E\u0441\u0441-\u0434\u043E\u043C\u0435\u043D: `domain.tld/EntityId`.\n\n\u041D\u0435 \u043F\u0443\u0442\u0430\u0442\u044C \u0441 `inherit:` (\u0431\u0435\u0437 `s`) \u0443 views/groups/menu \u2014 \u044D\u0442\u043E \u0440\u0435\u0436\u0438\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F (`append`/`override`/`except`)."
+      },
+      inherit: {
+        views: "**inherit** (\u0431\u0435\u0437 `s`) \u2014 \u0440\u0435\u0436\u0438\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F. `append` \u2014 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C, `override` \u2014 \u043F\u0435\u0440\u0435\u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0438\u0442\u044C \u0446\u0435\u043B\u0438\u043A\u043E\u043C, `except` \u2014 \u0438\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u044B\u0435 (`except: [...]`).\n\n\u041D\u0435 \u043F\u0443\u0442\u0430\u0442\u044C \u0441 `inherits:` (\u0441 `s`) \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439.",
+        "*": "**inherit** \u2014 \u0440\u0435\u0436\u0438\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F: `append` / `override` / `except`."
+      },
+      readonly: {
+        attributes: "**readonly: true** \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435\u043B\u044C\u0437\u044F \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0438\u043A\u043E\u0433\u0434\u0430. \u041E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 `constraints: [{kind: readonly}]` \u0432 `dataRules` (\u044D\u0444\u0444\u0435\u043A\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 `condition`)."
+      },
+      undirected: {
+        linkages: "**undirected** \u2014 \u043D\u0435\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C. `true` \u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u043E **\u0442\u043E\u043B\u044C\u043A\u043E** \u043F\u0440\u0438 `type: n_n`. \u0414\u043B\u044F `1_1` \u0438 `1_n` \u0432\u0441\u0435\u0433\u0434\u0430 `false`."
+      },
+      side: {
+        linkages: "**side** \u2014 `1` \u2014 \u0441\u0442\u043E\u0440\u043E\u043D\u0430 `side1`, `2` \u2014 \u0441\u0442\u043E\u0440\u043E\u043D\u0430 `side2`.",
+        views: "**side** \u2014 \u043A\u0430\u043A\u0430\u044F \u0441\u0442\u043E\u0440\u043E\u043D\u0430 \u0441\u0432\u044F\u0437\u0438 \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u0442\u0441\u044F \u0432 \u0432\u0438\u0434\u0436\u0435\u0442\u0435. `1` \u2014 `side1`, `2` \u2014 `side2`.",
+        transitiveLinkages: "**side** \u2014 \u0441\u0442\u043E\u0440\u043E\u043D\u0430 \u0441\u0432\u044F\u0437\u0438, \u043F\u043E \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0438\u0434\u0451\u043C \u0432 \u0446\u0435\u043F\u043E\u0447\u043A\u0435."
+      },
+      searchable: {
+        linkages: "**searchable** (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E `true`) \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0438 `useForSearch: true` \u0443 \u0441\u0432\u044F\u0437\u0438."
+      },
+      useForSearch: {
+        linkages: "**useForSearch** (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E `false`) \u2014 \u0432\u043A\u043B\u044E\u0447\u0430\u0435\u0442 \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0441\u0432\u044F\u0437\u0438. \u0421\u0430\u043C\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u043D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 `searchable: true`."
+      },
+      weight: {
+        mixins: "**weight** \u2014 **\u043C\u0435\u043D\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442**. \u041F\u0440\u0438 \u0440\u0430\u0432\u0435\u043D\u0441\u0442\u0432\u0435 \u2014 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E `id`, `view` \u0432\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0440\u0430\u043D\u044C\u0448\u0435 `linkage`."
+      },
+      priority: {
+        menus: "**priority** \u2014 **\u0431\u043E\u043B\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435** (\u2265 1000). \u041F\u0440\u044F\u043C\u0430\u044F \u043F\u0440\u043E\u0442\u0438\u0432\u043E\u043F\u043E\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C `weight` \u0443 mixins!"
+      },
+      useForChild: {
+        mixins: "**useForChild** (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E `true`) \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442\u0441\u044F \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u043C\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438 (\u0435\u0441\u043B\u0438 \u0443 \u043D\u0438\u0445 \u0442\u043E \u0436\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435)."
+      },
+      isMixin: {
+        views: "**isMixin** (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E `false`) \u2014 \u0440\u0430\u0437\u0440\u0435\u0448\u0430\u0435\u0442 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u0432 \u043F\u0440\u0438\u043C\u0435\u0441\u0438 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u0440\u0438 `true` \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u043D\u0435 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \xAB\u043E\u0431\u044B\u0447\u043D\u044B\u043C\xBB \u043E\u0431\u0440\u0430\u0437\u043E\u043C."
+      },
+      hidden: {
+        dataTypes: "**hidden** \u2014 \u0441\u043A\u0440\u044B\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0437\u0430\u043F\u0438\u0441\u0438. \u0414\u043B\u044F \u0447\u0442\u0435\u043D\u0438\u044F \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043E\u0441\u0442\u0430\u0451\u0442\u0441\u044F \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u043C."
+      },
+      initial: {
+        dataTypes: "**initial** \u2014 id \u043D\u0430\u0447\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u0442\u0430\u0442\u0443\u0441\u0430 Workflow. \u0414\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u0432 `statuses[]`. \u0423 \u043D\u043E\u0432\u043E\u0433\u043E \u043E\u0431\u044A\u0435\u043A\u0442\u0430 \u0432\u0441\u0435\u0433\u0434\u0430 \u044D\u0442\u043E\u0442 \u0441\u0442\u0430\u0442\u0443\u0441 (`allowed` \u043D\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043F\u0440\u0438 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0438)."
+      },
+      effect: {
+        dataRules: "**effect** \u2014 `hidden` / `readonly` / `required` / `default` / `allowed`.\n\n\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F \u043F\u043E \u0442\u0438\u043F\u0430\u043C:\n- `hidden` \u2014 \u043D\u0435 \u0434\u043B\u044F Counter; \u043D\u0435 \u0441\u043E\u0432\u043C\u0435\u0449\u0430\u0442\u044C \u0441 readonly/required/default\n- `readonly` / `required` \u2014 \u043D\u0435 \u0434\u043B\u044F Counter/Identifier/\u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0445\n- `default` \u2014 \u043D\u0435 \u0434\u043B\u044F Attachment/Counter/Identifier/Reference/RQL/Table/Workflow\n- `allowed` \u2014 \u043D\u0435 \u0434\u043B\u044F Array/Counter/RQL/Table",
+        uiRules: "**effect** \u2014 `hidden` / `show` / `hiddenEmpty` / `readonly` / `editable` / `inherit` / `variant`."
+      },
+      target: {
+        dataRules: "**target** \u2014 `entity` (\u0432\u0441\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B), `entityAttribute` (\u0441\u0442\u0440\u043E\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B / \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0430\u0441\u0441\u0438\u0432\u0430, \u0442\u0440\u0435\u0431\u0443\u0435\u0442 `attribute:` + `nested:`), `linkage` (\u0441\u0432\u044F\u0437\u044C \u0438 \u0435\u0451 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B).",
+        uiRules: "**target** \u2014 `list_view` / `entity_view` / `entity_attribute`."
+      },
+      variant: {
+        views: "**variant** (\u0434\u043B\u044F tree) \u2014 `splitted` (\u041A\u0430\u0442\u0430\u043B\u043E\u0433, 2 \u043E\u043A\u043D\u0430) / `merged` (\u0434\u0435\u0440\u0435\u0432\u043E \u0432\u043D\u0443\u0442\u0440\u0438 \u0441\u043F\u0438\u0441\u043A\u0430)."
+      },
+      displayMode: {
+        views: "**displayMode** (linkage table) \u2014 `grouped` (\u0446\u0435\u043F\u043E\u0447\u043A\u0438 \u0432 1 \u0441\u0442\u0440\u043E\u043A\u0443 \u0447\u0435\u0440\u0435\u0437 \u0442\u0435\u0433\u0438) / `flat` (\u043F\u043E \u0441\u0442\u0440\u043E\u043A\u0435 \u043D\u0430 \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u044E) / \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u043E \u2014 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u044C \u0432 UI."
+      },
+      mode: {
+        views: "**mode** \u2014 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 \u0437\u0430\u0432\u0438\u0441\u0438\u0442:\n- `table.refresh.mode`: `manual` / `auto` / `all`\n- `join.search.mode`: `entity` / `linkage` / `both`"
+      },
+      behavior: {
+        views: "**behavior** (footer modal) \u2014 `run` (\u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439 \u0431\u0435\u0437 \u0437\u0430\u043A\u0440\u044B\u0442\u0438\u044F), `run_close` (\u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F, \u0437\u0430\u043A\u0440\u044B\u0442\u044C), `run_submit` (\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0444\u043E\u0440\u043C\u0443, \u043F\u043E\u0442\u043E\u043C \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439)."
+      },
+      operation: {
+        actions: "**operation** \u2014 `create` / `edit` \u0434\u043B\u044F `open_modal`; `create` / `edit` / `view` \u0434\u043B\u044F `open_page`; `remove` / `edit` / `edit_attribute` / `import` / `export` \u0434\u043B\u044F `bulk`."
+      },
+      page: {
+        actions: "**page** \u2014 `blank` (\u043D\u043E\u0432\u043E\u0435 \u043E\u043A\u043D\u043E) / `current` (\u0442\u0435\u043A\u0443\u0449\u0435\u0435). \u0422\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F `open_list` / `open_tree` / `open_view`."
+      },
+      placement: {
+        menus: "**placement** \u2014 `top` (\u0433\u043B\u0430\u0432\u043D\u043E\u0435 \u043C\u0435\u043D\u044E) / `settings` (\u0440\u0430\u0437\u0434\u0435\u043B \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438)."
+      },
+      noCmsSync: {
+        exchangeSettings: "\u26A0 \u0412 \u0438\u0441\u0445\u043E\u0434\u043D\u043E\u0439 \u0441\u0445\u0435\u043C\u0435 \u043F\u043E\u043B\u0435 \u043D\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F `noCmsSyn\u0441` \u0441 **\u043A\u0438\u0440\u0438\u043B\u043B\u0438\u0447\u0435\u0441\u043A\u043E\u0439 `\u0441`** (U+0441). \u042D\u0442\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0430\u0440\u0442\u0435\u0444\u0430\u043A\u0442 \u0441\u0438\u0441\u0442\u0435\u043C\u044B, \u043D\u043E \u0432 \u043A\u043E\u0434\u0435 \u0442\u0430\u043A."
+      },
+      upsertWith: {
+        exchangeSettings: "**upsertWith** \u2014 \u0435\u0441\u043B\u0438 \u0437\u0430\u0434\u0430\u043D\u043E, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F upsert \u043F\u043E \u044D\u0442\u0438\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0432\u043C\u0435\u0441\u0442\u043E `sdk.cms.sync`. \u0421\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0435 \u2192 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435; \u0438\u043D\u0430\u0447\u0435 \u2192 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435."
+      },
+      exportSystemAttributes: {
+        exchangeSettings: "**exportSystemAttributes** \u2014 \u0441\u043F\u0438\u0441\u043E\u043A id \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E, \u043B\u0438\u0431\u043E `all`."
+      },
+      addLinksView: {
+        views: "**addLinksView** \u2014 \u0441\u043F\u0438\u0441\u043E\u043A, \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C\u044B\u0439 \u043F\u0440\u0438 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0438 \u0441\u0432\u044F\u0437\u0438. \u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u0442\u0441\u044F \u0432 \u043C\u043E\u0434\u0430\u043B\u043A\u0435 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F."
+      },
+      contextPin: {
+        actions: "**contextPin** \u2014 `true` \u0437\u0430\u043F\u0440\u0435\u0449\u0430\u0435\u0442 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044E \u0441\u043D\u0438\u043C\u0430\u0442\u044C \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 \u0432 \u0444\u0438\u043B\u044C\u0442\u0440\u0435 (\u0434\u043B\u044F `open_list`)."
+      },
+      widgetId: {
+        actions: "**widgetId** \u2014 id \u0432\u0438\u0434\u0436\u0435\u0442\u0430 \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0438 (\u0434\u043B\u044F `open_list`). \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0438\u0442\u044C \u0438\u0437 `totalCount` \u0432 \u0441\u043F\u0438\u0441\u043E\u043A."
+      },
+      excludeOnGraph: {
+        linkages: "**excludeOnGraph** \u2014 `true` (\u0441\u043A\u0440\u044B\u0442\u044C), `off` (\u0441\u043A\u0440\u044B\u0442\u044C \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E, \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443), `false` (\u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C)."
+      },
+      iconColor: {
+        entities: "**iconColor** \u2014 \u0446\u0432\u0435\u0442 \u0438\u043A\u043E\u043D\u043A\u0438 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435. \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F: `red`, `pink`, `lightpink`, `orange`, `peach`, `yellow`, `green`, `lightgreen`, `turquoise`, `lightblue`, `blue`, `violet`, `purple`, `grey`.",
+        linkages: "**iconColor** \u2014 \u0446\u0432\u0435\u0442 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u0432\u044F\u0437\u0438 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435 (14 \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0445 \u0446\u0432\u0435\u0442\u043E\u0432)."
+      },
+      kind: {
+        dataTypes: "**kind** (constraints) \u2014 `required` / `range` (\u0447\u0438\u0441\u043B\u0430) / `length` / `regexp` / `size` (\u0444\u0430\u0439\u043B\u044B) / `mime_types` (\u0444\u0430\u0439\u043B\u044B) / `unique` (String/Integer/UUID/Reference/Array/Table).",
+        entities: "**kind** (\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C) \u2014 `abstract` / `regular` / `static`.",
+        accessRules: "**kind** (\u043F\u0440\u0430\u0432\u0438\u043B\u043E) \u2014 `permission` / `pass` / `condition`."
+      },
+      type: {
+        actions: "**type** \u2014 \u043D\u0430\u0431\u043E\u0440 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u043F\u043E\u043B\u0435\u0439 \u0441\u043C. \u0432 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0438 \u0441\u0435\u043A\u0446\u0438\u0438 `actions:`.",
+        views: "**type** (top-level view) \u2014 `entity` / `list` / `tabs_list` / `dashboard` / `tree` / `dashboard_tree`.",
+        linkages: "**type** \u2014 `1_1` / `1_n` / `n_n`."
+      },
+      action: {
+        views: "**action** \u2014 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 `actions[].id`. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 `table.actions[]`, `columns[].actions[]`, `buttons[]`, `footer[]`, `menu[]`, `widgets[type=action].action`.",
+        "*": "**action** \u2014 id \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (`actions[].id`)."
+      },
+      widget: {
+        views: "**widget** \u2014 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 `views[].widgets[].id`. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 `groups[].components[]`, `views[].actionPanel[]`, `uiRules.rule.widgets[]`.",
+        uiRules: "**widget** \u2014 id \u0432\u0438\u0434\u0436\u0435\u0442\u0430 view. \u041F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043A \u044D\u0442\u043E\u043C\u0443 \u0432\u0438\u0434\u0436\u0435\u0442\u0443 (\u0441\u043A\u0440\u044B\u0442\u044C / \u043F\u043E\u043A\u0430\u0437\u0430\u0442\u044C / \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0441\u0442\u0438\u043B\u044C).",
+        actions: "**widget** \u2014 id view-\u0432\u0438\u0434\u0436\u0435\u0442\u0430 \u0441\u0432\u044F\u0437\u0438 (`bulkSettings[].linkages.use[]`). \u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0432\u044F\u0437\u0438.",
+        mixins: "**widget** \u2014 id \u0432\u0438\u0434\u0436\u0435\u0442\u0430 \u0432 `views[].change.add.components[]` / `change.delete.components[]` / `replace.components[]`.",
+        "*": "**widget** \u2014 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 `views[].widgets[].id`."
+      },
+      rql: {
+        views: "**rql** \u2014 RQL-\u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 `visualization.variables.rql`, `runs_history.filter`.",
+        dataRules: "**rql** \u2014 RQL-\u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435 \u0432\u043D\u0443\u0442\u0440\u0438 `variables` \u0438\u043B\u0438 `filter`. \u0414\u043B\u044F \u0441\u0430\u043C\u043E\u0433\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 `condition`.",
+        "*": "**rql** \u2014 RQL-\u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435."
+      },
+      variables: {
+        views: "**variables** \u2014 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0432\u0438\u0434\u0436\u0435\u0442\u0430. \u0414\u043B\u044F `type: visualization` \u2014 \u043E\u0431\u044A\u0435\u043A\u0442 \u0441 `rql` (\u0437\u0430\u043F\u0440\u043E\u0441 \u043A \u0434\u0430\u043D\u043D\u044B\u043C). \u041F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 `{{id}}`, `{{attributeId}}` \u0431\u0435\u0440\u0443\u0442\u0441\u044F \u0438\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430 \u043E\u0431\u044A\u0435\u043A\u0442\u0430.",
+        "*": "**variables** \u2014 \u043E\u0431\u044A\u0435\u043A\u0442 \u043F\u0435\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0445 \u0432\u0438\u0434\u0436\u0435\u0442\u0430."
+      }
+    };
+    NESTED_VIEW_TYPE_HINT = "**type** (nested) \u2014 `panel` (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435) / `modal` (\u043C\u043E\u0434\u0430\u043B\u043A\u0430) / `page` (\u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430).";
+    GROUP_TYPE_HINT = "**type** (\u0433\u0440\u0443\u043F\u043F\u0430) \u2014 `block` / `form` / `tab` / `tabs` / `resizable_block_pair`.";
+  }
+});
+
+// src/web/lib/monaco/hovers/literal-hints.ts
+function buildMimeHover(value) {
+  const v = value.trim().toLowerCase();
+  if (MIME_HINTS[v])
+    return `**${v}** \u2014 ${MIME_HINTS[v]}`;
+  if (/^image\//.test(v))
+    return `**${v}** \u2014 \u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435`;
+  if (/^audio\//.test(v))
+    return `**${v}** \u2014 \u0430\u0443\u0434\u0438\u043E`;
+  if (/^video\//.test(v))
+    return `**${v}** \u2014 \u0432\u0438\u0434\u0435\u043E`;
+  if (/^text\//.test(v))
+    return `**${v}** \u2014 \u0442\u0435\u043A\u0441\u0442`;
+  return null;
+}
+function buildRegexpHover(value) {
+  const parts = [];
+  if (value.startsWith("^"))
+    parts.push("\u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 \u043D\u0430\u0447\u0430\u043B\u0430 \u0441\u0442\u0440\u043E\u043A\u0438");
+  if (value.endsWith("$"))
+    parts.push("\u0437\u0430\u043A\u0430\u043D\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u043A\u043E\u043D\u0446\u0435");
+  if (/\\d/.test(value))
+    parts.push("\u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0446\u0438\u0444\u0440\u044B (\\d)");
+  if (/\\w/.test(value))
+    parts.push("\u0441\u043B\u043E\u0432\u0435\u0441\u043D\u044B\u0435 \u0441\u0438\u043C\u0432\u043E\u043B\u044B (\\w)");
+  if (/\[a-z\]/i.test(value))
+    parts.push("\u0434\u0438\u0430\u043F\u0430\u0437\u043E\u043D \u0431\u0443\u043A\u0432");
+  if (/\{[0-9,]+\}/.test(value))
+    parts.push("\u043A\u0432\u0430\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u043E\u0432\u0442\u043E\u0440\u0435\u043D\u0438\u0439");
+  return `**regexp** \u2014 ${parts.length ? parts.join(", ") : "\u0440\u0435\u0433\u0443\u043B\u044F\u0440\u043D\u043E\u0435 \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435"}.
+
+\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C: [regex101.com](https://regex101.com/?regex=${encodeURIComponent(value)})`;
+}
+function buildTemplatePlaceholderHover(placeholder) {
+  switch (placeholder) {
+    case "{@inc}":
+      return "**{@inc}** \u2014 **\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D**. \u0418\u043D\u043A\u0440\u0435\u043C\u0435\u043D\u0442\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0447\u0451\u0442\u0447\u0438\u043A. \u0428\u0438\u0440\u0438\u043D\u0430 \u0438\u0437 `incrementTemplate`.";
+    case "{@prefix}":
+      return "**{@prefix}** \u2014 \u043F\u0440\u0435\u0444\u0438\u043A\u0441. \u0418\u0437 `prefixRules` \u043F\u043E \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044E, \u0438\u043D\u0430\u0447\u0435 `defaultPrefix`.";
+    case "{@YYYY}":
+      return "**{@YYYY}** \u2014 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 4 \u0446\u0438\u0444\u0440\u044B.";
+    case "{@YY}":
+      return "**{@YY}** \u2014 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 2 \u0446\u0438\u0444\u0440\u044B.";
+    case "{@MM}":
+      return "**{@MM}** \u2014 \u043C\u0435\u0441\u044F\u0446, 2 \u0446\u0438\u0444\u0440\u044B (01\u201312).";
+    case "{@DD}":
+      return "**{@DD}** \u2014 \u0434\u0435\u043D\u044C \u043C\u0435\u0441\u044F\u0446\u0430, 2 \u0446\u0438\u0444\u0440\u044B (01\u201331).";
+    default:
+      return null;
+  }
+}
+function buildLabelPlaceholderHover(attrId) {
+  return `**{${attrId}}** \u2014 \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \`${attrId}\`.`;
+}
+function buildColorHover(value) {
+  const v = value.trim();
+  const m = v.match(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (m) {
+    const hex = m[1];
+    const expanded = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+    const r = parseInt(expanded.slice(0, 2), 16);
+    const g = parseInt(expanded.slice(2, 4), 16);
+    const b = parseInt(expanded.slice(4, 6), 16);
+    return `**${v}** \u2014 rgb(${r}, ${g}, ${b})`;
+  }
+  return `**${v}** \u2014 CSS-\u0446\u0432\u0435\u0442`;
+}
+function buildConditionTrueHover() {
+  return "**condition: true** \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0432\u0441\u0435\u0433\u0434\u0430, \u0431\u0435\u0437 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438.\n\n\u0414\u043B\u044F `effect: hidden` \u044D\u0442\u043E \xAB\u0441\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u0435\u0433\u0434\u0430\xBB. \u041E\u0431\u044B\u0447\u043D\u043E \u043D\u0435 \u043D\u0443\u0436\u043D\u043E \u2014 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 RQL-\u0443\u0441\u043B\u043E\u0432\u0438\u0435.";
+}
+var MIME_HINTS;
+var init_literal_hints = __esm({
+  "src/web/lib/monaco/hovers/literal-hints.ts"() {
+    "use strict";
+    MIME_HINTS = {
+      "application/pdf": "PDF-\u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442",
+      "image/png": "PNG-\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
+      "image/jpeg": "JPEG-\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
+      "image/gif": "GIF-\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
+      "image/svg+xml": "SVG-\u0432\u0435\u043A\u0442\u043E\u0440",
+      "text/plain": "\u0422\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u0444\u0430\u0439\u043B",
+      "text/csv": "CSV",
+      "application/zip": "ZIP-\u0430\u0440\u0445\u0438\u0432",
+      "application/json": "JSON"
+    };
+  }
+});
+
+// src/web/lib/monaco/hovers/value-hints.ts
+function buildDataTypeHover(value, index, domain) {
+  const dt = index?.dataTypes?.find(
+    (d) => d.domainId === domain && d.id === value
+  );
+  if (!dt)
+    return null;
+  const headerParts = [`**${dt.id}** \u2014 ${dt.kind}`];
+  if (dt.name && dt.name !== dt.id)
+    headerParts.push(`\xAB${dt.name}\xBB`);
+  const bullets = [];
+  if (dt.kind === "Enum" && dt.values?.length) {
+    const shown = dt.values.slice(0, 8).join(", ");
+    bullets.push(
+      `- \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0439: ${dt.values.length}. \u041F\u0435\u0440\u0432\u044B\u0435: ${shown}${dt.values.length > 8 ? "\u2026" : ""}`
+    );
+  } else if (dt.kind === "Workflow" && dt.statuses?.length) {
+    const shown = dt.statuses.slice(0, 8).join(", ");
+    bullets.push(
+      `- \u0421\u0442\u0430\u0442\u0443\u0441\u043E\u0432: ${dt.statuses.length}. \u041F\u0435\u0440\u0432\u044B\u0435: ${shown}${dt.statuses.length > 8 ? "\u2026" : ""}`
+    );
+    if (dt.initial)
+      bullets.push(`- \u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439: \`${dt.initial}\``);
+  } else if (dt.kind === "Table" && dt.columns?.length) {
+    bullets.push(`- \u041A\u043E\u043B\u043E\u043D\u043E\u043A: ${dt.columns.length}`);
+  }
+  const blocks = [headerParts.join(" ")];
+  if (bullets.length > 0)
+    blocks.push(bullets.join("\n"));
+  if (dt.description)
+    blocks.push(dt.description);
+  return blocks.join("\n\n");
+}
+function buildIdentifierHover(model, line) {
+  const blockLines = [];
+  const lineText = model.getLineContent(line);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = line; i >= 1; i--) {
+    const t = model.getLineContent(i);
+    if (!t.trim())
+      continue;
+    const ind = (t.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < currentIndent) {
+      blockLines.unshift(t);
+      break;
+    }
+    blockLines.unshift(t);
+  }
+  for (let i = line + 1; i <= model.getLineCount(); i++) {
+    const t = model.getLineContent(i);
+    if (!t.trim())
+      continue;
+    const ind = (t.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < currentIndent)
+      break;
+    blockLines.push(t);
+  }
+  const seqLine = blockLines.find((l) => /^\s*sequence\s*:/.test(l));
+  const tmplLine = blockLines.find((l) => /^\s*template\s*:/.test(l));
+  if (seqLine && tmplLine) {
+    return "\u26A0 **\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442**: \u0434\u043B\u044F `Identifier` \u0437\u0430\u0434\u0430\u043D\u044B \u0438 `sequence`, \u0438 `template`. \u041E\u043D\u0438 \u0432\u0437\u0430\u0438\u043C\u043E\u0438\u0441\u043A\u043B\u044E\u0447\u0430\u044E\u0449\u0438\u0435 \u2014 \u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0434\u043D\u043E.";
+  }
+  return null;
+}
+function buildSequenceHover(value, index, domain) {
+  const seq2 = index?.sequences?.find(
+    (s) => s.domainId === domain && s.id === value
+  );
+  if (!seq2)
+    return null;
+  return `**${seq2.id}** \u2014 startFrom: ${seq2.startFrom}. \u041D\u0435\u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440.
+
+\u041F\u0440\u0438\u043C\u0435\u0440: ${seq2.startFrom}, ${seq2.startFrom + 1}, \u2026`;
+}
+function buildCounterPatternHover(value, index, domain) {
+  const p = index?.counterColorPatterns?.find(
+    (x) => x.domainId === domain && x.id === value
+  );
+  if (!p)
+    return null;
+  return `**${p.id}** \u2014 red: \`${p.red}\`, yellow: \`${p.yellow}\`.
+
+\u0421\u0447\u0451\u0442\u0447\u0438\u043A \u0441\u0442\u0430\u043D\u0435\u0442 \u0436\u0451\u043B\u0442\u044B\u043C \u043F\u0440\u0438 \u043F\u0440\u0435\u0432\u044B\u0448\u0435\u043D\u0438\u0438 \`${p.yellow}\`, \u043A\u0440\u0430\u0441\u043D\u044B\u043C \u2014 \`${p.red}\`.`;
+}
+function buildIconNameHover(value) {
+  return `**${value}** \u2014 \u0438\u043A\u043E\u043D\u043A\u0430 \u0438\u0437 \u0434\u0438\u0437\u0430\u0439\u043D-\u0441\u0438\u0441\u0442\u0435\u043C\u044B rui-icons. \u0421\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u2014 \u043F\u0440\u0435\u0432\u044C\u044E.`;
+}
+function buildRouteHover(value, model, currentLine) {
+  const matches = [];
+  const lineCount = model.getLineCount();
+  for (let i = 1; i <= lineCount; i++) {
+    if (i === currentLine)
+      continue;
+    const t = model.getLineContent(i);
+    const m = t.match(/^\s*(?:-\s+)?route\s*:\s*["']?([^\s"'#]+)["']?/);
+    if (m && m[1] === value)
+      matches.push(i);
+  }
+  if (matches.length > 0) {
+    return `\u26A0 **\u0414\u0443\u0431\u043B\u0438\u043A\u0430\u0442**: route \`${value}\` \u0443\u0436\u0435 \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0432 \u0441\u0442\u0440\u043E\u043A\u0430\u0445: ${matches.map((n) => `:${n}`).join(", ")}.
+
+\u041F\u043E\u043B\u0435 \`route\` \u0434\u043E\u043B\u0436\u043D\u043E \u0431\u044B\u0442\u044C \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u043C.`;
+  }
+  return null;
+}
+function buildActionHover(value, index, domain) {
+  if (!index?.actions)
+    return null;
+  const a = index.actions.find(
+    (x) => x.domainId === domain && x.id === value
+  );
+  if (!a) {
+    return `\u26A0 **${value}** \u2014 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0435`;
+  }
+  const headerParts = [`**${a.id}**`];
+  const bullets = [];
+  if (a.name && a.name !== a.id)
+    bullets.push(`- \`name\`: ${a.name}`);
+  if (a.type)
+    bullets.push(`- \`type\`: ${a.type}`);
+  if (a.entity)
+    bullets.push(`- \`entity\`: ${a.entity.split("/").pop()}`);
+  if (a.operation)
+    bullets.push(`- \`operation\`: ${a.operation}`);
+  if (a.modal)
+    bullets.push(`- \`modal\`: ${a.modal}`);
+  if (a.panel)
+    bullets.push(`- \`panel\`: ${a.panel}`);
+  if (a.view)
+    bullets.push(`- \`view\`: ${a.view}`);
+  if (a.automationId)
+    bullets.push(`- \`automation\`: ${a.automationId.slice(0, 8)}\u2026`);
+  if (a.scenario)
+    bullets.push(`- \`scenario\`: ${a.scenario}`);
+  if (a.workerTag)
+    bullets.push(`- \`workerTag\`: ${a.workerTag}`);
+  if (a.bulkSettings?.length)
+    bullets.push(`- \`bulkSettings\`: ${a.bulkSettings.length} \u0448\u0442.`);
+  const blocks = [headerParts.join(" ")];
+  if (bullets.length > 0)
+    blocks.push(bullets.join("\n"));
+  if (a.description)
+    blocks.push(a.description);
+  return blocks.join("\n\n");
+}
+function buildWidgetHover(value, index, domain) {
+  if (!index?.viewWidgets)
+    return null;
+  const w = index.viewWidgets.find(
+    (x) => x.domainId === domain && x.id === value
+  );
+  if (!w) {
+    return `\u26A0 **${value}** \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0435`;
+  }
+  const headerParts = [`**${w.id}**`];
+  const bullets = [];
+  if (w.type)
+    bullets.push(`- \`type\`: ${w.type}`);
+  if (w.controlType)
+    bullets.push(`- \`control\`: ${w.controlType}`);
+  if (w.parentViewId)
+    bullets.push(`- \`view\`: ${w.parentViewId}`);
+  if (w.attribute)
+    bullets.push(`- \`attribute\`: ${w.attribute}`);
+  if (w.linkage)
+    bullets.push(`- \`linkage\`: ${w.linkage}`);
+  if (w.side != null)
+    bullets.push(`- \`side\`: ${w.side}`);
+  if (w.joinId)
+    bullets.push(`- \`join\`: ${w.joinId}`);
+  if (w.addLinksView)
+    bullets.push(`- \`addLinksView\`: ${w.addLinksView}`);
+  if (w.openView)
+    bullets.push(`- \`openView\`: ${w.openView}`);
+  if (w.displayMode)
+    bullets.push(`- \`displayMode\`: ${w.displayMode}`);
+  if (w.actionIds?.length) {
+    const shown = w.actionIds.slice(0, 5).join(", ");
+    const suffix = w.actionIds.length > 5 ? ` \u2026+${w.actionIds.length - 5}` : "";
+    bullets.push(`- \`actions\`: ${shown}${suffix}`);
+  }
+  const blocks = [headerParts.join(" ")];
+  if (bullets.length > 0)
+    blocks.push(bullets.join("\n"));
+  return blocks.join("\n\n");
+}
+var init_value_hints = __esm({
+  "src/web/lib/monaco/hovers/value-hints.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/lib/monaco/hovers/index.ts
+function getSectionAt(model, line) {
+  for (let i = line; i >= 1; i--) {
+    const t = model.getLineContent(i);
+    if (!t.trim() || t.trim().startsWith("#"))
+      continue;
+    const m = t.match(/^([a-zA-Z_][\w]*)\s*:/);
+    if (m && !t.startsWith(" "))
+      return m[1];
+  }
+  return "";
+}
+function trySectionHover(model, pos) {
+  const line = pos.lineNumber;
+  const text = model.getLineContent(line);
+  const m = text.match(/^([a-zA-Z_][\w]*)\s*:/);
+  if (!m)
+    return null;
+  const key = m[1];
+  if (pos.column < 1 || pos.column > m[0].length)
+    return null;
+  const hint = SECTION_HINTS[key];
+  if (!hint)
+    return null;
+  return {
+    range: {
+      startLineNumber: line,
+      startColumn: 1,
+      endLineNumber: line,
+      endColumn: m[0].length + 1
+    },
+    contents: [{ value: hint }]
+  };
+}
+function tryFieldHover(model, pos, ctx2) {
+  const line = pos.lineNumber;
+  const text = model.getLineContent(line);
+  const m = text.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+  if (!m)
+    return null;
+  const fieldName = m[2];
+  const section = getSectionAt(model, line);
+  if (!section)
+    return null;
+  if (pos.column < 1 || pos.column > m[0].length)
+    return null;
+  const lineCtx = ctx2.lineMap?.lineContexts?.get(line);
+  const inNestedView = lineCtx?.breadcrumbs?.some(
+    (b) => b.type === "view"
+  );
+  const inGroup = lineCtx?.breadcrumbs?.some((b) => b.type === "group");
+  let hint = null;
+  if (fieldName === "type") {
+    if (section === "views" && inNestedView)
+      hint = NESTED_VIEW_TYPE_HINT;
+    else if (section === "views" && inGroup)
+      hint = GROUP_TYPE_HINT;
+  }
+  if (!hint) {
+    const sectionMap = FIELD_HINTS[fieldName];
+    if (sectionMap)
+      hint = sectionMap[section] || sectionMap["*"] || null;
+  }
+  if (!hint)
+    return null;
+  return {
+    range: {
+      startLineNumber: line,
+      startColumn: 1,
+      endLineNumber: line,
+      endColumn: m[0].length + 1
+    },
+    contents: [{ value: hint }]
+  };
+}
+function tryValueHover(model, pos, ctx2) {
+  const line = pos.lineNumber;
+  const text = model.getLineContent(line);
+  const m = text.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*([^\s#]+)/);
+  if (!m)
+    return null;
+  const fieldName = m[2];
+  let value = m[3];
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    value = value.slice(1, -1);
+  }
+  const valueStart = text.indexOf(value, m[1].length + fieldName.length + 2);
+  if (valueStart < 0)
+    return null;
+  if (pos.column < valueStart + 1 || pos.column > valueStart + value.length + 1)
+    return null;
+  const range = {
+    startLineNumber: line,
+    startColumn: valueStart + 1,
+    endLineNumber: line,
+    endColumn: valueStart + value.length + 1
+  };
+  let hint = null;
+  if (fieldName === "dataType") {
+    hint = buildDataTypeHover(value, ctx2.modelIndex, ctx2.currentDomain);
+  } else if (fieldName === "sequence") {
+    hint = buildSequenceHover(value, ctx2.modelIndex, ctx2.currentDomain);
+  } else if (fieldName === "counterColorPattern") {
+    hint = buildCounterPatternHover(value, ctx2.modelIndex, ctx2.currentDomain);
+  } else if (fieldName === "iconName") {
+    hint = buildIconNameHover(value);
+  } else if (fieldName === "route") {
+    hint = buildRouteHover(value, model, line);
+  } else if (fieldName === "mimeTypes" || fieldName === "mime_types") {
+    hint = buildMimeHover(value);
+  } else if (fieldName === "regexp") {
+    hint = buildRegexpHover(value);
+  } else if (fieldName === "color") {
+    hint = buildColorHover(value);
+  } else if (fieldName === "action") {
+    hint = buildActionHover(value, ctx2.modelIndex, ctx2.currentDomain);
+  } else if (fieldName === "widget") {
+    hint = buildWidgetHover(value, ctx2.modelIndex, ctx2.currentDomain);
+  }
+  if (!hint)
+    return null;
+  return { range, contents: [{ value: hint }] };
+}
+function tryLiteralHover(model, pos, ctx2) {
+  const line = pos.lineNumber;
+  const text = model.getLineContent(line);
+  if (/^\s*(?:-\s+)?condition\s*:\s*true\b/.test(text)) {
+    const start = text.indexOf("true");
+    if (start >= 0 && pos.column >= start + 1 && pos.column <= start + 5) {
+      return {
+        range: {
+          startLineNumber: line,
+          startColumn: start + 1,
+          endLineNumber: line,
+          endColumn: start + 5
+        },
+        contents: [{ value: buildConditionTrueHover() }]
+      };
+    }
+  }
+  const tmplM = text.match(/^\s*(?:-\s+)?template\s*:\s*(.+)$/);
+  if (tmplM) {
+    const value = tmplM[1];
+    const phRe = /\{@\w+\}/g;
+    let m;
+    while ((m = phRe.exec(value)) !== null) {
+      const col = tmplM[0].indexOf(value) + m.index + 1;
+      if (pos.column >= col && pos.column <= col + m[0].length) {
+        const hint = buildTemplatePlaceholderHover(m[0]);
+        if (hint) {
+          return {
+            range: {
+              startLineNumber: line,
+              startColumn: col,
+              endLineNumber: line,
+              endColumn: col + m[0].length
+            },
+            contents: [{ value: hint }]
+          };
+        }
+      }
+    }
+  }
+  const labelM = text.match(/^\s*(?:-\s+)?label\s*:\s*(.+)$/);
+  if (labelM) {
+    const value = labelM[1];
+    const re = /\{([a-zA-Z_][\w]*)\}/g;
+    let m;
+    while ((m = re.exec(value)) !== null) {
+      const col = labelM[0].indexOf(value) + m.index + 1;
+      if (pos.column >= col && pos.column <= col + m[0].length) {
+        return {
+          range: {
+            startLineNumber: line,
+            startColumn: col,
+            endLineNumber: line,
+            endColumn: col + m[0].length
+          },
+          contents: [{ value: buildLabelPlaceholderHover(m[1]) }]
         };
-        const suggestions = SNIPPETS.filter(
-          (sn) => Array.isArray(sn.contexts) && sn.contexts.includes(hit.context)
-        ).map((sn) => ({
-          label: `\u2728 ${sn.prefix}`,
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertText: "\n" + sn.body.split("\n").map((l) => hit.indent + l).join("\n") + "\n",
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          filterText: sn.prefix,
-          sortText: "zzzz_" + sn.prefix,
-          detail: sn.description,
-          documentation: `Snippet: ${sn.description}`,
-          range
-        }));
-        return { suggestions };
+      }
+    }
+  }
+  const rqlM = text.match(/^\s*(?:-\s+)?rql\s*:\s*(.+)$/);
+  if (rqlM) {
+    const value = rqlM[1];
+    const phRe = /\{\{([a-zA-Z_][\w]*)\}\}/g;
+    let m;
+    while ((m = phRe.exec(value)) !== null) {
+      const col = rqlM[0].indexOf(value) + m.index + 1;
+      if (pos.column >= col && pos.column <= col + m[0].length) {
+        return {
+          range: {
+            startLineNumber: line,
+            startColumn: col,
+            endLineNumber: line,
+            endColumn: col + m[0].length
+          },
+          contents: [
+            {
+              value: `**{{${m[1]}}}** \u2014 \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \`${m[1]}\` \u0438\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430 \u043E\u0431\u044A\u0435\u043A\u0442\u0430.`
+            }
+          ]
+        };
+      }
+    }
+  }
+  return null;
+}
+function tryIdentifierConflict(model, pos) {
+  const line = pos.lineNumber;
+  const text = model.getLineContent(line);
+  if (!/^\s*(?:-\s+)?(?:sequence|template)\s*:/.test(text))
+    return null;
+  const hint = buildIdentifierHover(model, line);
+  if (!hint)
+    return null;
+  const m = text.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+  if (!m)
+    return null;
+  return {
+    range: {
+      startLineNumber: line,
+      startColumn: 1,
+      endLineNumber: line,
+      endColumn: m[0].length + 1
+    },
+    contents: [{ value: hint }]
+  };
+}
+function registerYamlHovers(monaco, getCtx) {
+  monaco.languages.registerHoverProvider("yaml", {
+    provideHover: (model, position) => {
+      try {
+        const ctx2 = getCtx();
+        const tryOne = (fn) => {
+          try {
+            return fn();
+          } catch {
+            return null;
+          }
+        };
+        const result = tryOne(() => tryIdentifierConflict(model, position)) || tryOne(() => trySectionHover(model, position)) || tryOne(() => tryLiteralHover(model, position, ctx2)) || tryOne(() => tryValueHover(model, position, ctx2)) || tryOne(() => tryFieldHover(model, position, ctx2));
+        return result;
       } catch (err) {
-        console.warn("[snippets-completion] failed", err);
-        return { suggestions: [] };
+        console.warn("[yaml-hovers]", err);
+        return null;
       }
     }
   });
 }
-var registered;
-var init_snippets_completion = __esm({
-  "src/web/lib/monaco/snippets-completion.ts"() {
+var init_hovers = __esm({
+  "src/web/lib/monaco/hovers/index.ts"() {
     "use strict";
-    init_monaco_providers();
-    registered = false;
+    init_section_hints();
+    init_field_hints();
+    init_literal_hints();
+    init_value_hints();
   }
 });
 
@@ -55217,6 +56388,47 @@ function computeItemTypeFast(model, section, container, containerLine, container
     return "sortingByItem";
   return "";
 }
+function findWidgetTypeForLine(model, lineNumber) {
+  const currentIndent = (model.getLineContent(lineNumber).match(/^(\s*)/) || [
+    "",
+    ""
+  ])[1].length;
+  let widgetStart = -1;
+  let widgetIndent = -1;
+  for (let i = lineNumber; i >= 1; i--) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const dashM = line.match(/^(\s*)-\s+[a-zA-Z_][\w]*\s*:/);
+    if (dashM && dashM[1].length < currentIndent) {
+      widgetStart = i;
+      widgetIndent = dashM[1].length;
+      break;
+    }
+    if (ind === 0)
+      break;
+  }
+  if (widgetStart < 0)
+    return "";
+  const fieldIndent = widgetIndent + 2;
+  for (let i = widgetStart; i <= model.getLineCount(); i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (i > widgetStart && ind <= widgetIndent && /^\s*-\s/.test(line))
+      break;
+    if (i > widgetStart && ind < fieldIndent)
+      break;
+    if (ind === fieldIndent) {
+      const m = line.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+      if (m)
+        return m[1];
+    }
+  }
+  return "";
+}
 function findWidgetTypeForControl(model, controlLine) {
   if (controlLine < 1 || controlLine > model.getLineCount())
     return "";
@@ -55701,9 +56913,7 @@ function findContainerPath(model, position) {
     if (!line.trim() || line.trim().startsWith("#"))
       continue;
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-    if (indent > boundary)
-      continue;
-    if (indent === boundary && boundary > 0)
+    if (indent >= boundary)
       continue;
     if (indent === 0) {
       const m2 = line.match(/^([a-zA-Z_][\w]*)\s*:/);
@@ -55853,6 +57063,28 @@ function detectContextAtPosition(model, position, _lineContexts) {
   }
   if (!parentKey)
     return null;
+  const _containerPath = findContainerPath(model, position);
+  const _lastKey = _containerPath[_containerPath.length - 1];
+  if (_containerPath.length >= 2 && _containerPath[0] === "views" && _lastKey === "widgets") {
+    const wt = findWidgetTypeForLine(model, position.lineNumber);
+    const WIDGET_CTX = {
+      linked_objects_groups: "widgetLinkedObjectsGroups",
+      join: "widgetJoin",
+      history: "widgetHistory",
+      runs_history: "widgetRunsHistory",
+      comments: "widgetComments",
+      conversation: "widgetConversation",
+      visualization: "widgetVisualization",
+      diagram: "widgetDiagram",
+      calculation: "widgetCalculation",
+      template_editor: "widgetTemplateEditor",
+      addressBook: "widgetAddressBook",
+      external: "widgetExternal"
+    };
+    if (wt && WIDGET_CTX[wt])
+      return WIDGET_CTX[wt];
+    return "widget";
+  }
   if (section === "actions") {
     if (parentKey === "attributes" || parentKey === "linkages") {
       const insideBulk = isInsideBulkSettings(
@@ -56391,22 +57623,6 @@ function buildFieldSuggestion(monaco, field, range, needsLeadingSpace = false) {
     sortText: `${field.priority ?? (isRequired ? 0 : 1)}_${field.name}`,
     detail: `${field.type}${isRequired ? " \xB7 required" : ""}`,
     documentation: field.description,
-    range
-  };
-}
-function buildSnippetSuggestion(monaco, snippet2, range, currentIndent) {
-  const lines = snippet2.body.split("\n");
-  const indented = lines.map((line) => currentIndent + line).join("\n");
-  const insertText = "\n" + indented + "\n";
-  return {
-    label: `\u2728 ${snippet2.prefix}`,
-    kind: monaco.languages.CompletionItemKind.Snippet,
-    insertText,
-    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-    filterText: snippet2.prefix,
-    sortText: SORT.SNIPPET + snippet2.prefix,
-    detail: snippet2.description,
-    documentation: `Snippet: ${snippet2.description}`,
     range
   };
 }
@@ -57371,7 +58587,7 @@ function withKind(items, kind) {
   byKind.set(kind, cached);
   return cached;
 }
-function isInsideRql(model, position) {
+function isInsideRql2(model, position) {
   const lineText = model.getLineContent(position.lineNumber);
   const beforeCursor = lineText.slice(0, position.column - 1);
   const fm = beforeCursor.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*)$/);
@@ -57380,7 +58596,7 @@ function isInsideRql(model, position) {
     const rawValue = fm[3];
     if (/!rql\b/.test(rawValue))
       return true;
-    if (RQL_FIELDS2.has(fieldName)) {
+    if (RQL_FIELDS3.has(fieldName)) {
       const trimmedNoComment = rawValue.split("#")[0].trim();
       if (/^(true|false)$/i.test(trimmedNoComment))
         return false;
@@ -57399,7 +58615,7 @@ function isInsideRql(model, position) {
       );
       if (bm) {
         const fieldName = bm[2];
-        if (bm[3] || RQL_FIELDS2.has(fieldName))
+        if (bm[3] || RQL_FIELDS3.has(fieldName))
           return true;
       }
       return false;
@@ -57694,6 +58910,20 @@ function registerMonacoProviders(monaco) {
     registerSnippetsCompletion(monaco);
   } catch (err) {
     console.warn("[monaco] snippets completion init failed", err);
+  }
+  try {
+    registerRqlSemanticTokens(monaco);
+  } catch (err) {
+    console.warn("[monaco] rql tokens init failed", err);
+  }
+  try {
+    registerYamlHovers(monaco, () => ({
+      lineMap: ctx.lineMap,
+      modelIndex: ctx.modelIndex,
+      currentDomain: ctx.currentDomainId || ""
+    }));
+  } catch (err) {
+    console.warn("[monaco] yaml hovers init failed", err);
   }
   registerColorProvider(monaco, () => ctx);
   if (!monaco.editor.__dgOpenFqidRegistered) {
@@ -58110,7 +59340,7 @@ function registerMonacoProviders(monaco) {
           if (!ctx.modelIndex)
             return null;
           const Kind = monaco.languages.CompletionItemKind;
-          if (isInsideRql(model, position)) {
+          if (isInsideRql2(model, position)) {
             const aliasResult = buildRqlAliasCompletions(
               model,
               position,
@@ -58213,61 +59443,6 @@ function registerMonacoProviders(monaco) {
           if (!fieldMatch) {
             const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
             if (lineIndent === 0 && /^[a-zA-Z_][a-zA-Z0-9_]*\s*$/.test(beforeCursor)) {
-              let foundArrayCtx = null;
-              try {
-                const TOP_LEVEL_ARRAYS = {
-                  entities: "entityList",
-                  linkages: "linkageList",
-                  dataTypes: "dataTypeList",
-                  sequences: "sequenceList",
-                  actions: "actionList",
-                  views: "viewList",
-                  trees: "treeList",
-                  transitiveLinkages: "transitiveLinkageList",
-                  mixins: "mixinList",
-                  dataRules: "dataRuleList",
-                  medias: "mediaList",
-                  menus: "menuRootList",
-                  uiRules: "uiRuleList",
-                  uiPresets: "uiPresetList",
-                  accessRules: "accessRule",
-                  localizations: "localization",
-                  counterColorPatterns: "counterColorPattern",
-                  counterColorPattern: "counterColorPattern",
-                  widgets: "widget",
-                  permissions: "permission"
-                };
-                for (let i = position.lineNumber - 1; i >= 1; i--) {
-                  const pl = model.getLineContent(i);
-                  if (!pl.trim() || pl.trim().startsWith("#"))
-                    continue;
-                  const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-                  if (pIndent !== 0)
-                    continue;
-                  const m = pl.match(/^([a-zA-Z_][\w]*)\s*:\s*(#.*)?$/);
-                  if (m && TOP_LEVEL_ARRAYS[m[1]]) {
-                    foundArrayCtx = TOP_LEVEL_ARRAYS[m[1]];
-                  }
-                  break;
-                }
-              } catch (e) {
-                console.warn("[suggest] array-context detection failed", e);
-              }
-              if (foundArrayCtx) {
-                const snippetRange2 = {
-                  startLineNumber: position.lineNumber,
-                  startColumn: 1,
-                  endLineNumber: position.lineNumber,
-                  endColumn: wordAtPos.endColumn
-                };
-                const suggestions2 = SNIPPETS.filter(
-                  (sn) => sn.contexts.includes(foundArrayCtx)
-                ).map(
-                  (sn) => buildSnippetSuggestion(monaco, sn, snippetRange2, "  ")
-                );
-                if (suggestions2.length > 0)
-                  return { suggestions: suggestions2 };
-              }
               const rootItems = [
                 ["id", "\u0423\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043E\u043C\u0435\u043D\u0430 (FQDN)"],
                 ["name", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430"],
@@ -58375,18 +59550,6 @@ function registerMonacoProviders(monaco) {
               endLineNumber: position.lineNumber,
               endColumn: wordAtPos.endColumn
             };
-            SNIPPETS.forEach((sn) => {
-              if (sn.contexts.includes(context)) {
-                suggestions.push(
-                  buildSnippetSuggestion(
-                    monaco,
-                    sn,
-                    snippetRange,
-                    currentIndent
-                  )
-                );
-              }
-            });
             const fields = FIELD_DEFINITIONS[context] ?? FIELD_DEFINITIONS[context.replace(/List$/, "")];
             if (fields) {
               const range = {
@@ -61798,7 +62961,7 @@ function isInsideBulkSettings(getLine, startLine1Based, minIndent) {
 function resolvePathToContext(path) {
   if (path.length === 0)
     return null;
-  const direct = PATH_TO_CONTEXT[path.join(".")];
+  const direct = PATH_TO_CONTEXT2[path.join(".")];
   if (direct !== void 0)
     return direct;
   if (path.length === 3 && path[0] === "exchangeSettings" && path[1] === "entities") {
@@ -62570,7 +63733,7 @@ function isForeignDomainNotLoaded(ref, index) {
   );
   return loaded ? null : domain;
 }
-var KNOWN_VALUE_FIELDS, SORT, INLINE_COVERED_RULE_IDS, SYSTEM_ATTRIBUTES_FOR_COMPLETION, COMMON_ICON_NAMES, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, collectRefsCache, lastCtxCache, mkSimple, FIELD_DEFINITIONS, SNIPPETS, PATH_TO_CONTEXT, _colCache, withKindCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, QUICKFIX_SOURCES;
+var KNOWN_VALUE_FIELDS, INLINE_COVERED_RULE_IDS, SYSTEM_ATTRIBUTES_FOR_COMPLETION, COMMON_ICON_NAMES, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, collectRefsCache, lastCtxCache, mkSimple, FIELD_DEFINITIONS, SNIPPETS, PATH_TO_CONTEXT2, _colCache, withKindCache, RQL_FIELDS3, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, QUICKFIX_SOURCES;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
@@ -62585,6 +63748,8 @@ var init_monaco_providers = __esm({
     init_open_file();
     init_color_provider();
     init_snippets_completion();
+    init_rql_tokens();
+    init_hovers();
     KNOWN_VALUE_FIELDS = /* @__PURE__ */ new Set([
       // сущность
       "inherits",
@@ -62666,16 +63831,6 @@ var init_monaco_providers = __esm({
       "TimestampRange",
       "displayMode"
     ]);
-    SORT = {
-      SNIPPET: "zzzz_",
-      // всегда внизу
-      REQUIRED: "0_",
-      OPTIONAL: "1_",
-      SYSTEM_ATTR: "2_",
-      LOCAL_REF: "0_",
-      FOREIGN_REF: "9_",
-      FALLBACK_ATTR: "9_"
-    };
     INLINE_COVERED_RULE_IDS = /* @__PURE__ */ new Set([
       "naming/attribute-camelcase",
       "recommended/attribute-description",
@@ -63294,6 +64449,272 @@ var init_monaco_providers = __esm({
       documentation: descriptions?.[t]
     }));
     FIELD_DEFINITIONS = {
+      widgetLinkedObjectsGroups: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0432\u0438\u0434\u0436\u0435\u0442\u0430",
+          required: true
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "linked_objects_groups",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "linkages",
+          type: "array",
+          description: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438: [{ linkage, side? }]"
+        },
+        { name: "displayMode", type: "enum", description: "flat | grouped" },
+        {
+          name: "groupingBy",
+          type: "array",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0438"
+        },
+        {
+          name: "columns",
+          type: "array",
+          description: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438: [{ id, attribute?, join?, linkageAttribute? }]"
+        },
+        {
+          name: "actionIds",
+          type: "array",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u043C \u043C\u0435\u043D\u044E \u0441\u0442\u0440\u043E\u043A\u0438"
+        },
+        {
+          name: "control",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F (type: table)"
+        }
+      ],
+      widgetJoin: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "join", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "joinId",
+          type: "ref",
+          description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C",
+          required: true
+        },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+        },
+        { name: "aggregate", type: "object", description: "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E join" },
+        { name: "openView", type: "ref", description: "\u0421\u043F\u0438\u0441\u043E\u043A \u043F\u0440\u0438 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0435" }
+      ],
+      widgetHistory: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "history", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "eventStorageId",
+          type: "string",
+          description: "Id event-storage",
+          required: true
+        },
+        { name: "filter", type: "rql", description: "RQL-\u0444\u0438\u043B\u044C\u0442\u0440 \u0441\u043E\u0431\u044B\u0442\u0438\u0439" }
+      ],
+      widgetRunsHistory: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "runs_history", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "eventStorageId",
+          type: "string",
+          description: "Id event-storage",
+          required: true
+        },
+        { name: "filter", type: "rql", description: "RQL-\u0444\u0438\u043B\u044C\u0442\u0440" },
+        {
+          name: "filterSchemaId",
+          type: "string",
+          description: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043B\u044F RQL-\u0444\u0438\u043B\u044C\u0442\u0440\u0430"
+        }
+      ],
+      widgetComments: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "comments", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 Text \u0441 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u043C\u0438"
+        }
+      ],
+      widgetConversation: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "conversation", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "linkage",
+          type: "ref",
+          description: "\u0421\u0432\u044F\u0437\u044C \u0441 Message (\u0438\u0437 comm \u0434\u043E\u043C\u0435\u043D\u0430)",
+          required: true
+        },
+        {
+          name: "conversationTransports",
+          type: "array",
+          description: "\u0414\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0435 \u0442\u0440\u0430\u043D\u0441\u043F\u043E\u0440\u0442\u044B"
+        }
+      ],
+      widgetVisualization: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "visualization",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "schemaId",
+          type: "string",
+          description: "\u0421\u0445\u0435\u043C\u0430 \u0432\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438",
+          required: true
+        },
+        {
+          name: "variables",
+          type: "object",
+          description: "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0432\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438: { rql: 'SELECT \u2026' }"
+        },
+        {
+          name: "aggregate",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u0438 (\u0442\u0438\u043F \u0433\u0440\u0430\u0444\u0438\u043A\u0430)"
+        },
+        {
+          name: "join",
+          type: "ref",
+          description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \u0434\u043B\u044F \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u0438"
+        }
+      ],
+      widgetDiagram: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "diagram", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "schemaId",
+          type: "string",
+          description: "\u0421\u0445\u0435\u043C\u0430 \u0432\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438",
+          required: true
+        },
+        { name: "aggregate", type: "object", description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u0438" }
+      ],
+      widgetCalculation: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "calculation", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "calculation",
+          type: "object",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0440\u0430\u0441\u0447\u0451\u0442 { schemaId, id }",
+          required: true
+        }
+      ],
+      widgetTemplateEditor: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "template_editor",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 Attachment/Text \u0434\u043B\u044F \u0448\u0430\u0431\u043B\u043E\u043D\u0430"
+        }
+      ],
+      widgetAddressBook: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "addressBook", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 Reference \u0434\u043B\u044F \u0430\u0434\u0440\u0435\u0441\u043D\u043E\u0439 \u043A\u043D\u0438\u0433\u0438"
+        }
+      ],
+      widgetExternal: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          required: true
+        },
+        { name: "type", type: "enum", description: "external", required: true },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" },
+        { name: "widget", type: "string", description: "Id \u0432\u043D\u0435\u0448\u043D\u0435\u0433\u043E \u0432\u0438\u0434\u0436\u0435\u0442\u0430" }
+      ],
       sortingItem: [
         {
           name: "id",
@@ -66823,50 +68244,41 @@ var init_monaco_providers = __esm({
       ]
     };
     SNIPPETS = [
-      {
-        prefix: "newdataruleattr",
-        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430: \u0430\u0442\u0440\u0438\u0431\u0443\u0442",
-        contexts: ["dataRuleAttributeAction"],
-        body: [
-          "- attribute: ${1:attrId}",
-          "  constraint: !rql ${2:true}",
-          '  message: "${3:\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u043E\u0431 \u043E\u0448\u0438\u0431\u043A\u0435}"'
-        ].join("\n")
-      },
-      {
-        prefix: "newdatarulelink",
-        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430: \u0441\u0432\u044F\u0437\u044C",
-        contexts: ["dataRuleLinkageAction"],
-        body: [
-          "- linkage: ${1:myLinkage}",
-          "  side: ${2:1}",
-          "  constraint: !rql ${3:true}",
-          '  message: "${4:\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u043E\u0431 \u043E\u0448\u0438\u0431\u043A\u0435}"'
-        ].join("\n")
-      },
+      // ═══════════════════════════════════════════════════════════════════
+      // ENTITIES
+      // ═══════════════════════════════════════════════════════════════════
       {
         prefix: "newentity",
-        description: "\u041D\u043E\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
-        contexts: ["entityList", "entity"],
+        description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441 \u043F\u043E\u043B\u044F\u043C\u0438 \u0438 \u043F\u0440\u0438\u043C\u0435\u0440\u043E\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
+        contexts: ["entityList"],
         body: [
-          "- id: ${1:NewEntity}",
-          "  name: ${2:\u041D\u043E\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C}",
+          "- id: ${1:EntityId}",
+          "  name: ${2:Entity Name}",
           '  label: "{${3:id}}"',
-          "  description: ${4:\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438}",
+          "  description: ${4:Description}",
           "  attributes:",
           "    - id: ${5:name}",
-          "      name: ${6:\u0418\u043C\u044F}",
+          "      name: ${6:Name}",
           "      dataType: String"
         ].join("\n")
       },
       {
+        prefix: "newentitymin",
+        description: "\u041C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (\u0442\u043E\u043B\u044C\u043A\u043E id)",
+        contexts: ["entityList"],
+        body: "- id: ${1:EntityId}"
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // ATTRIBUTES — базовые
+      // ═══════════════════════════════════════════════════════════════════
+      {
         prefix: "newattr",
-        description: "\u041D\u043E\u0432\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442",
+        description: "\u0411\u0430\u0437\u043E\u0432\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (String)",
         contexts: ["attribute"],
         body: [
           "- id: ${1:attrId}",
-          "  name: ${2:\u041D\u043E\u0432\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442}",
-          "  description: ${3:\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430}",
+          "  name: ${2:Attribute Name}",
+          "  description: ${3:Description}",
           "  dataType: ${4:String}"
         ].join("\n")
       },
@@ -66876,7 +68288,7 @@ var init_monaco_providers = __esm({
         contexts: ["attribute"],
         body: [
           "- id: ${1:refAttr}",
-          "  name: ${2:\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C}",
+          "  name: ${2:Reference Name}",
           "  dataType: Reference",
           "  entity: ${3:TargetEntity}"
         ].join("\n")
@@ -66887,220 +68299,580 @@ var init_monaco_providers = __esm({
         contexts: ["attribute"],
         body: [
           "- id: ${1:arrayAttr}",
-          "  name: ${2:\u041C\u0430\u0441\u0441\u0438\u0432}",
+          "  name: ${2:Array Name}",
           "  dataType: Array",
           "  item:",
           "    dataType: ${3:String}"
         ].join("\n")
       },
       {
-        prefix: "newidentifier",
-        description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Identifier (\u0448\u0430\u0431\u043B\u043E\u043D + \u043F\u0440\u0435\u0444\u0438\u043A\u0441)",
+        prefix: "newattrarrayref",
+        description: "Array<Reference>",
         contexts: ["attribute"],
         body: [
-          "- id: ${1:iocId}",
-          "  name: ${2:\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440}",
+          "- id: ${1:arrayRef}",
+          "  name: ${2:Array Reference}",
+          "  dataType: Array",
+          "  item:",
+          "    dataType: Reference",
+          "    entity: ${3:TargetEntity}"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // ATTRIBUTES — типы данных
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "newattrtext",
+        description: "Text \u0441 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u043A\u043E\u0439 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0435\u0432",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Text}",
+          "  dataType: Text",
+          "  comments: true"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrcounter",
+        description: "Counter + counterColorPattern",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Counter}",
+          "  dataType: Counter",
+          "  counterColorPattern: ${3:counterColorId}"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrcase",
+        description: "Attachment \u0441 mime_types \u0438 size",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Attachment}",
+          "  dataType: Attachment",
+          "  constraints:",
+          "    - kind: mime_types",
+          "      mimeTypes:",
+          "        - ${3:image/png}",
+          "    - kind: size",
+          "      min: ${4:0}",
+          "      max: ${5:1024}"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrcaseopt",
+        description: "Attachment \u0431\u0435\u0437 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0439",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Attachment}",
+          "  dataType: Attachment"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrcalc",
+        description: "Calculation",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Calculation}",
+          "  dataType: Calculation",
+          "  calculation:",
+          "    schemaId: ${3:schemaId}",
+          "    id: ${4:calcId}"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrworkflow",
+        description: "Workflow (user-defined)",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Workflow}",
+          "  dataType: ${3:MyWorkflow}"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrtable",
+        description: "Table (user-defined)",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Table}",
+          "  dataType: ${3:MyTable}"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrreadonly",
+        description: "String readonly",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Readonly}",
+          "  dataType: String",
+          "  readonly: true"
+        ].join("\n")
+      },
+      {
+        prefix: "newattrunique",
+        description: "String unique",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:attrId}",
+          "  name: ${2:Unique}",
+          "  dataType: String",
+          "  constraints:",
+          "    - kind: unique"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // IDENTIFIER — 3 варианта
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "newidseq",
+        description: "Identifier \u0447\u0435\u0440\u0435\u0437 sequence",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:identAttr}",
+          "  name: ${2:Identifier}",
           "  dataType: Identifier",
-          '  template: "{@prefix}-{@YYYY}-{@MM}-{@inc}"',
-          "  defaultPrefix: ${3:INC}",
+          "  sequence: ${3:sequenceId}"
+        ].join("\n")
+      },
+      {
+        prefix: "newiddate",
+        description: "Identifier \u0441 \u0448\u0430\u0431\u043B\u043E\u043D\u043E\u043C \u0434\u0430\u0442\u044B",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:identAttr}",
+          "  name: ${2:Identifier}",
+          "  dataType: Identifier",
+          '  template: "{@prefix}-{@YYYY}-{@MM}-{@DD}-{@inc}"',
+          "  defaultPrefix: ${3:ID}",
           '  incrementTemplate: "0000"'
         ].join("\n")
       },
       {
+        prefix: "newidprefix",
+        description: "Identifier + prefixRules",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:identAttr}",
+          "  name: ${2:Identifier}",
+          "  dataType: Identifier",
+          '  template: "{@prefix}-{@inc}"',
+          "  defaultPrefix: ${3:ID}",
+          '  incrementTemplate: "0000"',
+          "  prefixRules:",
+          "    - id: ${4:ruleId}",
+          "      attribute: ${5:sourceAttr}",
+          "      source:",
+          "        entity: ${6:SourceEntity}",
+          "        key: ${7:keyAttr}",
+          "        value: ${8:valueAttr}"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // CONSTRAINTS — по одному
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "newreq",
+        description: "Constraint: required",
+        contexts: ["attributeConstraint"],
+        body: ["- kind: required", "  message: ${1:Field is required}"].join("\n")
+      },
+      {
+        prefix: "newrange",
+        description: "Constraint: range",
+        contexts: ["attributeConstraint"],
+        body: [
+          "- kind: range",
+          "  min: ${1:0}",
+          "  max: ${2:100}",
+          "  message: ${3:Out of range}"
+        ].join("\n")
+      },
+      {
+        prefix: "newregexp",
+        description: "Constraint: regexp",
+        contexts: ["attributeConstraint"],
+        body: [
+          "- kind: regexp",
+          '  regexp: "${1:^[a-z]+$}"',
+          "  message: ${2:Invalid format}"
+        ].join("\n")
+      },
+      {
+        prefix: "newlength",
+        description: "Constraint: length",
+        contexts: ["attributeConstraint"],
+        body: [
+          "- kind: length",
+          "  min: ${1:1}",
+          "  max: ${2:255}",
+          "  message: ${3:Invalid length}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmime",
+        description: "Constraint: mime_types",
+        contexts: ["attributeConstraint"],
+        body: [
+          "- kind: mime_types",
+          "  mimeTypes:",
+          "    - ${1:image/png}",
+          "    - ${2:image/jpeg}"
+        ].join("\n")
+      },
+      {
+        prefix: "newsize",
+        description: "Constraint: size",
+        contexts: ["attributeConstraint"],
+        body: [
+          "- kind: size",
+          "  min: ${1:0}",
+          "  max: ${2:1024}",
+          "  message: ${3:Invalid size}"
+        ].join("\n")
+      },
+      {
+        prefix: "newunique",
+        description: "Constraint: unique",
+        contexts: ["attributeConstraint"],
+        body: ["- kind: unique", "  message: ${1:Must be unique}"].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // LINKAGES
+      // ═══════════════════════════════════════════════════════════════════
+      {
         prefix: "newlinkage",
-        description: "\u041D\u043E\u0432\u0430\u044F \u0441\u0432\u044F\u0437\u044C",
+        description: "\u0421\u0432\u044F\u0437\u044C 1_n",
         contexts: ["linkageList", "linkage"],
         body: [
-          "- id: ${1:EntityA_EntityB}",
-          "  name: ${2:\u0421\u0432\u044F\u0437\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439}",
+          "- id: ${1:LinkageId}",
+          "  name: ${2:Linkage Name}",
           "  side1: ${3:EntityA}",
           "  side2: ${4:EntityB}",
-          "  type: ${5:1_n}",
-          "  undirected: ${6:false}",
+          "  type: 1_n",
+          "  undirected: false",
           "  nameFrom:",
-          "    side1: ${7:\u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442}",
-          "    side2: ${8:\u0412\u0445\u043E\u0434\u0438\u0442 \u0432}"
+          "    side1: ${5:Contains}",
+          "    side2: ${6:Belongs to}"
         ].join("\n")
       },
       {
-        prefix: "newrule",
-        description: "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u0430\u043D\u043D\u044B\u0445",
-        contexts: ["dataRuleList", "dataRule"],
+        prefix: "newlinkage11",
+        description: "\u0421\u0432\u044F\u0437\u044C 1_1",
+        contexts: ["linkageList", "linkage"],
         body: [
-          "- id: ${1:dataR_newRule}",
-          "  name: ${2:\u041D\u043E\u0432\u043E\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E}",
-          "  target: entity",
-          "  entity: ${3:SomeEntity}",
-          "  condition: !rql ${4:someAttr IS NOT NULL}",
-          "  rule:",
-          "    effect: ${5:required}",
-          "    attributes:",
-          "      - attribute: ${6:targetAttr}"
+          "- id: ${1:LinkageId}",
+          "  name: ${2:Linkage Name}",
+          "  side1: ${3:EntityA}",
+          "  side2: ${4:EntityB}",
+          "  type: 1_1",
+          "  undirected: false"
         ].join("\n")
       },
+      {
+        prefix: "newlinkage1n",
+        description: "\u0421\u0432\u044F\u0437\u044C 1_n",
+        contexts: ["linkageList", "linkage"],
+        body: [
+          "- id: ${1:LinkageId}",
+          "  name: ${2:Linkage Name}",
+          "  side1: ${3:EntityA}",
+          "  side2: ${4:EntityB}",
+          "  type: 1_n",
+          "  undirected: false"
+        ].join("\n")
+      },
+      {
+        prefix: "newlinkagenn",
+        description: "\u0421\u0432\u044F\u0437\u044C n_n (undirected)",
+        contexts: ["linkageList", "linkage"],
+        body: [
+          "- id: ${1:LinkageId}",
+          "  name: ${2:Linkage Name}",
+          "  side1: ${3:EntityA}",
+          "  side2: ${4:EntityB}",
+          "  type: n_n",
+          "  undirected: true"
+        ].join("\n")
+      },
+      {
+        prefix: "newlinkageattr",
+        description: "\u0421\u0432\u044F\u0437\u044C 1_n \u0441 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C",
+        contexts: ["linkageList", "linkage"],
+        body: [
+          "- id: ${1:LinkageId}",
+          "  name: ${2:Linkage Name}",
+          "  side1: ${3:EntityA}",
+          "  side2: ${4:EntityB}",
+          "  type: 1_n",
+          "  attributes:",
+          "    - id: ${5:attrId}",
+          "      name: ${6:Attribute Name}",
+          "      dataType: String"
+        ].join("\n")
+      },
+      {
+        prefix: "newlinkagesearch",
+        description: "\u0421\u0432\u044F\u0437\u044C \u0441 useForSearch",
+        contexts: ["linkageList", "linkage"],
+        body: [
+          "- id: ${1:LinkageId}",
+          "  name: ${2:Linkage Name}",
+          "  side1: ${3:EntityA}",
+          "  side2: ${4:EntityB}",
+          "  type: 1_n",
+          "  useForSearch: true",
+          "  attributes:",
+          "    - id: ${5:attrId}",
+          "      name: ${6:Attribute Name}",
+          "      dataType: String",
+          "      searchable: true"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // ACTIONS
+      // ═══════════════════════════════════════════════════════════════════
       {
         prefix: "newaction",
-        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u044F \u043C\u043E\u0434\u0430\u043B\u043A\u0438",
+        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 open_modal",
         contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:actions_newAction}",
-          "  name: ${2:\u041D\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435}",
+          "- id: ${1:actionId}",
+          "  name: ${2:Action Name}",
           "  type: open_modal",
-          "  modal: ${3:forms_newModal}",
-          "  entity: ${4:SomeEntity}",
-          "  operation: create"
+          "  modal: ${3:forms_modal}",
+          "  entity: ${4:Entity}",
+          "  operation: ${5:create}"
         ].join("\n")
       },
       {
-        prefix: "newview",
-        description: "Entity-view \u0441 \u0432\u0438\u0434\u0436\u0435\u0442\u0430\u043C\u0438 \u0438 \u0431\u043B\u043E\u043A\u043E\u043C",
-        contexts: ["viewList", "view"],
+        prefix: "newactopenpanel",
+        description: "open_panel",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:viewMyEntity}",
-          "  type: entity",
-          "  entity: ${2:MyEntity}",
-          "  widgets:",
-          "    - id: ${3:editors_id}",
-          "      type: attribute",
-          "      attribute: ${4:id}",
-          "  groups:",
-          "    - id: ${5:blocks_info}",
-          "      type: block",
-          "      layout:",
-          "        direction: column",
-          "      components:",
-          "        - widget: ${6:editors_id}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Open Panel}",
+          "  type: open_panel",
+          "  entity: ${3:Entity}",
+          "  panel: ${4:panelId}"
         ].join("\n")
       },
       {
-        prefix: "newlist",
-        description: "List-view (\u0441\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432)",
-        contexts: ["viewList", "view"],
+        prefix: "newactopenpage",
+        description: "open_page",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:lists_MyEntity}",
-          "  type: list",
-          "  source:",
-          "    type: operational",
-          "    entity: ${2:MyEntity}",
-          "  table:",
-          "    columns:",
-          "      - id: ${3:name}",
-          "        attribute: ${4:id}",
-          "        label: ${5:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Open Page}",
+          "  type: open_page",
+          "  entity: ${3:Entity}",
+          "  view: ${4:pageId}",
+          "  operation: view"
         ].join("\n")
       },
       {
-        prefix: "newwidget",
-        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
-        contexts: ["widget"],
+        prefix: "newactopenlist",
+        description: "open_list",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:editors_attr}",
-          "  type: attribute",
-          "  attribute: ${2:attrId}",
-          "  description: ${3:\u041F\u043E\u043B\u0435 \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Open List}",
+          "  type: open_list",
+          "  entity: ${3:Entity}",
+          "  view: ${4:listId}"
         ].join("\n")
       },
       {
-        prefix: "newgroup",
-        description: "\u0413\u0440\u0443\u043F\u043F\u0430 \u0442\u0438\u043F\u0430 block",
-        contexts: ["group"],
+        prefix: "newactopenlistref",
+        description: "open_list \u043F\u043E Reference",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:blocks_info}",
-          "  type: block",
-          "  description: ${2:\u0411\u043B\u043E\u043A \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u0438}",
-          "  layout:",
-          "    direction: column",
-          "  components:",
-          "    - widget: ${3:editors_id}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Open List by Ref}",
+          "  type: open_list",
+          "  entity: ${3:Entity}",
+          "  view: ${4:listId}",
+          "  attribute: ${5:refAttr}"
         ].join("\n")
       },
       {
-        prefix: "newsequence",
-        description: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C",
-        contexts: ["sequenceList", "sequence"],
+        prefix: "newactremovesingle",
+        description: "remove",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:MySequence}",
-          "  startFrom: ${2:1}",
-          "  description: ${3:\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Remove}",
+          "  type: remove",
+          "  entity: ${3:Entity}"
         ].join("\n")
       },
       {
-        prefix: "newmixin",
-        description: "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u044C",
-        contexts: ["mixinList", "mixin"],
+        prefix: "newactqr",
+        description: "generate_qr_code",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:mixin_new}",
-          "  type: view",
-          "  entity: ${2:TargetEntity}",
-          "  views:",
-          "    - id: ${3:mixin_view}",
-          "      type: tab",
-          "      to:",
-          "        tab: ${4:tabs_info}",
-          "      change:",
-          "        add:",
-          "          components:",
-          "            - widget: ${5:editors_id}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Generate QR}",
+          "  type: generate_qr_code",
+          "  entity: ${3:Entity}"
         ].join("\n")
       },
       {
-        prefix: "newmenu",
-        description: "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C",
-        contexts: ["menuList", "menu", "menuItem"],
+        prefix: "newactcopylink",
+        description: "copy_entity_link",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:menus_root}",
-          '  label: "${2:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0440\u0430\u0437\u0434\u0435\u043B\u0430}"',
-          "  route: ${3:/my-domain}",
-          "  type: root_group",
-          "  placement: top",
-          "  items:",
-          "    - id: ${4:menu_item}",
-          "      label: ${5:\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E}",
-          "      route: ${6:/my-domain/item}",
-          "      type: menu",
-          "      view: ${7:lists_MyEntity}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Copy Link}",
+          "  type: copy_entity_link",
+          "  entity: ${3:Entity}"
         ].join("\n")
       },
       {
-        prefix: "newmedia",
-        description: "\u0418\u043A\u043E\u043D\u043A\u0430",
-        contexts: ["mediaList", "media"],
+        prefix: "newactgraph",
+        description: "open_graph_view",
+        contexts: ["actionList", "action"],
         body: [
-          "- id: ${1:iconsMyIcon}",
-          "  description: ${2:\u0418\u043A\u043E\u043D\u043A\u0430 \u0434\u043B\u044F ...}",
-          "  type: icon_name",
-          "  iconName: ${3:folder}"
+          "- id: ${1:actionId}",
+          "  name: ${2:Open Graph}",
+          "  type: open_graph_view",
+          "  entity: ${3:Entity}",
+          "  openBoards: ${4:false}"
         ].join("\n")
       },
+      {
+        prefix: "newbulkdelete",
+        description: "bulk remove",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actionId}",
+          "  name: ${2:Bulk Remove}",
+          "  type: bulk",
+          "  entity: ${3:Entity}",
+          "  operation: remove"
+        ].join("\n")
+      },
+      {
+        prefix: "newbulkedit",
+        description: "bulk edit",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actionId}",
+          "  name: ${2:Bulk Edit}",
+          "  type: bulk",
+          "  entity: ${3:Entity}",
+          "  operation: edit",
+          "  attributes:",
+          "    type: specific",
+          "    use:",
+          "      - attribute: ${4:attr1}"
+        ].join("\n")
+      },
+      {
+        prefix: "newbulkattr",
+        description: "bulk edit_attribute",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actionId}",
+          "  name: ${2:Bulk Set Bool}",
+          "  type: bulk",
+          "  entity: ${3:Entity}",
+          "  operation: edit_attribute",
+          "  values:",
+          "    - attribute: ${4:isActive}",
+          "      value: ${5:true}",
+          "  control:",
+          "    type: bool_text",
+          '    trueText: "${6:Active}"',
+          '    falseText: "${7:Inactive}"'
+        ].join("\n")
+      },
+      {
+        prefix: "newautomationaction",
+        description: "automation",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actionId}",
+          "  name: ${2:Run Automation}",
+          "  type: automation",
+          "  entity: ${3:Entity}",
+          "  automation:",
+          "    id: ${4:00000000-0000-0000-0000-000000000000}"
+        ].join("\n")
+      },
+      {
+        prefix: "newscenarioaction",
+        description: "scenario",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actionId}",
+          "  name: ${2:Run Scenario}",
+          "  type: scenario",
+          "  entity: ${3:Entity}",
+          "  scenario: ${4:MyScenario}",
+          "  workerTag: ${5:default}"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // DATA TYPES
+      // ═══════════════════════════════════════════════════════════════════
       {
         prefix: "newenum",
-        description: "Enum-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445",
+        description: "Enum",
         contexts: ["dataTypeList", "dataType"],
         body: [
-          "- id: ${1:enumMyType}",
-          "  name: ${2:\u041D\u043E\u0432\u044B\u0439 enum}",
+          "- id: ${1:enumId}",
+          "  name: ${2:Enum Name}",
           "  dataType: Enum",
           "  values:",
           "    - id: ${3:value1}",
-          "      name: ${4:\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 1}",
+          "      name: ${4:Value 1}",
           "    - id: ${5:value2}",
-          "      name: ${6:\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 2}"
+          "      name: ${6:Value 2}"
+        ].join("\n")
+      },
+      {
+        prefix: "newenumstd",
+        description: "Enum: CRITICAL/HIGH/MEDIUM/LOW",
+        contexts: ["dataTypeList", "dataType"],
+        body: [
+          "- id: ${1:enumId}",
+          "  name: ${2:Severity}",
+          "  dataType: Enum",
+          "  values:",
+          "    - id: CRITICAL",
+          "      name: Critical",
+          '      color: "#EF4444"',
+          "    - id: HIGH",
+          "      name: High",
+          '      color: "#F97316"',
+          "    - id: MEDIUM",
+          "      name: Medium",
+          '      color: "#F59E0B"',
+          "    - id: LOW",
+          "      name: Low",
+          '      color: "#10B981"'
         ].join("\n")
       },
       {
         prefix: "newworkflow",
-        description: "Workflow-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445",
+        description: "Workflow",
         contexts: ["dataTypeList", "dataType"],
         body: [
-          "- id: ${1:workflowMyProcess}",
-          "  name: ${2:\u041D\u043E\u0432\u044B\u0439 workflow}",
+          "- id: ${1:workflowId}",
+          "  name: ${2:Workflow Name}",
           "  dataType: Workflow",
           "  initial: ${3:New}",
           "  statuses:",
           "    - id: ${4:New}",
-          "      name: ${5:\u041D\u043E\u0432\u044B\u0439}",
+          "      name: ${5:New}",
           "    - id: ${6:Done}",
-          "      name: ${7:\u0417\u0430\u0432\u0435\u0440\u0448\u0451\u043D}",
+          "      name: ${7:Done}",
           "  transitions:",
           "    - from: ${8:New}",
           "      to: ${9:Done}"
@@ -67108,16 +68880,16 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newtable",
-        description: "Table-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445",
+        description: "Table",
         contexts: ["dataTypeList", "dataType"],
         body: [
-          "- id: ${1:tableMyTable}",
-          "  name: ${2:\u041D\u043E\u0432\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430}",
+          "- id: ${1:tableId}",
+          "  name: ${2:Table Name}",
           "  dataType: Table",
           "  maxRows: ${3:100}",
           "  attributes:",
           "    - id: ${4:col1}",
-          "      name: ${5:\u041A\u043E\u043B\u043E\u043D\u043A\u0430 1}",
+          "      name: ${5:Column 1}",
           "      dataType: String"
         ].join("\n")
       },
@@ -67125,7 +68897,7 @@ var init_monaco_providers = __esm({
         prefix: "newenumvalue",
         description: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 Enum",
         contexts: ["enumValue"],
-        body: ["- id: ${1:value1}", "  name: ${2:\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 1}"].join("\n")
+        body: ["- id: ${1:value1}", "  name: ${2:Value 1}"].join("\n")
       },
       {
         prefix: "newworkflowstatus",
@@ -67133,8 +68905,8 @@ var init_monaco_providers = __esm({
         contexts: ["workflowStatus"],
         body: [
           "- id: ${1:status1}",
-          "  name: ${2:\u0421\u0442\u0430\u0442\u0443\u0441 1}",
-          "  description: ${3:\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435}"
+          "  name: ${2:Status 1}",
+          "  description: ${3:Description}"
         ].join("\n")
       },
       {
@@ -67143,289 +68915,50 @@ var init_monaco_providers = __esm({
         contexts: ["transition"],
         body: ["- from: ${1:StatusA}", "  to: ${2:StatusB}"].join("\n")
       },
+      // ═══════════════════════════════════════════════════════════════════
+      // VIEWS
+      // ═══════════════════════════════════════════════════════════════════
       {
-        prefix: "newconstraint",
-        description: "Constraint (required / range / regexp...)",
-        contexts: ["constraintsItem"],
-        body: ["- kind: ${1:required}", "  message: ${2:\u0422\u0435\u043A\u0441\u0442 \u043E\u0448\u0438\u0431\u043A\u0438}"].join("\n")
-      },
-      {
-        prefix: "newconstraintlen",
-        description: "Constraint: length \u0441 min/max",
-        contexts: ["constraintsItem"],
+        prefix: "newlistbasic",
+        description: "list-view (\u0442\u043E\u043B\u044C\u043A\u043E source)",
+        contexts: ["viewList", "view"],
         body: [
-          "- kind: length",
-          "  min: ${1:1}",
-          "  max: ${2:255}",
-          "  message: ${3:\u041D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u0430\u044F \u0434\u043B\u0438\u043D\u0430}"
-        ].join("\n")
-      },
-      {
-        prefix: "newprefixrule",
-        description: "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u043F\u0440\u0435\u0444\u0438\u043A\u0441\u0430",
-        contexts: ["prefixRule"],
-        body: [
-          "- id: ${1:Rule_1}",
-          "  attribute: ${2:attrId}",
+          "- id: ${1:listId}",
+          "  label: ${2:List Label}",
+          "  type: list",
           "  source:",
-          "    entity: ${3:SomeDict}",
-          "    key: ${4:fullName}",
-          "    value: ${5:shortCode}"
-        ].join("\n")
-      },
-      {
-        prefix: "newprojection",
-        description: "\u041F\u0440\u043E\u0435\u043A\u0446\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
-        contexts: ["entity"],
-        body: [
-          "projection:",
-          "  - attribute: ${1:name}",
-          "  - attribute: ${2:description}"
-        ].join("\n")
-      },
-      {
-        prefix: "newsearching",
-        description: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
-        contexts: ["entity"],
-        body: [
-          "searching:",
-          "  attributes:",
-          "    - ${1:id}",
-          "    - ${2:name}"
-        ].join("\n")
-      },
-      {
-        prefix: "newcountercolor",
-        description: "\u0426\u0432\u0435\u0442\u043E\u0432\u0430\u044F \u0441\u0445\u0435\u043C\u0430 \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0430",
-        contexts: ["counterColorPattern"],
-        body: [
-          "- id: ${1:counterColorTime}",
-          "  red: ${2:60%}",
-          "  yellow: ${3:40%}"
-        ].join("\n")
-      },
-      {
-        prefix: "newtree",
-        description: "\u0414\u0435\u0440\u0435\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439 (1 \u0443\u0440\u043E\u0432\u0435\u043D\u044C)",
-        contexts: ["treeList", "tree"],
-        body: [
-          "- id: ${1:MyTree}",
-          "  type: ordinary",
-          "  maxDepth: ${2:5}",
-          "  hierarchy:",
-          "    entity: ${3:RootEntity}",
-          "    maxInstances: ${4:1}",
-          "    children:",
-          "      - linkage: ${5:RootToChild}",
-          "        entity: ${6:ChildEntity}",
-          "        side: ${7:1}",
-          "  sorting:",
-          "    - id: ${8:sorting_name}",
-          "      name: ${9:\u041F\u043E \u043D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044E}",
-          "      by:",
-          "        - entity: ${10:RootEntity}",
-          "          by:",
-          "            - attribute: ${11:name}",
-          "              direction: asc"
-        ].join("\n")
-      },
-      {
-        prefix: "newtransitive",
-        description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C (1 \u0445\u043E\u043F)",
-        contexts: ["transitiveLinkageList", "transitiveLinkage"],
-        body: [
-          "- id: ${1:MyTransitiveTree}",
-          "  entity: ${2:StartEntity}",
-          "  description: ${3:\u0426\u0435\u043F\u043E\u0447\u043A\u0430 \u0441\u0432\u044F\u0437\u0435\u0439}",
-          "  joins:",
-          "    - id: ${4:join1}",
-          "      linkage: ${5:StartToMiddle}",
-          "      search:",
-          "        enable: true",
-          "        mode: both"
-        ].join("\n")
-      },
-      {
-        prefix: "newjoins",
-        description: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0445\u043E\u043F \u0432 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u043E\u0439 \u0441\u0432\u044F\u0437\u0438",
-        contexts: ["transitiveJoin"],
-        body: [
-          "- id: ${1:join_next}",
-          "  linkage: ${2:NextLinkage}",
-          "  search:",
-          "    enable: ${3:true}",
-          "    mode: ${4:both}"
-        ].join("\n")
-      },
-      {
-        prefix: "newuirule",
-        description: "UI Rule: \u0441\u043A\u0440\u044B\u0442\u044C \u0432\u0438\u0434\u0436\u0435\u0442",
-        contexts: ["uiRuleList", "uiRule"],
-        body: [
-          "- id: ${1:hiddenWidget}",
-          "  name: ${2:\u0421\u043A\u0440\u044B\u0442\u044C \u0432\u0438\u0434\u0436\u0435\u0442}",
-          "  target: entity_view",
-          "  view: ${3:entityView}",
-          "  condition: !rql ${4:true}",
-          "  rule:",
-          "    effect: hidden",
-          "    widgets:",
-          "      - widget: ${5:editors_id}"
-        ].join("\n")
-      },
-      {
-        prefix: "newuirulevariant",
-        description: "UI Rule: \u0432\u0430\u0440\u0438\u0430\u043D\u0442 \u0441 \u043F\u0440\u0435\u0441\u0435\u0442\u0430\u043C\u0438",
-        contexts: ["uiRuleList", "uiRule"],
-        body: [
-          "- id: ${1:variantRule}",
-          "  name: ${2:\u0426\u0432\u0435\u0442\u043E\u0432\u0430\u044F \u0432\u0430\u0440\u0438\u0430\u0446\u0438\u044F}",
-          "  target: entity_view",
-          "  view: ${3:entityView}",
-          '  condition: !rql ${4:@doc.status = "CRITICAL"}',
-          "  rule:",
-          "    effect: variant",
-          "    widgets:",
-          "      - widget: ${5:editors_status}",
-          "        presets:",
-          "          - ${6:redPreset}"
-        ].join("\n")
-      },
-      {
-        prefix: "newuirulenested",
-        description: "UI Rule: \u0441\u043A\u0440\u044B\u0442\u044C \u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
-        contexts: ["uiRuleList", "uiRule"],
-        body: [
-          "- id: ${1:hiddenTableColumn}",
-          "  name: ${2:\u0421\u043A\u0440\u044B\u0442\u044C \u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u0432 \u0442\u0430\u0431\u043B\u0438\u0446\u0435}",
-          "  target: entity_attribute",
-          "  view: ${3:entityView}",
-          "  condition: !rql ${4:true}",
-          "  rule:",
-          "    effect: hidden",
-          "    widgets:",
-          "      - widget: ${5:editors_table}",
-          "        nested:",
-          "          type: table",
-          "          attributes:",
-          "            - attribute: ${6:col1}"
-        ].join("\n")
-      },
-      {
-        prefix: "newuipreset",
-        description: "UI Preset (\u0441\u0442\u0438\u043B\u0438)",
-        contexts: ["uiPresetList", "uiPreset"],
-        body: [
-          "- id: ${1:redPreset}",
-          "  description: ${2:\u041A\u0440\u0430\u0441\u043D\u044B\u0439 \u0444\u043E\u043D}",
-          "  props:",
-          "    color: ${3:#ff0000}",
-          "    font-weight: ${4:bold}"
-        ].join("\n")
-      },
-      {
-        prefix: "newpresetref",
-        description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0440\u0435\u0441\u0435\u0442 \u0432 widgets/groups/columns",
-        contexts: ["uiRuleWidget", "uiRuleGroup", "uiRuleColumn"],
-        body: ["presets:", "  - ${1:redPreset}"].join("\n")
-      },
-      {
-        prefix: "newbulkdelete",
-        description: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435: \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435",
-        contexts: ["actionList", "action"],
-        body: [
-          "- id: ${1:actions_bulkRemove}",
-          "  name: ${2:\u0423\u0434\u0430\u043B\u0438\u0442\u044C}",
-          "  type: bulk",
-          "  entity: ${3:SomeEntity}",
-          "  operation: remove"
-        ].join("\n")
-      },
-      {
-        prefix: "newbulkedit",
-        description: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435: \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
-        contexts: ["actionList", "action"],
-        body: [
-          "- id: ${1:actions_bulkEdit}",
-          "  name: ${2:\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C}",
-          "  type: bulk",
-          "  entity: ${3:SomeEntity}",
-          "  operation: edit",
-          "  attributes:",
-          "    type: specific",
-          "    use:",
-          "      - attribute: ${4:attr1}",
-          "      - attribute: ${5:attr2}"
-        ].join("\n")
-      },
-      {
-        prefix: "newbulkattr",
-        description: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435: \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (bool/workflow)",
-        contexts: ["actionList", "action"],
-        body: [
-          "- id: ${1:actions_bulkSetBool}",
-          "  name: ${2:\u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0444\u043B\u0430\u0433}",
-          "  type: bulk",
-          "  entity: ${3:SomeEntity}",
-          "  operation: edit_attribute",
-          "  values:",
-          "    - attribute: ${4:isActive}",
-          "      value: ${5:true}",
-          "  control:",
-          "    type: ${6:bool_text}",
-          '    trueText: "${7:\u0410\u043A\u0442\u0438\u0432\u0435\u043D}"',
-          '    falseText: "${8:\u041D\u0435\u0430\u043A\u0442\u0438\u0432\u0435\u043D}"'
-        ].join("\n")
-      },
-      {
-        prefix: "newautomationaction",
-        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438",
-        contexts: ["actionList", "action"],
-        body: [
-          "- id: ${1:actions_runAutomation}",
-          "  name: ${2:\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E}",
-          "  type: automation",
-          "  entity: ${3:SomeEntity}",
-          "  automation:",
-          "    id: ${4:3c521909-cc55-4b0c-b645-f79eb0263296}"
-        ].join("\n")
-      },
-      {
-        prefix: "newscenarioaction",
-        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F",
-        contexts: ["actionList", "action"],
-        body: [
-          "- id: ${1:actions_runScenario}",
-          "  name: ${2:\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439}",
-          "  type: scenario",
-          "  entity: ${3:SomeEntity}",
-          "  scenario: ${4:MyScenario}",
-          "  workerTag: ${5:default}"
+          "    type: operational",
+          "    entity: ${3:Entity}"
         ].join("\n")
       },
       {
         prefix: "newlisttable",
-        description: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 \u0441 3 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C\u0438",
+        description: "list-view \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439",
         contexts: ["viewList", "view"],
         body: [
           "table:",
           "  columns:",
           "    - id: ${1:id}",
-          "      attribute: ${2:id}",
-          "      label: ${3:\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440}",
+          "      attribute: id",
+          "      label: ID",
           "      layout:",
           "        width:",
-          "          default: ${4:100}",
-          "          min: 50",
-          "          max: 200",
-          "    - id: ${5:name}",
-          "      attribute: ${6:name}",
-          "      label: ${7:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435}",
-          "    - id: ${8:createdAt}",
-          "      attribute: createdAt",
-          "      label: \u0414\u0430\u0442\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F",
-          "      control:",
-          "        type: timestamp"
+          "          default: ${2:100}",
+          "    - id: ${3:name}",
+          "      attribute: name",
+          "      label: Name"
+        ].join("\n")
+      },
+      {
+        prefix: "newlistfilter",
+        description: "filter \u0431\u043B\u043E\u043A",
+        contexts: ["viewList", "view", "viewTable"],
+        body: [
+          "filter:",
+          "  attributes:",
+          "    type: ${1:all}",
+          "  linkages:",
+          "    type: ${2:all}"
         ].join("\n")
       },
       {
@@ -67435,17 +68968,15 @@ var init_monaco_providers = __esm({
         body: [
           "- id: ${1:colId}",
           "  attribute: ${2:attrId}",
-          "  label: ${3:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438}",
+          "  label: ${3:Column Label}",
           "  layout:",
           "    width:",
-          "      default: ${4:150}",
-          "      min: 50",
-          "      max: 300"
+          "      default: ${4:150}"
         ].join("\n")
       },
       {
         prefix: "newtablefilter",
-        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        description: "filter \u0434\u043B\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
         contexts: ["viewTable"],
         body: [
           "filter:",
@@ -67457,7 +68988,7 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newtablesorting",
-        description: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u043A\u043E\u043B\u043E\u043D\u043A\u0435",
+        description: "sortingBy",
         contexts: ["viewTable"],
         body: [
           "sortingBy:",
@@ -67471,7 +69002,7 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newtablepaging",
-        description: "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        description: "paging",
         contexts: ["viewTable"],
         body: [
           "paging:",
@@ -67484,7 +69015,7 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newtablerefresh",
-        description: "\u0410\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        description: "refresh",
         contexts: ["viewTable"],
         body: [
           "refresh:",
@@ -67497,134 +69028,215 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newtablerowclick",
-        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0443",
+        description: "row_click",
         contexts: ["viewTable"],
-        body: [
-          "actions:",
-          "  - type: row_click",
-          "    action: ${1:actions_openPanel}"
-        ].join("\n")
+        body: ["actions:", "  - type: row_click", "    action: ${1:actionId}"].join(
+          "\n"
+        )
       },
       {
         prefix: "newtablecontextmenu",
-        description: "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043C\u0435\u043D\u044E \u0441\u0442\u0440\u043E\u043A\u0438",
+        description: "row_context_menu",
         contexts: ["viewTable"],
         body: [
           "actions:",
           "  - type: row_context_menu",
           "    items:",
-          "      - action: ${1:actions_edit}",
-          "        label: ${2:\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C}",
-          "      - action: ${3:actions_remove}",
-          "        label: ${4:\u0423\u0434\u0430\u043B\u0438\u0442\u044C}"
+          "      - action: ${1:actionId}",
+          "        label: ${2:Edit}",
+          "      - action: ${3:actionId}",
+          "        label: ${4:Remove}"
         ].join("\n")
       },
       {
         prefix: "newtableaggregate",
-        description: "\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u0435\u0439 (count)",
+        description: "\u0410\u0433\u0440\u0435\u0433\u0430\u0442 count",
         contexts: ["viewTable"],
         body: [
-          "- id: ${1:linkedCount}",
-          "  label: ${2:\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445}",
-          "  join: ${3:my_join_id}",
+          "- id: ${1:aggId}",
+          "  label: ${2:Count}",
+          "  join: ${3:joinId}",
           "  aggregate:",
           "    type: count",
           "    condition: !rql ${4:true}"
         ].join("\n")
       },
       {
-        prefix: "newlistfull",
-        description: "\u041F\u043E\u043B\u043D\u044B\u0439 list-view \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C\u0438",
-        contexts: ["viewList", "view"],
+        prefix: "newpanelinfo",
+        description: "\u041F\u0430\u043D\u0435\u043B\u044C \u0441 tabs + block",
+        contexts: ["viewNested"],
         body: [
-          "- id: ${1:lists_MyEntity}",
-          "  type: list",
-          "  label: ${2:\u0421\u043F\u0438\u0441\u043E\u043A MyEntity}",
-          "  source:",
-          "    type: operational",
-          "    entity: ${3:MyEntity}",
-          "  table:",
-          "    columns:",
-          "      - id: ${4:id}",
-          "        attribute: id",
-          "        label: \u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
-          "      - id: ${5:name}",
-          "        attribute: name",
-          "        label: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435",
-          "    filter:",
-          "      attributes:",
-          "        type: all",
-          "      linkages:",
-          "        type: all",
-          "    sortingBy:",
-          "      defaults:",
-          "        column: ${6:name}",
-          "        direction: asc",
-          "    paging:",
-          "      sizes: [10, 50, 100]",
-          "      defaultSize: 20",
-          "    selection: true",
-          "    actions:",
-          "      - type: row_click",
-          "        action: ${7:actions_openPanel}"
+          "- id: ${1:panelId}",
+          "  type: panel",
+          "  label: ${2:Details}",
+          "  tabs:",
+          "    - tab: ${3:tabId}"
         ].join("\n")
       },
       {
-        prefix: "newentityview",
-        description: "Entity-view \u0441 \u043F\u0430\u043D\u0435\u043B\u044C\u044E \u0438 \u043C\u043E\u0434\u0430\u043B\u043A\u043E\u0439",
+        prefix: "newmodaledit",
+        description: "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:modalId}",
+          "  type: modal",
+          "  form: ${2:formId}",
+          "  label: ${3:Edit}",
+          "  buttons:",
+          "    - type: submit",
+          "      label: ${4:Save}",
+          "    - type: close",
+          "      label: ${5:Cancel}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmodal",
+        description: "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0431\u0435\u0437 buttons",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:modalId}",
+          "  type: modal",
+          "  form: ${2:formId}",
+          "  label: ${3:Create}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmodalbtn",
+        description: "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0441 \u043A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u043C\u0438 buttons",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:modalId}",
+          "  type: modal",
+          "  form: ${2:formId}",
+          "  label: ${3:Create}",
+          "  buttons:",
+          "    - type: submit",
+          "      label: ${4:Create}",
+          "      actions:",
+          "        - action: ${5:actionId}",
+          "    - type: close",
+          "      label: ${6:Cancel}"
+        ].join("\n")
+      },
+      {
+        prefix: "newpage",
+        description: "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:pageId}",
+          "  type: page",
+          "  menuItem: ${2:menuItemId}",
+          "  actionPanel:",
+          "    - widget: ${3:widgetId}",
+          "  tabs:",
+          "    - tab: ${4:tabId}",
+          "  pinnedView:",
+          "    block: ${5:blockId}",
+          "    position: top",
+          "    height: 30%"
+        ].join("\n")
+      },
+      {
+        prefix: "newtabslist",
+        description: "tabs_list",
         contexts: ["viewList", "view"],
         body: [
-          "- id: ${1:viewMyEntity}",
-          "  type: entity",
-          "  entity: ${2:MyEntity}",
+          "- id: ${1:viewId}",
+          "  type: tabs_list",
+          "  tabs:",
+          "    - ${1:listId}",
+          "  defaultTab: ${2:listId}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtreeview",
+        description: "tree-view splitted",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:viewId}",
+          "  type: tree",
+          "  entity: ${2:Entity}",
+          "  tree: ${3:treeId}",
+          "  variant: splitted",
+          "  catalogTitle: ${4:Catalog}",
+          "  list: ${5:listId}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtreemerged",
+        description: "tree-view merged",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:viewId}",
+          "  type: tree",
+          "  entity: ${2:Entity}",
+          "  tree: ${3:treeId}",
+          "  variant: merged",
+          "  table:",
+          "    columns: []"
+        ].join("\n")
+      },
+      {
+        prefix: "newdash",
+        description: "dashboard + 1 card",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:viewId}",
+          "  type: dashboard",
           "  widgets:",
-          "    - id: ${3:editors_id}",
-          "      type: attribute",
-          "      attribute: ${4:id}",
-          "    - id: ${5:editors_name}",
-          "      type: attribute",
-          "      attribute: ${6:name}",
-          "  groups:",
-          "    - id: ${7:blocks_info}",
-          "      type: block",
-          "      layout:",
-          "        direction: column",
-          "      components:",
-          "        - widget: ${8:editors_id}",
-          "        - widget: ${9:editors_name}",
-          "    - id: ${10:tabs_info}",
-          "      type: tab",
-          "      label: ${11:\u0414\u0435\u0442\u0430\u043B\u0438}",
-          "      components:",
-          "        - block: ${12:blocks_info}",
-          "    - id: ${13:blocks_forms_new}",
-          "      type: form",
-          "      layout:",
-          "        direction: column",
-          "      components:",
-          "        - widget: ${14:editors_id}",
-          "        - widget: ${15:editors_name}",
-          "  views:",
-          "    - id: ${16:panels_info}",
-          "      type: panel",
-          "      label: ${17:\u0414\u0435\u0442\u0430\u043B\u0438}",
-          "      tabs:",
-          "        - tab: ${18:tabs_info}",
-          "    - id: ${19:forms_new}",
-          "      type: modal",
-          "      form: ${20:blocks_forms_new}",
-          "      label: ${21:\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0435}"
+          "    - id: ${2:widgetId}",
+          "      type: card",
+          "  layout:",
+          "    type: grid",
+          "    columns: ${3:2}"
+        ].join("\n")
+      },
+      {
+        prefix: "newdashnav",
+        description: "dashboard_tree",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:viewId}",
+          "  type: dashboard_tree",
+          "  tree:",
+          "    - id: ${2:nodeId}",
+          "      entity: ${3:Entity}",
+          "      view: ${4:listId}"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // WIDGETS / GROUPS
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "newwidget",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:widgetId}",
+          "  type: ${2:attribute}",
+          "  attribute: ${3:attrId}",
+          "  description: ${4:Widget Description}"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidgetmin",
+        description: "\u041C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u0432\u0438\u0434\u0436\u0435\u0442",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:widgetId}",
+          "  type: ${2:attribute}",
+          "  attribute: ${3:attrId}"
         ].join("\n")
       },
       {
         prefix: "newwidgetattr",
-        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441 \u043A\u043E\u043D\u0442\u0440\u043E\u043B\u043E\u043C",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441 control",
         contexts: ["widget"],
         body: [
-          "- id: ${1:editors_attr}",
+          "- id: ${1:widgetId}",
           "  type: attribute",
           "  attribute: ${2:attrId}",
-          "  description: ${3:\u041F\u043E\u043B\u0435 \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F}",
+          "  description: ${3:Widget Description}",
           "  control:",
           "    type: ${4:text}"
         ].join("\n")
@@ -67634,14 +69246,14 @@ var init_monaco_providers = __esm({
         description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439",
         contexts: ["widget"],
         body: [
-          "- id: ${1:editors_linkage}",
+          "- id: ${1:widgetId}",
           "  type: linkage",
-          "  linkage: ${2:my_linkage_id}",
-          "  label: ${3:\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u044B}",
+          "  linkage: ${2:linkageId}",
+          "  label: ${3:Linked Objects}",
           "  side: ${4:2}",
           "  control:",
           "    type: table",
-          "    addLinksView: ${5:lists_MyEntity}",
+          "    addLinksView: ${5:listId}",
           "    columns:",
           "      - id: ${6:name}",
           "        attribute: name"
@@ -67652,26 +69264,64 @@ var init_monaco_providers = __esm({
         description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u043E\u0439 \u0441\u0432\u044F\u0437\u0438",
         contexts: ["widget"],
         body: [
-          "- id: ${1:widget_join}",
+          "- id: ${1:widgetId}",
           "  type: join",
-          "  joinId: ${2:my_join_id}",
+          "  joinId: ${2:joinId}",
           "  attribute: ${3:Name}",
-          "  label: ${4:\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435}"
+          "  label: ${4:Linked}"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidgetbulk",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 bulk \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:widgetId}",
+          "  type: action",
+          "  action: ${2:actionId}",
+          "  control:",
+          "    type: dropdown"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidgetconv",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 conversation",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:widgetId}",
+          "  type: conversation",
+          "  linkage: ${2:linkageId}",
+          "  conversationTransports:",
+          "    - ${3:transport}"
+        ].join("\n")
+      },
+      {
+        prefix: "newgroup",
+        description: "\u0413\u0440\u0443\u043F\u043F\u0430 block",
+        contexts: ["group"],
+        body: [
+          "- id: ${1:groupId}",
+          "  type: ${2:block}",
+          "  description: ${3:Group Description}",
+          "  layout:",
+          "    direction: column",
+          "  components:",
+          "    - widget: ${4:widgetId}"
         ].join("\n")
       },
       {
         prefix: "newblock",
-        description: "\u0413\u0440\u0443\u043F\u043F\u0430 \u0442\u0438\u043F\u0430 block",
+        description: "\u0411\u043B\u043E\u043A",
         contexts: ["group"],
         body: [
-          "- id: ${1:blocks_info}",
+          "- id: ${1:blockId}",
           "  type: block",
-          "  label: ${2:\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F}",
+          "  label: ${2:Info}",
           "  layout:",
           "    direction: column",
           "    expandable: false",
           "  components:",
-          "    - widget: ${3:editors_id}"
+          "    - widget: ${3:widgetId}"
         ].join("\n")
       },
       {
@@ -67679,19 +69329,19 @@ var init_monaco_providers = __esm({
         description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430",
         contexts: ["group"],
         body: [
-          "- id: ${1:tabs_info}",
+          "- id: ${1:tabId}",
           "  type: tab",
-          "  label: ${2:\u0414\u0435\u0442\u0430\u043B\u0438}",
+          "  label: ${2:Details}",
           "  components:",
-          "    - block: ${3:blocks_info}"
+          "    - block: ${3:blockId}"
         ].join("\n")
       },
       {
         prefix: "newform",
-        description: "\u0424\u043E\u0440\u043C\u0430 (modal form)",
+        description: "\u0424\u043E\u0440\u043C\u0430",
         contexts: ["group"],
         body: [
-          "- id: ${1:blocks_forms_new}",
+          "- id: ${1:formId}",
           "  type: form",
           "  layout:",
           "    direction: column",
@@ -67701,178 +69351,264 @@ var init_monaco_providers = __esm({
         ].join("\n")
       },
       {
-        prefix: "newpanel",
-        description: "\u041F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435)",
-        contexts: ["viewNested"],
+        prefix: "newgroupform",
+        description: "\u0424\u043E\u0440\u043C\u0430 (alias)",
+        contexts: ["group"],
         body: [
-          "- id: ${1:panels_info}",
-          "  type: panel",
-          "  label: ${2:\u0414\u0435\u0442\u0430\u043B\u0438}",
-          "  menu:",
-          "    - action: ${3:actions_edit}",
-          "  tabs:",
-          "    - tab: ${4:tabs_info}"
+          "- id: ${1:formId}",
+          "  type: form",
+          "  layout:",
+          "    direction: column",
+          "  components:",
+          "    - widget: ${2:editors_id}",
+          "    - widget: ${3:editors_name}"
         ].join("\n")
       },
       {
-        prefix: "newmodal",
-        description: "\u041C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E",
-        contexts: ["viewNested"],
+        prefix: "newgroupres",
+        description: "resizable_block_pair",
+        contexts: ["group"],
         body: [
-          "- id: ${1:forms_new}",
-          "  type: modal",
-          "  form: ${2:blocks_forms_new}",
-          "  label: ${3:\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0435}",
-          "  buttons:",
-          "    - type: submit",
-          "      label: ${4:\u0421\u043E\u0437\u0434\u0430\u0442\u044C}",
-          "    - type: close",
-          "      label: ${5:\u041E\u0442\u043C\u0435\u043D\u0430}"
+          "- id: ${1:groupId}",
+          "  type: resizable_block_pair",
+          "  layout:",
+          "    direction: column",
+          "    minHeight: ${2:100px}",
+          "    maxHeight: ${3:300px}",
+          "    sizeRatio:",
+          "      left: 50",
+          "      right: 50"
         ].join("\n")
       },
       {
-        prefix: "newpage",
-        description: "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430",
-        contexts: ["viewNested"],
+        prefix: "newgrouptabs",
+        description: "\u041F\u0430\u043D\u0435\u043B\u044C \u0432\u043A\u043B\u0430\u0434\u043E\u043A",
+        contexts: ["group"],
         body: [
-          "- id: ${1:pages_info}",
-          "  type: page",
-          "  menuItem: ${2:menu_item_id}",
-          "  actionPanel:",
-          "    - widget: ${3:buttons_edit}",
-          "  tabs:",
-          "    - tab: ${4:tabs_info}",
-          "  pinnedView:",
-          "    block: ${5:blocks_header}",
-          "    position: top",
-          "    height: 30%"
+          "- id: ${1:groupId}",
+          "  type: tabs",
+          "  label: ${2:Tabs Label}"
         ].join("\n")
       },
+      {
+        prefix: "newpinned",
+        description: "pinnedView",
+        contexts: ["viewNested"],
+        body: [
+          "pinnedView:",
+          "  block: ${1:blockId}",
+          "  position: top",
+          "  minHeight: ${2:20%}",
+          "  maxHeight: ${3:50%}",
+          "  height: ${4:30%}"
+        ].join("\n")
+      },
+      {
+        prefix: "newfooter",
+        description: "footer (modal)",
+        contexts: ["viewNested"],
+        body: [
+          "footer:",
+          "  - action: ${1:actionId}",
+          "    behavior: run_submit",
+          "    control:",
+          "      type: regular_button",
+          "      icon: ${2:iconName}"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // INHERIT — 3 варианта
+      // ═══════════════════════════════════════════════════════════════════
       {
         prefix: "newinherit",
-        description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B / \u043C\u0435\u043D\u044E",
+        description: "inherit (generic)",
         contexts: ["inheritSettings"],
         body: ["inherit:", "  type: ${1:append}"].join("\n")
       },
       {
-        prefix: "newmenuroot",
-        description: "\u041A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0433\u0440\u0443\u043F\u043F\u0430 \u043C\u0435\u043D\u044E \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C",
-        contexts: ["menuRootList", "menuRoot"],
+        prefix: "newinhappend",
+        description: "inherit: append",
+        contexts: ["inheritSettings"],
+        body: ["inherit:", "  type: append"].join("\n")
+      },
+      {
+        prefix: "newinhexcept",
+        description: "inherit: except",
+        contexts: ["inheritSettings"],
+        body: ["inherit:", "  type: except", "  except:", "    - ${1:id}"].join(
+          "\n"
+        )
+      },
+      {
+        prefix: "newinhoverride",
+        description: "inherit: override",
+        contexts: ["inheritSettings"],
+        body: ["inherit:", "  type: override"].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // DATA RULES
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "newrule",
+        description: "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u0430\u043D\u043D\u044B\u0445",
+        contexts: ["dataRuleList", "dataRule"],
         body: [
-          "- id: ${1:menus_root}",
-          "  route: ${2:/my-domain}",
-          '  label: "${3:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0440\u0430\u0437\u0434\u0435\u043B\u0430}"',
-          "  type: root_group",
-          "  placement: top",
-          "  priority: ${4:1000}",
-          "  items:",
-          "    - id: ${5:menu_item}",
-          "      route: ${6:/my-domain/item}",
-          "      label: ${7:\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E}",
-          "      type: menu",
-          "      view: ${8:lists_MyEntity}",
-          "      priority: ${9:1000}"
+          "- id: ${1:ruleId}",
+          "  name: ${2:Rule Name}",
+          "  target: entity",
+          "  entity: ${3:Entity}",
+          "  condition: !rql ${4:true}",
+          "  rule:",
+          "    effect: ${5:required}",
+          "    attributes:",
+          "      - attribute: ${6:attrId}"
         ].join("\n")
       },
       {
-        prefix: "newmenuitem",
-        description: "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E",
-        contexts: ["menuItemList", "menuItem"],
+        prefix: "newrulerequired",
+        description: "required (condition: true)",
+        contexts: ["dataRuleList", "dataRule"],
         body: [
-          "- id: ${1:menu_item}",
-          "  route: ${2:/my-domain/item}",
-          "  label: ${3:\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E}",
-          "  type: menu",
-          "  view: ${4:lists_MyEntity}",
-          "  priority: ${5:1000}"
+          "- id: ${1:ruleId}",
+          "  name: ${2:Required Rule}",
+          "  target: entity",
+          "  entity: ${3:Entity}",
+          "  condition: true",
+          "  rule:",
+          "    effect: required",
+          "    attributes:",
+          "      - attribute: ${4:attrId}"
         ].join("\n")
       },
       {
-        prefix: "newmedia",
-        description: "\u0418\u043A\u043E\u043D\u043A\u0430",
+        prefix: "newrulehidden",
+        description: "hidden (condition: true)",
+        contexts: ["dataRuleList", "dataRule"],
+        body: [
+          "- id: ${1:ruleId}",
+          "  name: ${2:Hidden Rule}",
+          "  target: entity",
+          "  entity: ${3:Entity}",
+          "  condition: true",
+          "  rule:",
+          "    effect: hidden",
+          "    attributes:",
+          "      - attribute: ${4:attrId}"
+        ].join("\n")
+      },
+      {
+        prefix: "newruleallowedref",
+        description: "allowed \u0434\u043B\u044F Reference",
+        contexts: ["dataRuleList", "dataRule"],
+        body: [
+          "- id: ${1:ruleId}",
+          "  name: ${2:Allowed Reference}",
+          "  target: entity",
+          "  entity: ${3:Entity}",
+          "  condition: !rql ${4:true}",
+          "  rule:",
+          "    effect: allowed",
+          "    attributes:",
+          "      - attribute: ${5:refAttr}",
+          "        constraint: ${6:condition}"
+        ].join("\n")
+      },
+      {
+        prefix: "newrulenested",
+        description: "nested table/array",
+        contexts: ["dataRuleList", "dataRule"],
+        body: [
+          "- id: ${1:ruleId}",
+          "  name: ${2:Nested Rule}",
+          "  target: entity",
+          "  entity: ${3:Entity}",
+          "  condition: true",
+          "  rule:",
+          "    effect: readonly",
+          "    nested:",
+          "      type: ${4:table}",
+          "      attributes:",
+          "        - attribute: ${5:col1}"
+        ].join("\n")
+      },
+      {
+        prefix: "newrulelinkage",
+        description: "target: linkage",
+        contexts: ["dataRuleList", "dataRule"],
+        body: [
+          "- id: ${1:ruleId}",
+          "  name: ${2:Linkage Rule}",
+          "  target: linkage",
+          "  linkage: ${3:linkageId}",
+          "  condition: true",
+          "  rule:",
+          "    effect: required",
+          "    linkages:",
+          "      - linkage: ${3:linkageId}",
+          "        min_count: ${4:1}"
+        ].join("\n")
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // RQL — для использования внутри !rql / condition / expression
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "rqlcountlinks",
+        description: "RQL: count related links",
+        contexts: ["rql"],
+        body: "SELECT(count(id), FROM('current', @${1:linkageId}, @link), WHERE(eq(@link.side1, @doc.id))) > 0"
+      },
+      {
+        prefix: "rqlcurrentuser",
+        description: "RQL: current user check",
+        contexts: ["rql"],
+        body: "@CurrentUser = @doc.${1:createdBy}"
+      },
+      {
+        prefix: "rqlrolecheck",
+        description: "RQL: role check",
+        contexts: ["rql"],
+        body: "hasRole('${1:roleName}') AND NOT isSuperAdmin()"
+      },
+      {
+        prefix: "rqltsrange",
+        description: "RQL: timestamp range",
+        contexts: ["rql"],
+        body: "TSRANGE('${1:2025-01-01}', '${2:2025-12-31}', '[)')"
+      },
+      {
+        prefix: "rqlhasany",
+        description: "RQL: hasAny \u043D\u0430 \u043C\u0430\u0441\u0441\u0438\u0432\u0435",
+        contexts: ["rql"],
+        body: "hasAny(@doc.${1:arrayAttr}, ['${2:a}', '${3:b}'])"
+      },
+      {
+        prefix: "rqlinenum",
+        description: "RQL: @doc IN enum",
+        contexts: ["rql"],
+        body: "@doc.${1:status} IN SELECT(UNNEST(ARRAY(@${2:enumId}.A, @${3:enumId}.B)))"
+      },
+      // ═══════════════════════════════════════════════════════════════════
+      // MISC
+      // ═══════════════════════════════════════════════════════════════════
+      {
+        prefix: "newmediatime",
+        description: "\u0418\u043A\u043E\u043D\u043A\u0430 (icon_name)",
         contexts: ["mediaList", "media"],
         body: [
-          "- id: ${1:iconsMyIcon}",
-          "  description: ${2:\u0418\u043A\u043E\u043D\u043A\u0430 \u0434\u043B\u044F ...}",
+          "- id: ${1:mediaId}",
+          "  description: ${2:Icon Description}",
           "  type: icon_name",
-          "  iconName: ${3:folder}"
+          "  iconName: ${3:iconName}"
         ].join("\n")
       },
       {
-        prefix: "newmixinview",
-        description: "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0443 (\u0442\u0438\u043F view)",
-        contexts: ["mixinList", "mixin"],
-        body: [
-          "- id: ${1:mixin_tab}",
-          "  name: ${2:\u041F\u0440\u0438\u043C\u0435\u0441\u044C \u0432\u043A\u043B\u0430\u0434\u043A\u0438}",
-          "  type: view",
-          "  entity: ${3:TargetEntity}",
-          "  views:",
-          "    - id: ${4:mixin_view}",
-          "      type: tab",
-          "      fromView: ${5:views_source}",
-          "      to:",
-          "        tab: ${6:tabs_info}",
-          "      change:",
-          "        add:",
-          "          components:",
-          "            - widget: ${7:editors_id}"
-        ].join("\n")
-      },
-      {
-        prefix: "newmixinlinkage",
-        description: "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u043E\u0441\u043D\u043E\u0432\u0435 \u0441\u0432\u044F\u0437\u0438 (\u0442\u0438\u043F linkage)",
-        contexts: ["mixinList", "mixin"],
-        body: [
-          "- id: ${1:mixin_linkage}",
-          "  type: linkage",
-          "  entity:",
-          "    to: ${2:TargetEntity}",
-          "    from: ${3:SourceEntity}",
-          "  linkage: ${4:my_linkage_id}",
-          "  views:",
-          "    - id: ${5:mixin_panel}",
-          "      type: panel",
-          "      to:",
-          "        panel: ${6:panels_info}",
-          "      change:",
-          "        add:",
-          "          tabs:",
-          "            tabs:",
-          "              - tab: ${7:tabs_mixin}"
-        ].join("\n")
-      },
-      {
-        prefix: "newexchange",
-        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438",
-        contexts: ["exchangeSettings"],
-        body: [
-          "exchangeSettings:",
-          "  enable: ${1:true}",
-          "  label: ${2:\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438}",
-          "  attributeFormats:",
-          "    Date: DD-MM-YYYY",
-          "    Time: HH:mm:ss",
-          "    Timestamp: DD-MM-YYYYTHH:mm:ss",
-          "  entities:",
-          "    ${3:MyEntity}:",
-          "      enable: true",
-          "      forExport: ${4:id}"
-        ].join("\n")
-      },
-      {
-        prefix: "newexchangeentity",
-        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
-        contexts: ["exchangeEntitySettings"],
-        body: [
-          "enable: ${1:true}",
-          "label: ${2:MyEntity}",
-          "forExport: ${3:id}",
-          "upsertWith: ${4:name}"
-        ].join("\n")
+        prefix: "newlabeltemplate",
+        description: "\u0428\u0430\u0431\u043B\u043E\u043D label",
+        contexts: ["entity"],
+        body: 'label: "{${1:attr1}}: {${2:attr2}}"'
       }
     ];
-    PATH_TO_CONTEXT = {
+    PATH_TO_CONTEXT2 = {
       // ============ entities ============
       entities: "entity",
       "entities.attributes": "attribute",
@@ -68081,7 +69817,13 @@ var init_monaco_providers = __esm({
     };
     _colCache = { indexRef: null, domainRef: null };
     withKindCache = /* @__PURE__ */ new WeakMap();
-    RQL_FIELDS2 = /* @__PURE__ */ new Set(["expression", "constraint", "condition"]);
+    RQL_FIELDS3 = /* @__PURE__ */ new Set([
+      "expression",
+      "constraint",
+      "condition",
+      "rql",
+      "query"
+    ]);
     BASE_DATA_TYPES_SET = /* @__PURE__ */ new Set([
       "String",
       "Integer",
@@ -68515,14 +70257,18 @@ function YamlViewerHelp({ onClose }) {
             " \u0441\u043F\u0440\u0430\u0432\u0430 \u2014 \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u043F\u043E\u0437\u0438\u0446\u0438\u044F \u043A\u0443\u0440\u0441\u043E\u0440\u0430."
           ] }),
           /* @__PURE__ */ jsxs74("li", { children: [
-            /* @__PURE__ */ jsx77("strong", { children: "Quick Jumps" }),
-            " (\u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u043A\u0440\u043E\u0448\u0435\u043A) \u2014 \u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0435\u043A\u0446\u0438\u044F\u043C (",
-            /* @__PURE__ */ jsx77("code", { children: "\u{1F4E6} entities" }),
-            ", ",
-            /* @__PURE__ */ jsx77("code", { children: "\u{1F517} linkages" }),
-            ", ",
-            /* @__PURE__ */ jsx77("code", { children: "\u{1F441} views" }),
-            ", \u0438 \u0442.\u0434.)."
+            /* @__PURE__ */ jsx77("strong", { children: "\u0411\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0435\u0440\u0435\u0445\u043E\u0434" }),
+            " (",
+            /* @__PURE__ */ jsx77("code", { children: "Ctrl+P" }),
+            " \u043D\u0430 Win/Linux, ",
+            /* @__PURE__ */ jsx77("code", { children: "Cmd+P" }),
+            " \u043D\u0430 Mac) \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043E\u043A\u043D\u043E \u043F\u043E\u0438\u0441\u043A\u0430 \u043F\u043E id, \u0441\u0435\u043A\u0446\u0438\u0438, \u0441\u0442\u0440\u043E\u043A\u0435, \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u043C\u0443, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443, \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C, \u0441\u043E\u0441\u0435\u0434\u044F\u043C \u043A\u0443\u0440\u0441\u043E\u0440\u0430.",
+            /* @__PURE__ */ jsx77("code", { children: " F2" }),
+            " \u2014 \u0442\u043E \u0436\u0435, \u043D\u043E \u0441 \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u043C \u0441\u043B\u043E\u0432\u043E\u043C \u043F\u043E\u0434 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u0418\u043A\u043E\u043D\u043A\u0430 \u{1F3AF}" }),
+            " \u0441\u043F\u0440\u0430\u0432\u0430 \u0432 \u0442\u0443\u043B\u0431\u0430\u0440\u0435 \u2014 \u0442\u043E \u0436\u0435 \u043E\u043A\u043D\u043E \u0431\u044B\u0441\u0442\u0440\u043E\u0433\u043E \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0430."
           ] })
         ] })
       ] }),
@@ -68530,6 +70276,12 @@ function YamlViewerHelp({ onClose }) {
         /* @__PURE__ */ jsxs74("li", { children: [
           /* @__PURE__ */ jsx77("code", { children: "Ctrl+Shift+O" }),
           " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0432\u0441\u0435\u0445 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432 (\u0441\u0435\u043A\u0446\u0438\u0438, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B)."
+        ] }),
+        /* @__PURE__ */ jsxs74("li", { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" }),
+          " \u2014 \u043E\u0431\u044B\u0447\u043D\u044B\u0439 \u043A\u043B\u0438\u043A (\u0438\u043B\u0438 Ctrl+Click) \u043F\u043E",
+          /* @__PURE__ */ jsx77("code", { children: "domain.tld/Entity" }),
+          " \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0444\u0430\u0439\u043B \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u043D\u043E\u0432\u043E\u0439 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \u0438 \u0441\u043A\u0440\u043E\u043B\u043B\u0438\u0442 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0434\u0447\u0451\u0440\u043A\u043D\u0443\u0442\u044B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438."
         ] }),
         /* @__PURE__ */ jsxs74("li", { children: [
           /* @__PURE__ */ jsx77("strong", { children: /* @__PURE__ */ jsx77("code", { children: "Ctrl+Click" }) }),
@@ -69352,6 +71104,210 @@ function YamlViewerHelp({ onClose }) {
           /* @__PURE__ */ jsx77("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u2014 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u0438\u043F, required-\u0441\u0442\u0430\u0442\u0443\u0441, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435." })
         ] })
       ] }),
+      /* @__PURE__ */ jsxs74(Section2, { title: "\u0423\u043C\u043D\u044B\u0439 Enter \u043F\u043E\u0441\u043B\u0435 \u043A\u043B\u044E\u0447\u0435\u0439", children: [
+        /* @__PURE__ */ jsxs74(P, { children: [
+          "\u041D\u0430\u0436\u0430\u0442\u0438\u0435 ",
+          /* @__PURE__ */ jsx77("code", { children: "Enter" }),
+          " \u0432 \u043A\u043E\u043D\u0446\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 ",
+          /* @__PURE__ */ jsx77("code", { children: "key:" }),
+          " \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 \u0437\u0430\u0433\u043E\u0442\u043E\u0432\u043A\u0443 \u0441 \u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u043C \u043E\u0442\u0441\u0442\u0443\u043F\u043E\u043C \u0438 \u043F\u043E\u043B\u044F\u043C\u0438:"
+        ] }),
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "entities:" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx77("code", { children: "- id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "name:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "attributes:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "linkages:" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx77("code", { children: "- id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "side1:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "side2:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "type:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "dataTypes:" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx77("code", { children: "- id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "name:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "dataType:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "actions:" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx77("code", { children: "- id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "name:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "type:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "attributes:" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx77("code", { children: "- id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "name:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "dataType:" }),
+            " (\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438), \u0438\u043B\u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "- attribute:" }),
+            " (\u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445/searching)."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "trees:" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx77("code", { children: "- id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "hierarchy:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "entity:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "calculation:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "control:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "layout:" }),
+            " \u0438 \u0434\u0440\u0443\u0433\u0438\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u2192 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442\u0441\u0442\u0443\u043F \u0431\u0435\u0437 \u0434\u0435\u0444\u0438\u0441\u0430."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            "\u041E\u0431\u044B\u0447\u043D\u044B\u0435 \u043F\u043E\u043B\u044F (",
+            /* @__PURE__ */ jsx77("code", { children: "id:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "name:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "description:" }),
+            ") \u2192 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442\u0441\u0442\u0443\u043F."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx77(P, { children: "\u0412\u0441\u0442\u0430\u0432\u043A\u0430 \u043C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0433\u043E \u0442\u0435\u043A\u0441\u0442\u0430 \u0438\u0437 \u0431\u0443\u0444\u0435\u0440\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0432\u044B\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442 \u043E\u0442\u0441\u0442\u0443\u043F\u044B \u043F\u043E\u0434 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 \u2014 \u043C\u043E\u0436\u043D\u043E \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043A\u0443\u0441\u043A\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430 \u0431\u0435\u0437 \u0440\u0443\u0447\u043D\u043E\u0439 \u043F\u0440\u0430\u0432\u043A\u0438 \u043F\u0440\u043E\u0431\u0435\u043B\u043E\u0432." })
+      ] }),
+      /* @__PURE__ */ jsxs74(Section2, { title: "Content Widgets \u2014 \u043F\u0430\u043D\u0435\u043B\u0438 \u043F\u0440\u044F\u043C\u043E \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435", children: [
+        /* @__PURE__ */ jsx77(P, { children: "\u0412 \u043D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043C\u0435\u0441\u0442\u0430\u0445 YAML \u043F\u043E\u044F\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0432\u0441\u043F\u043B\u044B\u0432\u0430\u044E\u0449\u0438\u0435 \u043F\u0430\u043D\u0435\u043B\u0438 \u2014 \u043E\u043D\u0438 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0438 \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u044E\u0442 \u043A\u043E\u0434 \u043E\u0434\u043D\u0438\u043C \u043A\u043B\u0438\u043A\u043E\u043C." }),
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u{1F3AF} Quick-insert" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "+" }),
+            " \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u043F\u0443\u0441\u0442\u043E\u0439 \u0441\u0442\u0440\u043E\u043A\u0435 \u0432\u043D\u0443\u0442\u0440\u0438",
+            /* @__PURE__ */ jsx77("code", { children: " entities:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "attributes:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "widgets:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "groups:" }),
+            ",",
+            /* @__PURE__ */ jsx77("code", { children: "constraints:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "dataRules.rule.*" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "linkages:" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "views:" }),
+            ". \u041A\u043B\u0438\u043A \u2014 \u043C\u0435\u043D\u044E \u0440\u0435\u043B\u0435\u0432\u0430\u043D\u0442\u043D\u044B\u0445 \u0441\u043D\u0438\u043F\u043F\u0435\u0442\u043E\u0432 (\u0430\u043D\u0430\u043B\u043E\u0433 \u0432\u0432\u043E\u0434\u0430 ",
+            /* @__PURE__ */ jsx77("code", { children: "new" }),
+            " \u0432 \u0430\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442\u0435)."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u{1F9EA} Regex-\u0442\u0435\u0441\u0442\u0435\u0440" }),
+            " \u2014 \u0443 ",
+            /* @__PURE__ */ jsx77("code", { children: "constraints[kind=regexp].regexp" }),
+            " \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F",
+            /* @__PURE__ */ jsx77("code", { children: " .*" }),
+            ". \u041A\u043B\u0438\u043A \u2014 \u043F\u0430\u043D\u0435\u043B\u044C \u0441 \u043F\u043E\u043B\u0435\u043C \u0434\u043B\u044F \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0441\u0442\u0440\u043E\u043A\u0438. \u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u0438\u0434\u0451\u0442 \u0432 \u0434\u0432\u0443\u0445 \u0440\u0435\u0436\u0438\u043C\u0430\u0445 \u0441\u0440\u0430\u0437\u0443: \xAB\u0431\u0435\u0437 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0430\xBB \u0438 \xAB\u0441 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u043E\u043C\xBB. \u0415\u0441\u043B\u0438 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B \u043E\u0442\u043B\u0438\u0447\u0430\u044E\u0442\u0441\u044F \u2014 \u043F\u0430\u0442\u0442\u0435\u0440\u043D \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u0435\u043D \u043A \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0443 (\u0441\u0442\u043E\u0438\u0442 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C ",
+            /* @__PURE__ */ jsx77("code", { children: "/i" }),
+            ").",
+            /* @__PURE__ */ jsx77("code", { children: " Esc" }),
+            " \u0441\u0432\u043E\u0440\u0430\u0447\u0438\u0432\u0430\u0435\u0442."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u{1F3A8} \u0418\u043A\u043E\u043D\u043A\u0438" }),
+            " \u2014 \u043F\u0440\u0435\u0432\u044C\u044E \u0434\u043B\u044F ",
+            /* @__PURE__ */ jsx77("code", { children: "iconName:" }),
+            " (\u0432 medias) \u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "icon:" }),
+            "(\u0432 menus, widgets, columns, buttons). \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0440\u0435\u0430\u043B\u044C\u043D\u0443\u044E SVG-\u0438\u043A\u043E\u043D\u043A\u0443 \u0434\u0438\u0437\u0430\u0439\u043D-\u0441\u0438\u0441\u0442\u0435\u043C\u044B \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u{1F3A8} Color decorators" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "color:" }),
+            " \u0432 enumView / workflowView \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043A\u0432\u0430\u0434\u0440\u0430\u0442\u0438\u043A \u0446\u0432\u0435\u0442\u0430. \u041A\u043B\u0438\u043A \u2014 Monaco ColorPicker."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u{1F527} \u041F\u0430\u043D\u0435\u043B\u044C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439" }),
+            " \u2014 \u043D\u0430\u0431\u043E\u0440 \u043A\u043D\u043E\u043F\u043E\u043A \u043D\u0430\u0434/\u043F\u043E\u0434 \u0441\u0442\u0440\u043E\u043A\u043E\u0439 \u043F\u043E \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443:",
+            /* @__PURE__ */ jsxs74("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+              /* @__PURE__ */ jsxs74("li", { children: [
+                "\u0422\u0438\u043F\u044B ",
+                /* @__PURE__ */ jsx77("code", { children: "control" }),
+                " \u0434\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0442\u0438\u043F\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (",
+                /* @__PURE__ */ jsx77("code", { children: "switch" }),
+                ", ",
+                /* @__PURE__ */ jsx77("code", { children: "select" }),
+                ", \u2026)."
+              ] }),
+              /* @__PURE__ */ jsxs74("li", { children: [
+                "\u0422\u0438\u043F ",
+                /* @__PURE__ */ jsx77("code", { children: "action" }),
+                " \u0434\u043B\u044F \u043F\u0443\u0441\u0442\u043E\u0433\u043E \u0431\u043B\u043E\u043A\u0430 (",
+                /* @__PURE__ */ jsx77("code", { children: "open_modal" }),
+                ", ",
+                /* @__PURE__ */ jsx77("code", { children: "open_page" }),
+                ", \u2026)."
+              ] }),
+              /* @__PURE__ */ jsxs74("li", { children: [
+                "\u0427\u0438\u043F\u0441\u044B \u043F\u043B\u0435\u0439\u0441\u0445\u043E\u043B\u0434\u0435\u0440\u043E\u0432 \u0434\u043B\u044F ",
+                /* @__PURE__ */ jsx77("code", { children: "template:" }),
+                " (",
+                /* @__PURE__ */ jsx77("code", { children: "@prefix" }),
+                ", ",
+                /* @__PURE__ */ jsx77("code", { children: "@inc" }),
+                ", \u2026) \u2014 \u0432\u0441\u0442\u0430\u0432\u043A\u0430 \u0432 \u043F\u043E\u0437\u0438\u0446\u0438\u044E \u043A\u0443\u0440\u0441\u043E\u0440\u0430."
+              ] }),
+              /* @__PURE__ */ jsxs74("li", { children: [
+                "\u041F\u043E\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043D\u0435\u0442 (",
+                /* @__PURE__ */ jsx77("code", { children: "+ sorting" }),
+                ", ",
+                /* @__PURE__ */ jsx77("code", { children: "+ searching" }),
+                ", ",
+                /* @__PURE__ */ jsx77("code", { children: "+ identification" }),
+                ", \u2026)."
+              ] }),
+              /* @__PURE__ */ jsxs74("li", { children: [
+                "\u041A\u0430\u043D\u0434\u0438\u0434\u0430\u0442\u044B-\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430, \u0435\u0441\u043B\u0438 ",
+                /* @__PURE__ */ jsx77("code", { children: "entity:" }),
+                " \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E."
+              ] }),
+              /* @__PURE__ */ jsx77("li", { children: "\u0413\u043E\u0442\u043E\u0432\u044B\u0435 skeleton'\u044B action / dataRule / entity-view / bulk / \u043C\u0435\u043D\u044E \u0434\u043B\u044F view." }),
+              /* @__PURE__ */ jsxs74("li", { children: [
+                "\u0412\u0438\u0434\u0436\u0435\u0442\u044B \u0434\u043B\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u043D\u044B\u0445 view (",
+                /* @__PURE__ */ jsx77("code", { children: "+ editors_hostname \u2192 viewAsset" }),
+                ")."
+              ] }),
+              /* @__PURE__ */ jsx77("li", { children: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (combobox-\u043F\u0430\u043D\u0435\u043B\u044C)." })
+            ] }),
+            /* @__PURE__ */ jsx77("code", { children: "Esc" }),
+            " \u2014 \u0441\u043A\u0440\u044B\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C, \u043F\u043E\u043A\u0430 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0435 \u0441\u0434\u0432\u0438\u043D\u0435\u0442\u0441\u044F."
+          ] })
+        ] })
+      ] }),
       /* @__PURE__ */ jsxs74(Section2, { title: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B \u2014 \u0448\u0430\u0431\u043B\u043E\u043D\u044B \u0431\u043B\u043E\u043A\u043E\u0432", children: [
         /* @__PURE__ */ jsxs74(P, { children: [
           "\u041D\u0430\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 \u0432 \u043D\u0443\u0436\u043D\u043E\u043C \u043C\u0435\u0441\u0442\u0435 (\u043F\u043E\u0434 \u0441\u0435\u043A\u0446\u0438\u0435\u0439 \u0438\u043B\u0438 \u0432\u043D\u0443\u0442\u0440\u0438 \u043D\u0435\u0451) \u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u0441 \u0438\u043A\u043E\u043D\u043A\u043E\u0439 ",
@@ -69433,7 +71389,84 @@ function YamlViewerHelp({ onClose }) {
             ["newmixinview", "\u041C\u0438\u043A\u0441\u0438\u043D \u0432\u043A\u043B\u0430\u0434\u043A\u0438 (type: view)", "mixins"],
             ["newmixinlinkage", "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u0441\u0432\u044F\u0437\u0438 (type: linkage)", "mixins"],
             ["newexchange", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438", "exchangeSettings"],
-            ["newexchangeentity", "\u041E\u0431\u043C\u0435\u043D \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", "exchangeSettings.entities"]
+            ["newexchangeentity", "\u041E\u0431\u043C\u0435\u043D \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", "exchangeSettings.entities"],
+            // ENTITIES
+            ["newentitymin", "\u041C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (\u0442\u043E\u043B\u044C\u043A\u043E id)", "entities"],
+            // ATTRIBUTES
+            ["newattrtext", "Text + comments", "entities[].attributes"],
+            ["newattrcounter", "Counter + counterColorPattern", "entities[].attributes"],
+            ["newattrcase", "Attachment \u0441 mime_types \u0438 size", "entities[].attributes"],
+            ["newattrcaseopt", "Attachment \u0431\u0435\u0437 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0439", "entities[].attributes"],
+            ["newattrcalc", "Calculation { schemaId, id }", "entities[].attributes"],
+            ["newattrworkflow", "Workflow user-defined", "entities[].attributes"],
+            ["newattrtable", "Table user-defined", "entities[].attributes"],
+            ["newattrarrayref", "Array<Reference>", "entities[].attributes"],
+            ["newattrreadonly", "String readonly", "entities[].attributes"],
+            ["newattrunique", "String unique", "entities[].attributes"],
+            // IDENTIFIER
+            ["newidseq", "Identifier \u0447\u0435\u0440\u0435\u0437 sequence", "entities[].attributes"],
+            ["newiddate", "Identifier \u0441 \u0448\u0430\u0431\u043B\u043E\u043D\u043E\u043C \u0434\u0430\u0442\u044B", "entities[].attributes"],
+            ["newidprefix", "Identifier + prefixRules", "entities[].attributes"],
+            // CONSTRAINTS
+            ["newreq", "Constraint: required", "constraints"],
+            ["newrange", "Constraint: range", "constraints"],
+            ["newregexp", "Constraint: regexp", "constraints"],
+            ["newlength", "Constraint: length", "constraints"],
+            ["newmime", "Constraint: mime_types", "constraints"],
+            ["newsize", "Constraint: size", "constraints"],
+            ["newunique", "Constraint: unique", "constraints"],
+            // LINKAGES
+            ["newlinkage11", "\u0421\u0432\u044F\u0437\u044C 1_1", "linkages"],
+            ["newlinkage1n", "\u0421\u0432\u044F\u0437\u044C 1_n", "linkages"],
+            ["newlinkagenn", "\u0421\u0432\u044F\u0437\u044C n_n (undirected)", "linkages"],
+            ["newlinkageattr", "\u0421\u0432\u044F\u0437\u044C \u0441 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C", "linkages"],
+            ["newlinkagesearch", "\u0421\u0432\u044F\u0437\u044C \u0441 useForSearch", "linkages"],
+            // ACTIONS
+            ["newactopenpanel", "open_panel", "actions"],
+            ["newactopenpage", "open_page (operation: view)", "actions"],
+            ["newactopenlist", "open_list", "actions"],
+            ["newactopenlistref", "open_list \u043F\u043E Reference", "actions"],
+            ["newactremovesingle", "remove", "actions"],
+            ["newactqr", "generate_qr_code", "actions"],
+            ["newactcopylink", "copy_entity_link", "actions"],
+            ["newactgraph", "open_graph_view", "actions"],
+            // DATA TYPES
+            ["newenumstd", "Enum CRITICAL/HIGH/MEDIUM/LOW", "dataTypes"],
+            // VIEWS
+            ["newlistbasic", "list-view \u0442\u043E\u043B\u044C\u043A\u043E source", "views"],
+            ["newlistfilter", "filter \u0431\u043B\u043E\u043A", "views"],
+            ["newpanelinfo", "\u041F\u0430\u043D\u0435\u043B\u044C \u0441 tabs", "views[].views"],
+            ["newmodaledit", "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F", "views[].views"],
+            ["newmodal", "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0431\u0435\u0437 buttons", "views[].views"],
+            ["newmodalbtn", "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0441 \u043A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u043C\u0438 buttons", "views[].views"],
+            ["newpage", "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430", "views[].views"],
+            ["newtabslist", "tabs_list", "views"],
+            ["newtreeview", "tree-view splitted", "views"],
+            ["newtreemerged", "tree-view merged", "views"],
+            ["newdash", "dashboard + card", "views"],
+            ["newdashnav", "dashboard_tree", "views"],
+            // WIDGETS / GROUPS
+            ["newwidgetmin", "\u041C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u0432\u0438\u0434\u0436\u0435\u0442 (id/type/attribute)", "views[].widgets"],
+            ["newwidgetbulk", "\u0412\u0438\u0434\u0436\u0435\u0442 bulk \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F", "views[].widgets"],
+            ["newwidgetconv", "\u0412\u0438\u0434\u0436\u0435\u0442 conversation", "views[].widgets"],
+            ["newgroupform", "\u0424\u043E\u0440\u043C\u0430 (alias newform)", "views[].groups"],
+            ["newgroupres", "resizable_block_pair", "views[].groups"],
+            ["newgrouptabs", "\u041F\u0430\u043D\u0435\u043B\u044C \u0432\u043A\u043B\u0430\u0434\u043E\u043A", "views[].groups"],
+            ["newpinned", "pinnedView (page)", "views[].views"],
+            ["newfooter", "footer (modal)", "views[].views"],
+            // INHERIT
+            ["newinhappend", "inherit: append", "views/groups/menu"],
+            ["newinhexcept", "inherit: except", "views/groups/menu"],
+            ["newinhoverride", "inherit: override", "views/groups/menu"],
+            // DATA RULES
+            ["newrulerequired", "required (condition: true)", "dataRules"],
+            ["newrulehidden", "hidden (condition: true)", "dataRules"],
+            ["newruleallowedref", "allowed \u0434\u043B\u044F Reference", "dataRules"],
+            ["newrulenested", "nested table/array", "dataRules"],
+            ["newrulelinkage", "target: linkage", "dataRules"],
+            // MISC
+            ["newmediatime", "\u0418\u043A\u043E\u043D\u043A\u0430 (icon_name)", "medias"],
+            ["newlabeltemplate", 'label: "{attr1}: {attr2}"', "entities"]
           ].map(([prefix, desc, ctx2]) => /* @__PURE__ */ jsxs74("div", { className: "snippets-table__row", children: [
             /* @__PURE__ */ jsxs74("code", { children: [
               "\u2728 ",
@@ -69479,36 +71512,162 @@ function YamlViewerHelp({ onClose }) {
           /* @__PURE__ */ jsx77("li", { children: "\u041F\u0440\u0438 \u043F\u043E\u043F\u044B\u0442\u043A\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0444\u0430\u0439\u043B \u0441 errors \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u043C\u043E\u0434\u0430\u043B\u043A\u0435: \xAB\u0412 \u0441\u0445\u0435\u043C\u0435 N \u043E\u0448\u0438\u0431\u043E\u043A. \u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C?\xBB." })
         ] })
       ] }),
-      /* @__PURE__ */ jsx77(Section2, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 RQL", children: /* @__PURE__ */ jsxs74(List, { children: [
-        /* @__PURE__ */ jsxs74("li", { children: [
-          /* @__PURE__ */ jsx77("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
-          " \u2014 \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u0441\u043A\u043E\u0431\u043A\u0438, \u043A\u0430\u0432\u044B\u0447\u043A\u0438, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B."
+      /* @__PURE__ */ jsxs74(Section2, { title: "RQL: \u043F\u043E\u0434\u0441\u0432\u0435\u0442\u043A\u0430 \u0438 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438", children: [
+        /* @__PURE__ */ jsxs74(P, { children: [
+          "RQL-\u043A\u043E\u0434 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0447\u0435\u0441\u043A\u0438 \u043F\u0440\u044F\u043C\u043E \u0432 YAML. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0432 \u043F\u043E\u043B\u044F\u0445:",
+          /* @__PURE__ */ jsx77("code", { children: " condition:" }),
+          ", ",
+          /* @__PURE__ */ jsx77("code", { children: " expression:" }),
+          ", ",
+          /* @__PURE__ */ jsx77("code", { children: " constraint:" }),
+          ",",
+          /* @__PURE__ */ jsx77("code", { children: " rql:" }),
+          " (\u0432 ",
+          /* @__PURE__ */ jsx77("code", { children: "visualization.variables" }),
+          "), ",
+          /* @__PURE__ */ jsx77("code", { children: " query:" }),
+          ", \u0430 \u0442\u0430\u043A\u0436\u0435 \u0432\u0435\u0437\u0434\u0435, \u0433\u0434\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 \u0442\u0435\u0433\u0430 ",
+          /* @__PURE__ */ jsx77("code", { children: "!rql" }),
+          "."
         ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          /* @__PURE__ */ jsx77("strong", { children: "\u041F\u043E\u043B\u044F" }),
-          " \u2014 ",
-          /* @__PURE__ */ jsx77("code", { children: "@field" }),
-          " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { style: { color: "#569CD6" }, children: "\u0421\u0438\u043D\u0438\u0435 \u0436\u0438\u0440\u043D\u044B\u0435" }),
+            " \u2014 \u043A\u043B\u044E\u0447\u0435\u0432\u044B\u0435 \u0441\u043B\u043E\u0432\u0430: ",
+            /* @__PURE__ */ jsx77("code", { children: "SELECT" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "FROM" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "WHERE" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "JOIN" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "ON" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "AND" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "OR" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "NOT" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "IN" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "IS" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "NULL" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "LIKE" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "BETWEEN" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "GROUP BY" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "ORDER BY" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { style: { color: "#DCDCAA" }, children: "\u0416\u0451\u043B\u0442\u044B\u0435" }),
+            " \u2014 \u0444\u0443\u043D\u043A\u0446\u0438\u0438: ",
+            /* @__PURE__ */ jsx77("code", { children: "count" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "sum" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "avg" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "eq" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "ne" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "lt" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "gt" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "hasAny" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "hasRole" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "isSuperAdmin" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { style: { color: "#4EC9B0" }, children: "\u0411\u0438\u0440\u044E\u0437\u043E\u0432\u044B\u0435" }),
+            " \u2014 \u043F\u0441\u0435\u0432\u0434\u043E\u043D\u0438\u043C\u044B: ",
+            /* @__PURE__ */ jsx77("code", { children: "@doc.status" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "@CurrentUser" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "@alias.field" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { style: { color: "#CE9178" }, children: "\u041E\u0440\u0430\u043D\u0436\u0435\u0432\u044B\u0435" }),
+            " \u2014 \u0441\u0442\u0440\u043E\u043A\u0438: ",
+            /* @__PURE__ */ jsx77("code", { children: "'closed'" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: '"text"' }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { style: { color: "#B5CEA8" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0435" }),
+            " \u2014 \u0447\u0438\u0441\u043B\u0430."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u041D\u0435\u0439\u0442\u0440\u0430\u043B\u044C\u043D\u044B\u0435" }),
+            " \u2014 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B ",
+            /* @__PURE__ */ jsx77("code", { children: "=" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "!=" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "<>" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: ">=" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "<=" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "(" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: ")" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "," }),
+            "."
+          ] })
         ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          /* @__PURE__ */ jsx77("strong", { children: "\u0422\u0438\u043F\u044B" }),
-          " \u2014 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u0441 \u0447\u0438\u0441\u043B\u043E\u043C, \u0447\u0438\u0441\u043B\u0430 \u0441\u043E \u0441\u0442\u0440\u043E\u043A\u043E\u0439."
+        /* @__PURE__ */ jsxs74(P, { children: [
+          "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 (",
+          /* @__PURE__ */ jsx77("code", { children: "rql-check" }),
+          "):"
         ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          /* @__PURE__ */ jsx77("strong", { children: "@doc.attr" }),
-          " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430\u043B\u0438\u0447\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
-        ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          /* @__PURE__ */ jsx77("strong", { children: "@DataType.value" }),
-          " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u0447\u043B\u0435\u043D\u0441\u0442\u0432\u043E \u0432 Enum/Workflow."
-        ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          /* @__PURE__ */ jsx77("strong", { children: "FROM(...)" }),
-          " / ",
-          /* @__PURE__ */ jsx77("strong", { children: "join(...)" }),
-          " \u2014 \u043F\u043E\u043B\u044F \u0432\u043D\u0443\u0442\u0440\u0438 \u0430\u043B\u0438\u0430\u0441\u043E\u0432 \u043D\u0435 \u043B\u043E\u043C\u0430\u044E\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443."
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
+            " \u2014 \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u0441\u043A\u043E\u0431\u043A\u0438, \u043A\u0430\u0432\u044B\u0447\u043A\u0438, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u041F\u043E\u043B\u044F" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "@field" }),
+            " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u0422\u0438\u043F\u044B" }),
+            " \u2014 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u0441 \u0447\u0438\u0441\u043B\u043E\u043C, \u0447\u0438\u0441\u043B\u0430 \u0441\u043E \u0441\u0442\u0440\u043E\u043A\u043E\u0439."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "@doc.attr" }),
+            " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430\u043B\u0438\u0447\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "@DataType.value" }),
+            " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u0447\u043B\u0435\u043D\u0441\u0442\u0432\u043E \u0432 Enum/Workflow."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "FROM(...)" }),
+            " / ",
+            /* @__PURE__ */ jsx77("strong", { children: "join(...)" }),
+            " \u2014 \u043F\u043E\u043B\u044F \u0432\u043D\u0443\u0442\u0440\u0438 \u0430\u043B\u0438\u0430\u0441\u043E\u0432 \u043D\u0435 \u043B\u043E\u043C\u0430\u044E\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443."
+          ] })
         ] })
-      ] }) }),
+      ] }),
       /* @__PURE__ */ jsxs74(Section2, { title: "Code Actions (\u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0438) \u0438 Quick Fix", children: [
         /* @__PURE__ */ jsxs74(P, { children: [
           "\u0412 \u0441\u0442\u0440\u043E\u043A\u0430\u0445 \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043E\u0439 \u0441\u043B\u0435\u0432\u0430 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F ",
@@ -69599,25 +71758,354 @@ function YamlViewerHelp({ onClose }) {
           /* @__PURE__ */ jsx77("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 tooltip \xAB\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445, \u043D\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445 \u0434\u0430\u043D\u043D\u044B\u0445\xBB." })
         ] })
       ] }),
-      /* @__PURE__ */ jsx77(Section2, { title: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438", children: /* @__PURE__ */ jsxs74(List, { children: [
-        /* @__PURE__ */ jsxs74("li", { children: [
-          "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-          /* @__PURE__ */ jsx77("code", { children: "id: Device" }),
-          " \u0438\u043B\u0438 ",
-          /* @__PURE__ */ jsx77("code", { children: "inherits: Device" }),
-          " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u043F\u043E\u043B\u043D\u043E\u0439 \u0446\u0435\u043F\u043E\u0447\u043A\u043E\u0439 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0438 \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432."
+      /* @__PURE__ */ jsxs74(Section2, { title: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438 (hover)", children: [
+        /* @__PURE__ */ jsx77(P, { children: "Hover \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043D\u0430 \u0432\u0441\u0451\u043C YAML \u2014 \u0441\u0435\u043A\u0446\u0438\u0438, \u043F\u043E\u043B\u044F, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F-\u0441\u0441\u044B\u043B\u043A\u0438, \u043B\u0438\u0442\u0435\u0440\u0430\u043B\u044B." }),
+        /* @__PURE__ */ jsxs74(P, { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "\u0421\u0435\u043A\u0446\u0438\u0438" }),
+          " \u2014 ",
+          /* @__PURE__ */ jsx77("code", { children: "entities:" }),
+          ", ",
+          /* @__PURE__ */ jsx77("code", { children: "views:" }),
+          ", ",
+          /* @__PURE__ */ jsx77("code", { children: "dataRules:" }),
+          ", \u2026 \u2014 \u043A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 + \u0432\u0430\u0436\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F."
         ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-          /* @__PURE__ */ jsx77("code", { children: "dataType: enumIocTypes" }),
-          " \u2014 \u0442\u0438\u043F, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F (\u0434\u043B\u044F Enum), \u0441\u0442\u0430\u0442\u0443\u0441\u044B (\u0434\u043B\u044F Workflow), \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (\u0434\u043B\u044F Table)."
+        /* @__PURE__ */ jsxs74(P, { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "\u041F\u043E\u043B\u044F" }),
+          " \u2014 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430. \u041E\u0434\u043D\u043E\u0438\u043C\u0451\u043D\u043D\u044B\u0435 \u043F\u043E\u043B\u044F \u0432 \u0440\u0430\u0437\u043D\u044B\u0445 \u043C\u0435\u0441\u0442\u0430\u0445 \u043F\u043E\u043B\u0443\u0447\u0430\u044E\u0442 \u0440\u0430\u0437\u043D\u044B\u0435 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438:"
         ] }),
-        /* @__PURE__ */ jsxs74("li", { children: [
-          "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-          /* @__PURE__ */ jsx77("code", { children: "attribute: Requirement.identifier" }),
-          " \u2014 \u0442\u0438\u043F, \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438."
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "id:" }),
+            " \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 Data ID / View ID \u0434\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u0435\u043A\u0446\u0438\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "entity:" }),
+            " \u2014 \u0432 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0435 Reference / \u0432 linkage / \u0432 mixin (\u043E\u0431\u044A\u0435\u043A\u0442 ",
+            /* @__PURE__ */ jsx77("code", { children: "{from, to}" }),
+            ") \u2014 \u0442\u0440\u0438 \u0440\u0430\u0437\u043D\u044B\u0445 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "inherits:" }),
+            " (\u0441 ",
+            /* @__PURE__ */ jsx77("code", { children: "s" }),
+            ") \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F. ",
+            /* @__PURE__ */ jsx77("code", { children: "inherit:" }),
+            " (\u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "s" }),
+            ") \u2014 \u0440\u0435\u0436\u0438\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0432 views/groups."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "weight:" }),
+            " (\u043C\u0438\u043A\u0441\u0438\u043D\u044B) \u2014 ",
+            /* @__PURE__ */ jsx77("em", { children: "\u043C\u0435\u043D\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435" }),
+            ". ",
+            /* @__PURE__ */ jsx77("code", { children: "priority:" }),
+            " (\u043C\u0435\u043D\u044E) \u2014 ",
+            /* @__PURE__ */ jsx77("em", { children: "\u0431\u043E\u043B\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435" }),
+            ". \u041F\u0440\u044F\u043C\u0430\u044F \u043F\u0440\u043E\u0442\u0438\u0432\u043E\u043F\u043E\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C, \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0432 hover."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "effect:" }),
+            " \u2014 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F \u043F\u043E \u0442\u0438\u043F\u0430\u043C \u0434\u0430\u043D\u043D\u044B\u0445 \u0432 dataRules."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "readonly:" }),
+            " \u0432 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0435 \u2014 \u043D\u0435\u043B\u044C\u0437\u044F \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0438\u043A\u043E\u0433\u0434\u0430. ",
+            /* @__PURE__ */ jsx77("code", { children: "constraints[kind=readonly]" }),
+            " \u0432 dataRules \u2014 \u044D\u0444\u0444\u0435\u043A\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs74(P, { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "\u0421\u0441\u044B\u043B\u043A\u0438" }),
+          ":"
+        ] }),
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "inherits: Device" }),
+            " \u2014 \u0446\u0435\u043F\u043E\u0447\u043A\u0430 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F + \u0441\u043F\u0438\u0441\u043E\u043A \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "dataType: enumIocTypes" }),
+            " \u2014 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F enum (\u043F\u0435\u0440\u0432\u044B\u0435 8), \u0441\u0442\u0430\u0442\u0443\u0441\u044B workflow, \u043A\u043E\u043B\u043E\u043D\u043A\u0438 Table."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "entity: Asset" }),
+            " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0447\u0438\u0441\u043B\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0435\u0441\u0442\u044C \u043B\u0438 \u0432 \u0446\u0435\u043F\u043E\u0447\u043A\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "linkage: Incident_Ioc" }),
+            " \u2014 \u0442\u0438\u043F, \u0441\u0442\u043E\u0440\u043E\u043D\u044B, ",
+            /* @__PURE__ */ jsx77("code", { children: "nameFrom" }),
+            ", \u0433\u0434\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "attribute: Requirement.identifier" }),
+            " \u2014 \u0442\u0438\u043F, constraints, \u0441\u0441\u044B\u043B\u043A\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "action: actions_createIoc" }),
+            " \u2014 \u0442\u0438\u043F, entity, operation, modal/panel/view."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "widget: buttons_exchange" }),
+            " \u2014 \u0442\u0438\u043F, control, view, attribute, linkage, actions."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "sequence: IOCSeq" }),
+            " \u2014 startFrom \u0438 \u043F\u0440\u0438\u043C\u0435\u0440."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "counterColorPattern: counterTime" }),
+            " \u2014 \u043F\u043E\u0440\u043E\u0433\u0438 red/yellow."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "iconName: iconsassets" }),
+            " \u2014 \u043F\u0440\u0435\u0432\u044C\u044E SVG."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "route: /iocs" }),
+            " \u2014 \u0435\u0441\u043B\u0438 \u0435\u0441\u0442\u044C \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442 \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u0444\u0430\u0439\u043B\u0435, \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0441\u0442\u0440\u043E\u043A\u0438."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs74(P, { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "\u041B\u0438\u0442\u0435\u0440\u0430\u043B\u044B" }),
+          ":"
+        ] }),
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "regexp:" }),
+            " \u2014 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043E\u0432\u043A\u0430 (",
+            /* @__PURE__ */ jsx77("code", { children: "^" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "$" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "\\d" }),
+            ", \u2026) + \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 regex101."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "mimeTypes:" }),
+            " \u2014 \u0442\u0438\u043F \u0444\u0430\u0439\u043B\u0430."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "color:" }),
+            " \u2014 HEX \u2192 rgb."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "template:" }),
+            " \u2014 \u043D\u0430 \u043A\u0430\u0436\u0434\u043E\u043C ",
+            /* @__PURE__ */ jsx77("code", { children: "@inc" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "@prefix" }),
+            ", ",
+            /* @__PURE__ */ jsx77("code", { children: "@YYYY" }),
+            " \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0430 \u043E \u0441\u043C\u044B\u0441\u043B\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "label:" }),
+            " \u2014 \u043D\u0430 ",
+            /* @__PURE__ */ jsx77("code", { children: "{attr}" }),
+            " \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \xAB\u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\xBB."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "condition: true" }),
+            " \u2014 \xAB\u043F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0432\u0441\u0435\u0433\u0434\u0430, \u043E\u0431\u044B\u0447\u043D\u043E \u043D\u0435 \u043D\u0443\u0436\u043D\u043E\xBB."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("code", { children: "{{id}}" }),
+            " \u0432 ",
+            /* @__PURE__ */ jsx77("code", { children: "variables.rql" }),
+            " \u2014 \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u0438\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430."
+          ] })
         ] })
+      ] }),
+      /* @__PURE__ */ jsxs74(Section2, { title: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F\u043C", children: [
+        /* @__PURE__ */ jsx77(P, { children: "\u0412 \u0442\u0443\u043B\u0431\u0430\u0440\u0435 \u043D\u0430\u0434 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u043E\u043C (\u043F\u0435\u0440\u0435\u0434 \u043A\u043D\u043E\u043F\u043A\u0430\u043C\u0438 \u0441\u0432\u043E\u0440\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u044F) \u043F\u043E\u044F\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0441\u0442\u0440\u0435\u043B\u043A\u0438 \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438 \u043F\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F\u043C, \u0435\u0441\u043B\u0438 \u0444\u0430\u0439\u043B \u0433\u0440\u044F\u0437\u043D\u044B\u0439." }),
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u2B06 Prev" }),
+            " \u2014 \u043A \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u043C\u0443 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u043E\u043C\u0443 \u0431\u043B\u043E\u043A\u0443. \u0415\u0441\u043B\u0438 \u0432\u044B\u0448\u0435 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435\u0442 \u2014 \u043A \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u043C\u0443 (\u043E\u0431\u0451\u0440\u0442\u043A\u0430)."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u2B07 Next" }),
+            " \u2014 \u043A \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0435\u043C\u0443 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u043E\u043C\u0443 \u0431\u043B\u043E\u043A\u0443. \u0415\u0441\u043B\u0438 \u043D\u0438\u0436\u0435 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435\u0442 \u2014 \u043A \u043F\u0435\u0440\u0432\u043E\u043C\u0443."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u0421\u0447\u0451\u0442\u0447\u0438\u043A \u043C\u0435\u0436\u0434\u0443 \u0441\u0442\u0440\u0435\u043B\u043A\u0430\u043C\u0438" }),
+            " \u2014 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u043E\u0432. \u041F\u043E\u0434\u0440\u044F\u0434 \u0438\u0434\u0443\u0449\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u043D\u0438\u043C \u0431\u043B\u043E\u043A\u043E\u043C."
+          ] }),
+          /* @__PURE__ */ jsx77("li", { children: "Hover \u043D\u0430 \u043A\u043D\u043E\u043F\u043A\u0435 \u2014 \u0434\u0435\u0442\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F: \xAB\u0418\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u043E\u0432: N (+M / ~K \u0441\u0442\u0440\u043E\u043A)\xBB." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx77(Section2, { title: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 \u0438 \u043F\u043E\u0437\u0438\u0446\u0438\u044F \u0441\u043A\u0440\u043E\u043B\u043B\u0430", children: /* @__PURE__ */ jsxs74(List, { children: [
+        /* @__PURE__ */ jsxs74("li", { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "\u041D\u043E\u0432\u044B\u0435 \u0432\u043A\u043B\u0430\u0434\u043A\u0438" }),
+          " \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0432 \u043D\u0430\u0447\u0430\u043B\u0435 \u043F\u043E\u043B\u043E\u0441\u044B. \u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0432\u043A\u043B\u0430\u0434\u043A\u0438 \u043D\u0435 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0430\u044E\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u043D\u0430 \u043D\u0438\u0445 \u043A\u043B\u0438\u043A\u043D\u0443\u0442\u044C."
+        ] }),
+        /* @__PURE__ */ jsxs74("li", { children: [
+          /* @__PURE__ */ jsx77("strong", { children: "\u041F\u043E\u0437\u0438\u0446\u0438\u044F \u0441\u043A\u0440\u043E\u043B\u043B\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F" }),
+          " \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430 \u2014 \u043F\u0440\u0438 \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u0435 \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0443 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u043D\u0430 \u0442\u043E\u0439 \u0436\u0435 \u0441\u0442\u0440\u043E\u043A\u0435."
+        ] }),
+        /* @__PURE__ */ jsxs74("li", { children: [
+          "\u0415\u0441\u043B\u0438 ",
+          /* @__PURE__ */ jsx77("strong", { children: "\u0434\u043E\u043C\u0435\u043D \u0431\u044B\u043B \u0443\u0434\u0430\u043B\u0451\u043D \u0438\u0437 \u043C\u043E\u0434\u0435\u043B\u0438" }),
+          " \u2014 \u0432\u043A\u043B\u0430\u0434\u043A\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F, \u0438 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u043E\u0441\u0435\u0434\u043D\u044E\u044E."
+        ] }),
+        /* @__PURE__ */ jsx77("li", { children: "\u0415\u0441\u043B\u0438 \u0441\u0440\u0435\u0434\u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0445 \u0431\u044B\u043B \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u043E\u0442\u043A\u0440\u044B\u0442\u044B\u0439 \u0444\u0430\u0439\u043B \u0438 \u043D\u0435 \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C \u043D\u0438 \u043E\u0434\u043D\u043E\u0439 \u0432\u043A\u043B\u0430\u0434\u043A\u0438 \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F." })
       ] }) }),
+      /* @__PURE__ */ jsxs74(Section2, { title: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043B\u0438\u043D\u0442\u0435\u0440 (inline-\u0432\u0430\u043B\u0438\u0434\u0430\u0442\u043E\u0440)", children: [
+        /* @__PURE__ */ jsx77(P, { children: "\u041F\u043E\u043C\u0438\u043C\u043E \u0441\u0435\u0440\u0432\u0435\u0440\u043D\u043E\u0433\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0430, \u0440\u0430\u0431\u043E\u0442\u0430\u044E\u0442 inline-\u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435. \u041E\u043D\u0438 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u044E\u0442 \u0447\u0435\u0440\u0435\u0437 800 \u043C\u0441 \u043F\u043E\u0441\u043B\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u043D\u0430\u0436\u0430\u0442\u0438\u044F \u043A\u043B\u0430\u0432\u0438\u0448\u0438 \u0438 \u043D\u0435 \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F. \u041C\u0430\u0440\u043A\u0435\u0440\u044B \u0441\u0440\u0430\u0437\u0443 \u0432\u0438\u0434\u043D\u044B \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B\xBB." }),
+        /* @__PURE__ */ jsxs74(List, { children: [
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "Reference \u0431\u0435\u0437 entity" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "dataType: Reference" }),
+            " \u0442\u0440\u0435\u0431\u0443\u0435\u0442 ",
+            /* @__PURE__ */ jsx77("code", { children: "entity:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "Identifier \u2014 \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "sequence:" }),
+            " \u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "template:" }),
+            " \u0432\u0437\u0430\u0438\u043C\u043E\u0438\u0441\u043A\u043B\u044E\u0447\u0430\u044E\u0449\u0438\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsxs74("strong", { children: [
+              "template \u0431\u0435\u0437 ",
+              "{@inc}"
+            ] }),
+            " \u2014 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u043F\u043B\u0435\u0439\u0441\u0445\u043E\u043B\u0434\u0435\u0440."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "template \u0441 \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0449\u0435\u0439\u0441\u044F \u0434\u0430\u0442\u043E\u0439" }),
+            " \u2014 \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440 ",
+            /* @__PURE__ */ jsx77("code", { children: "{@MM}" }),
+            " \u0434\u0432\u0430\u0436\u0434\u044B."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "prefix \u0431\u0435\u0437 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0430" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "{@prefix}" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "defaultPrefix:" }),
+            " \u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "prefixRules:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "searchable \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "searchable: true" }),
+            " \u043F\u0440\u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "useForSearch: false" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "excludeOnGraph: off" }),
+            " \u2014 \u0441\u0432\u044F\u0437\u044C \u043D\u0435\u0432\u0438\u0434\u0438\u043C\u0430 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435 \u0431\u0435\u0437 \u0444\u0438\u043B\u044C\u0442\u0440\u0430."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "open_page" }),
+            " \u0441 ",
+            /* @__PURE__ */ jsx77("code", { children: "operation: create" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "view:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "open_list" }),
+            " \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430 (",
+            /* @__PURE__ */ jsx77("code", { children: "attribute" }),
+            " / ",
+            /* @__PURE__ */ jsx77("code", { children: "linkage" }),
+            " / ",
+            /* @__PURE__ */ jsx77("code", { children: "join" }),
+            " / ",
+            /* @__PURE__ */ jsx77("code", { children: "contextPin" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "open_list" }),
+            " \u0441 \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u043C\u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "attribute:" }),
+            " \u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "linkage:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "bulk edit" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "attributes:" }),
+            " \u0438 ",
+            /* @__PURE__ */ jsx77("code", { children: "linkages:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "bulk edit_attribute" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "values:" }),
+            ", \u043B\u0438\u0431\u043E \u0441 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C \u043D\u0435-Bool/Workflow."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "target: entityAttribute" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "nested:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "nested.type: array" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "items:" }),
+            "; ",
+            /* @__PURE__ */ jsx77("strong", { children: "nested.type: table" }),
+            " \u0431\u0435\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "attributes:" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442 \u044D\u0444\u0444\u0435\u043A\u0442\u043E\u0432" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx77("code", { children: "hidden" }),
+            " + ",
+            /* @__PURE__ */ jsx77("code", { children: "readonly" }),
+            " / ",
+            /* @__PURE__ */ jsx77("code", { children: "hidden" }),
+            " + ",
+            /* @__PURE__ */ jsx77("code", { children: "required" }),
+            " \u043D\u0430 \u043E\u0434\u0438\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0432 \u0440\u0430\u0437\u043D\u044B\u0445 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "Workflow initial" }),
+            " \u043D\u0435 \u0432 ",
+            /* @__PURE__ */ jsx77("code", { children: "statuses[]" }),
+            "; \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0438\u0435 ",
+            /* @__PURE__ */ jsx77("code", { children: "transition" }),
+            " \u0438\u0437 ",
+            /* @__PURE__ */ jsx77("code", { children: "initial" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsx77("strong", { children: "menus[].priority < 1000" }),
+            "; \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442 ",
+            /* @__PURE__ */ jsx77("code", { children: "route" }),
+            "; ",
+            /* @__PURE__ */ jsx77("code", { children: "items:" }),
+            " \u0443 ",
+            /* @__PURE__ */ jsx77("code", { children: "root_menu" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs74("li", { children: [
+            /* @__PURE__ */ jsxs74("strong", { children: [
+              "label: ",
+              "{unknownAttr}"
+            ] }),
+            " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+          ] })
+        ] })
+      ] }),
       /* @__PURE__ */ jsx77(Section2, { title: "\u0420\u0435\u0441\u0430\u0439\u0437 \u043F\u0430\u043D\u0435\u043B\u0435\u0439", children: /* @__PURE__ */ jsxs74(List, { children: [
         /* @__PURE__ */ jsx77("li", { children: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438 \u2014 \u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 (180\u2013600px)." }),
         /* @__PURE__ */ jsxs74("li", { children: [
@@ -80179,8 +82667,8 @@ var init_Hint = __esm({
       quickjump: {
         icon: "my_location",
         title: "\u0411\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0435\u0440\u0435\u0445\u043E\u0434",
-        description: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043E\u043A\u043D\u043E \u0431\u044B\u0441\u0442\u0440\u043E\u0433\u043E \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0430: \u043F\u043E\u0438\u0441\u043A \u043F\u043E id, #\u0441\u0435\u043A\u0446\u0438\u0438, :\u0441\u0442\u0440\u043E\u043A\u0435, >\u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u043C\u0443, @\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443, !\u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0435, ~\u0441\u043E\u0441\u0435\u0434\u044F\u043C, FQID. Shift+Tab \u2014 \u0442\u043E \u0436\u0435, F2 \u2014 \u0441 \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u043C \u0441\u043B\u043E\u0432\u043E\u043C \u043F\u043E\u0434 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C.",
-        example: "Shift+Tab \xB7 F2",
+        description: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043E\u043A\u043D\u043E \u0431\u044B\u0441\u0442\u0440\u043E\u0433\u043E \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0430: \u043F\u043E\u0438\u0441\u043A \u043F\u043E id, #\u0441\u0435\u043A\u0446\u0438\u0438, :\u0441\u0442\u0440\u043E\u043A\u0435, >\u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u043C\u0443, @\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443, !\u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0435, ~\u0441\u043E\u0441\u0435\u0434\u044F\u043C, FQID. Ctrl+P \u2014 \u0442\u043E \u0436\u0435, F2 \u2014 \u0441 \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u043C \u0441\u043B\u043E\u0432\u043E\u043C \u043F\u043E\u0434 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C.",
+        example: "Ctrl+P \xB7 F2",
         hint: "\u041F\u043E\u043B\u043D\u0430\u044F \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430\u0446\u0438\u044F \u2014 \u043F\u043E \u043A\u043D\u043E\u043F\u043A\u0435 ? \u0432 \u0448\u0430\u043F\u043A\u0435 \u043E\u043A\u043D\u0430",
         color: "#22d3ee"
       },
@@ -102309,111 +104797,8 @@ var init_icon_widget = __esm({
 });
 
 // src/web/lib/monaco/quick-insert-widget.ts
-function countIndent(line) {
-  const m = line.match(/^(\s*)/);
-  if (!m)
-    return 0;
-  let count = 0;
-  for (const ch of m[1]) {
-    count += ch === "	" ? 2 : 1;
-  }
-  return count;
-}
-function getQuickInsertContext(model, position) {
-  const lineText = model.getLineContent(position.lineNumber);
-  if (lineText.trim() !== "")
-    return null;
-  let cursorIndent = countIndent(lineText);
-  if (cursorIndent === 0) {
-    let nextLineNum = position.lineNumber + 1;
-    while (nextLineNum <= model.getLineCount()) {
-      const nextText = model.getLineContent(nextLineNum);
-      if (nextText.trim() !== "") {
-        if (/^\s*-\s+/.test(nextText)) {
-          cursorIndent = countIndent(nextText);
-        }
-        break;
-      }
-      nextLineNum++;
-    }
-    if (cursorIndent === 0) {
-      let prevLineNum = position.lineNumber - 1;
-      while (prevLineNum >= 1) {
-        const prevText = model.getLineContent(prevLineNum);
-        if (prevText.trim() !== "") {
-          if (/^\s*-\s+/.test(prevText)) {
-            cursorIndent = countIndent(prevText);
-          }
-          break;
-        }
-        prevLineNum--;
-      }
-    }
-  }
-  if (cursorIndent === 0)
-    return null;
-  const chain = [];
-  for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const line = model.getLineContent(i);
-    if (!line.trim() || line.trim().startsWith("#"))
-      continue;
-    const ind = countIndent(line);
-    if (ind >= cursorIndent)
-      continue;
-    const m = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
-    if (m) {
-      chain.unshift({ key: m[1], indent: ind });
-      if (ind === 0)
-        break;
-    }
-  }
-  if (chain.length === 0)
-    return null;
-  const deepest = chain[chain.length - 1];
-  const expectedItemIndent = deepest.indent + 2;
-  if (cursorIndent !== expectedItemIndent)
-    return null;
-  const path = chain.map((c) => c.key).join(".");
-  const map2 = {
-    entities: "entityList",
-    "entities.attributes": "attribute",
-    linkages: "linkageList",
-    "linkages.attributes": "linkageAttribute",
-    "linkages.attributes.constraints": "attributeConstraint",
-    "entities.attributes.constraints": "attributeConstraint",
-    views: "viewList",
-    "views.widgets": "widget",
-    "views.groups": "group",
-    "views.views": "viewNested",
-    dataTypes: "dataTypeList",
-    "dataTypes.values": "enumValue",
-    "dataTypes.statuses": "workflowStatus",
-    "dataTypes.transitions": "transition",
-    actions: "actionList",
-    dataRules: "dataRuleList",
-    "dataRules.rule.attributes": "dataRuleAttributeAction",
-    "dataRules.rule.linkages": "dataRuleLinkageAction",
-    menus: "menuRootList",
-    "menus.items": "menuItem",
-    medias: "mediaList",
-    uiRules: "uiRuleList",
-    uiPresets: "uiPresetList",
-    sequences: "sequenceList",
-    mixins: "mixinList",
-    trees: "treeList",
-    transitiveLinkages: "transitiveLinkageList",
-    "transitiveLinkages.joins": "transitiveJoin",
-    counterColorPattern: "counterColorPattern",
-    counterColorPatterns: "counterColorPattern",
-    accessRules: "accessRule",
-    permissions: "permission",
-    localizations: "localization"
-  };
-  const ctx2 = map2[path];
-  if (!ctx2)
-    return null;
-  const indentStr = " ".repeat(expectedItemIndent);
-  return { context: ctx2, indent: indentStr };
+function prepareSnippetInsert2(body, indent) {
+  return body.replace(/^\n+/, "").replace(/\n+$/, "").split("\n").map((l) => l ? indent + l : l).join("\n");
 }
 function setupQuickInsertWidget(editor, monaco) {
   let timeout = null;
@@ -102437,8 +104822,7 @@ function setupQuickInsertWidget(editor, monaco) {
     pointerEvents: "auto",
     width: "20px",
     height: "20px",
-    boxSizing: "border-box",
-    transition: "background 0.15s, color 0.15s"
+    boxSizing: "border-box"
   });
   btnNode.addEventListener("mouseenter", () => {
     btnNode.style.background = "var(--bg-700, #334155)";
@@ -102497,18 +104881,17 @@ function setupQuickInsertWidget(editor, monaco) {
     const model = editor.getModel();
     if (!model)
       return;
-    const indented = snippet2.body.split("\n").map((l) => currentIndent + l).join("\n");
+    const indented = prepareSnippetInsert2(snippet2.body, currentIndent);
     const lineLen = model.getLineMaxColumn(currentLine);
     editor.setSelection(
       new monaco.Selection(currentLine, 1, currentLine, lineLen)
     );
-    const textToInsert = "\n" + indented + "\n";
     const sc = editor.getContribution?.("snippetController2");
     if (sc && typeof sc.insert === "function") {
-      sc.insert(textToInsert);
+      sc.insert(indented);
       return;
     }
-    const plain = textToInsert.replace(/\$\{\d+:([^}]*)\}/g, "$1").replace(/\$\d+/g, "");
+    const plain = indented.replace(/\$\{\d+:([^}]*)\}/g, "$1").replace(/\$\d+/g, "");
     editor.executeEdits("quick-insert", [
       {
         range: new monaco.Range(currentLine, 1, currentLine, lineLen),
@@ -102535,48 +104918,59 @@ function setupQuickInsertWidget(editor, monaco) {
   };
   document.addEventListener("mousedown", onDocMouseDown, true);
   const updateWidget = () => {
-    if (isMenuOpen)
-      return;
-    const position = editor.getPosition();
-    const model = editor.getModel();
-    if (!position || !model)
-      return;
-    const hit = getQuickInsertContext(model, position);
-    const available = hit ? SNIPPETS.filter((s) => s.contexts.includes(hit.context)) : [];
-    if (available.length === 0) {
-      currentSnippets = [];
-      currentLine = -1;
+    try {
+      if (isMenuOpen)
+        return;
+      const position = editor.getPosition();
+      const model = editor.getModel();
+      if (!position || !model)
+        return;
+      const lineText = model.getLineContent(position.lineNumber);
+      if (lineText.trim() !== "") {
+        currentSnippets = [];
+        currentLine = -1;
+        editor.layoutContentWidget(widget);
+        return;
+      }
+      const hit = detectSnippetContext(model, position);
+      const available = hit ? SNIPPETS.filter((s) => s.contexts.includes(hit.context)) : [];
+      if (available.length === 0) {
+        currentSnippets = [];
+        currentLine = -1;
+        editor.layoutContentWidget(widget);
+        return;
+      }
+      currentSnippets = available;
+      currentIndent = hit.indent;
+      currentLine = position.lineNumber;
+      menuNode.innerHTML = "";
+      available.forEach((sn) => {
+        const item = document.createElement("div");
+        item.textContent = sn.description;
+        Object.assign(item.style, {
+          padding: "6px 10px",
+          cursor: "pointer",
+          borderRadius: "4px",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        });
+        item.addEventListener("mouseenter", () => {
+          item.style.background = "var(--bg-700, #334155)";
+        });
+        item.addEventListener("mouseleave", () => {
+          item.style.background = "transparent";
+        });
+        item.addEventListener("click", (e) => {
+          e.stopPropagation();
+          insertSnippet(sn);
+        });
+        menuNode.appendChild(item);
+      });
       editor.layoutContentWidget(widget);
-      return;
+    } catch (err) {
+      console.warn("[quick-insert] updateWidget failed", err);
     }
-    currentSnippets = available;
-    currentIndent = hit.indent;
-    currentLine = position.lineNumber;
-    menuNode.innerHTML = "";
-    available.forEach((sn) => {
-      const item = document.createElement("div");
-      item.textContent = sn.description;
-      Object.assign(item.style, {
-        padding: "6px 10px",
-        cursor: "pointer",
-        borderRadius: "4px",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis"
-      });
-      item.addEventListener("mouseenter", () => {
-        item.style.background = "var(--bg-700, #334155)";
-      });
-      item.addEventListener("mouseleave", () => {
-        item.style.background = "transparent";
-      });
-      item.addEventListener("click", (e) => {
-        e.stopPropagation();
-        insertSnippet(sn);
-      });
-      menuNode.appendChild(item);
-    });
-    editor.layoutContentWidget(widget);
   };
   const scheduleUpdate = () => {
     if (timeout)
@@ -102599,6 +104993,1609 @@ var init_quick_insert_widget = __esm({
   "src/web/lib/monaco/quick-insert-widget.ts"() {
     "use strict";
     init_monaco_providers();
+    init_snippets_completion();
+  }
+});
+
+// src/web/lib/monaco/widgets/analyze.ts
+function getSectionAt2(model, line) {
+  for (let i = line; i >= 1; i--) {
+    const t = model.getLineContent(i);
+    if (!t.trim() || t.trim().startsWith("#"))
+      continue;
+    const m = t.match(/^([a-zA-Z_][\w]*)\s*:/);
+    if (m && !t.startsWith(" "))
+      return m[1];
+  }
+  return "";
+}
+function getBlockBounds(model, line, indent) {
+  const lineText = model.getLineContent(line);
+  const isDash = /^\s*-\s+\S/.test(lineText);
+  const isSibling = (t) => {
+    if (!t.trim())
+      return false;
+    const ind = (t.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind !== indent)
+      return false;
+    if (isDash)
+      return /^\s*-\s+\S/.test(t);
+    return true;
+  };
+  let start = line;
+  for (let i = line - 1; i >= 1; i--) {
+    const t = model.getLineContent(i);
+    if (!t.trim())
+      continue;
+    if (isSibling(t)) {
+      start = i + 1;
+      break;
+    }
+    const ind = (t.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < indent) {
+      start = i + 1;
+      break;
+    }
+  }
+  let end = line;
+  for (let i = line + 1; i <= model.getLineCount(); i++) {
+    const t = model.getLineContent(i);
+    if (!t.trim())
+      continue;
+    if (isSibling(t)) {
+      end = i - 1;
+      break;
+    }
+    const ind = (t.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < indent) {
+      end = i - 1;
+      break;
+    }
+    end = i;
+  }
+  const out = [];
+  for (let i = start; i <= end; i++)
+    out.push(i);
+  return out;
+}
+function analyzeLineAtCursor(model, position, index, lineMap, currentDomain) {
+  const line = position.lineNumber;
+  const lineText = model.getLineContent(line);
+  const currentIndent = lineText.match(/^(\s*)/)?.[1] || "";
+  const section = getSectionAt2(model, line);
+  let ctx2 = null;
+  try {
+    ctx2 = detectContextAtPosition(
+      model,
+      position,
+      lineMap?.lineContexts || /* @__PURE__ */ new Map()
+    );
+  } catch {
+  }
+  const lineCtx = lineMap?.lineContexts.get(line);
+  const entityCrumb = lineCtx?.breadcrumbs?.find(
+    (b) => b.type === "entity"
+  );
+  const attrCrumb = lineCtx?.breadcrumbs?.find(
+    (b) => b.type === "attribute"
+  );
+  let entity = null;
+  let attribute = null;
+  if (index && entityCrumb) {
+    entity = index.entitiesByFqid[`${currentDomain}/${entityCrumb.id}`.toLowerCase()];
+  }
+  if (entity && attrCrumb) {
+    let e = entity;
+    const seen = /* @__PURE__ */ new Set();
+    while (e && !seen.has(e.fqid)) {
+      seen.add(e.fqid);
+      const a = e.attributes.find((x) => x.id === attrCrumb.id);
+      if (a) {
+        attribute = a;
+        break;
+      }
+      e = e.inherits ? index.entitiesByFqid[e.inherits] : void 0;
+    }
+  }
+  const fm = lineText.match(
+    /^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*?)\s*(?:#.*)?$/
+  );
+  return {
+    model,
+    position,
+    lineMap,
+    index,
+    currentDomain,
+    section,
+    context: ctx2,
+    currentIndent,
+    currentLine: line,
+    blockLines: getBlockBounds(model, line, currentIndent.length),
+    fieldName: fm ? fm[1] : null,
+    fieldValue: fm ? fm[2] : null,
+    entity,
+    attribute
+  };
+}
+var init_analyze = __esm({
+  "src/web/lib/monaco/widgets/analyze.ts"() {
+    "use strict";
+    init_monaco_providers();
+  }
+});
+
+// src/web/lib/monaco/widgets/host.ts
+function setupWidgetHost(editor, monaco, defs, opts) {
+  let timeout = null;
+  let currentActions = [];
+  let currentCtx = null;
+  let currentLine = -1;
+  let dismissedKey = null;
+  const currentKey = () => {
+    const pos = editor.getPosition();
+    const model = editor.getModel();
+    if (!pos || !model)
+      return "";
+    return `${pos.lineNumber}:${model.getVersionId()}`;
+  };
+  const panel = document.createElement("div");
+  Object.assign(panel.style, {
+    display: "inline-flex",
+    flexWrap: "wrap",
+    gap: "2px",
+    maxWidth: "min(90vw, 640px)",
+    padding: "2px",
+    background: "var(--bg-800, #0d1424)",
+    border: "1px solid var(--border, #334155)",
+    borderRadius: "6px",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+    pointerEvents: "auto",
+    fontFamily: "system-ui, -apple-system, sans-serif",
+    fontSize: "11px",
+    userSelect: "none"
+  });
+  panel.addEventListener("mousedown", (e) => e.stopPropagation());
+  const widget = {
+    getId: () => "dg-widget-host",
+    getDomNode: () => panel,
+    getPosition: () => {
+      if (currentActions.length === 0 || currentLine < 1)
+        return null;
+      return {
+        position: { lineNumber: currentLine, column: 1 },
+        preference: [monaco.editor.ContentWidgetPositionPreference.BELOW]
+      };
+    }
+  };
+  editor.addContentWidget(widget);
+  const render = () => {
+    panel.innerHTML = "";
+    if (currentActions.length === 0) {
+      editor.layoutContentWidget(widget);
+      return;
+    }
+    for (const a of currentActions) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.title = a.hint || a.label;
+      Object.assign(btn.style, {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "4px",
+        padding: "3px 8px",
+        background: "transparent",
+        border: "1px solid transparent",
+        borderRadius: "4px",
+        color: "var(--text-200, #e2e8f0)",
+        cursor: "pointer",
+        fontSize: "11px",
+        fontFamily: "inherit",
+        whiteSpace: "nowrap"
+      });
+      if (a.icon) {
+        const ic = document.createElement("span");
+        ic.className = "material-symbols-outlined";
+        ic.style.fontSize = "14px";
+        ic.style.lineHeight = "1";
+        ic.textContent = a.icon;
+        btn.appendChild(ic);
+      }
+      const txt = document.createElement("span");
+      txt.textContent = a.label;
+      btn.appendChild(txt);
+      btn.addEventListener("mouseenter", () => {
+        btn.style.background = "var(--bg-700, #334155)";
+        btn.style.borderColor = "var(--border, #334155)";
+      });
+      btn.addEventListener("mouseleave", () => {
+        btn.style.background = "transparent";
+        btn.style.borderColor = "transparent";
+      });
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (currentCtx) {
+          try {
+            a.run(currentCtx, editor, monaco);
+          } catch (err) {
+            console.warn("[widget] action failed", a.id, err);
+          }
+        }
+      });
+      panel.appendChild(btn);
+    }
+    editor.layoutContentWidget(widget);
+  };
+  const update = () => {
+    try {
+      if (dismissedKey) {
+        if (dismissedKey === currentKey()) {
+          if (currentActions.length > 0) {
+            currentActions = [];
+            currentCtx = null;
+            currentLine = -1;
+            render();
+          }
+          return;
+        }
+        dismissedKey = null;
+      }
+      const position = editor.getPosition();
+      const model = editor.getModel();
+      if (!position || !model) {
+        currentActions = [];
+        currentLine = -1;
+        render();
+        return;
+      }
+      const ctx2 = analyzeLineAtCursor(
+        model,
+        position,
+        opts.getIndex(),
+        opts.getLineMap(),
+        opts.getDomain()
+      );
+      const ranked = defs.map((d) => ({ def: d, acts: d.getActions(ctx2) })).filter((x) => x.acts.length > 0).sort((a, b) => b.def.priority - a.def.priority);
+      if (ranked.length === 0) {
+        currentActions = [];
+        currentCtx = null;
+        currentLine = -1;
+        render();
+        return;
+      }
+      currentActions = ranked[0].acts;
+      currentCtx = ctx2;
+      currentLine = position.lineNumber;
+      render();
+    } catch (err) {
+      console.warn("[widget-host] update failed", err);
+    }
+  };
+  const schedule = () => {
+    if (timeout)
+      clearTimeout(timeout);
+    timeout = setTimeout(update, 120);
+  };
+  const cursorSub = editor.onDidChangeCursorPosition(schedule);
+  const modelSub = editor.onDidChangeModelContent(schedule);
+  editor.addCommand(monaco.KeyCode.Escape, () => {
+    if (currentActions.length === 0)
+      return;
+    const sw = document.querySelector(".suggest-widget");
+    if (sw && sw.classList.contains("visible") && sw.querySelectorAll(".monaco-list-row").length > 0)
+      return;
+    if (document.querySelector(".find-widget.visible"))
+      return;
+    dismissedKey = currentKey();
+    currentActions = [];
+    currentCtx = null;
+    currentLine = -1;
+    render();
+    editor.focus();
+  });
+  update();
+  return () => {
+    if (timeout)
+      clearTimeout(timeout);
+    cursorSub.dispose();
+    modelSub.dispose();
+    editor.removeContentWidget(widget);
+  };
+}
+var init_host = __esm({
+  "src/web/lib/monaco/widgets/host.ts"() {
+    "use strict";
+    init_analyze();
+  }
+});
+
+// src/web/lib/monaco/widgets/insert.ts
+function insertAtCursor(editor, monaco, text) {
+  const sc = editor.getContribution?.("snippetController2");
+  if (sc && typeof sc.insert === "function") {
+    sc.insert(text);
+    return;
+  }
+  const pos = editor.getPosition();
+  if (!pos)
+    return;
+  const plain = text.replace(/\$\{\d+:([^}]*)\}/g, "$1").replace(/\$\d+/g, "");
+  editor.executeEdits("dg-widget-insert", [
+    {
+      range: new monaco.Range(
+        pos.lineNumber,
+        pos.column,
+        pos.lineNumber,
+        pos.column
+      ),
+      text: plain
+    }
+  ]);
+}
+function insertBlock(editor, monaco, ctx2, snippet2) {
+  const model = ctx2.model;
+  const line = ctx2.currentLine;
+  const lineText = model.getLineContent(line);
+  const indented = snippet2.split("\n").map((l) => ctx2.currentIndent + l).join("\n");
+  if (lineText.trim() === "") {
+    const lineLen = model.getLineMaxColumn(line);
+    editor.setSelection(new monaco.Selection(line, 1, line, lineLen));
+    insertAtCursor(editor, monaco, indented);
+  } else {
+    const lineLen = model.getLineMaxColumn(line);
+    editor.setSelection(new monaco.Selection(line, lineLen, line, lineLen));
+    insertAtCursor(editor, monaco, "\n" + indented);
+  }
+}
+function insertRawAt(editor, monaco, insertLine, indent, text) {
+  const model = editor.getModel();
+  if (!model)
+    return;
+  const lineLen = model.getLineMaxColumn(insertLine);
+  const indented = text.split("\n").map((l) => indent + l).join("\n");
+  editor.executeEdits("widget-raw-insert", [{
+    range: new monaco.Range(insertLine, lineLen, insertLine, lineLen),
+    text: "\n" + indented
+  }]);
+  try {
+    editor.revealLineInCenter(insertLine + 1);
+  } catch {
+  }
+}
+function replaceValueInLine(editor, monaco, line, oldValue, newValue) {
+  const model = editor.getModel();
+  if (!model)
+    return;
+  const lineText = model.getLineContent(line);
+  const idx = lineText.lastIndexOf(oldValue);
+  if (idx < 0)
+    return;
+  editor.executeEdits("widget-replace", [{
+    range: new monaco.Range(line, idx + 1, line, idx + 1 + oldValue.length),
+    text: newValue
+  }]);
+}
+var init_insert = __esm({
+  "src/web/lib/monaco/widgets/insert.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/lib/monaco/widgets/defs/action-skeleton.ts
+var SKELETONS, actionSkeletonWidget;
+var init_action_skeleton = __esm({
+  "src/web/lib/monaco/widgets/defs/action-skeleton.ts"() {
+    "use strict";
+    init_insert();
+    SKELETONS = {
+      open_panel: "type: open_panel\nentity: ${1:MyEntity}\npanel: ${2:panels_info}",
+      open_modal: "type: open_modal\nentity: ${1:MyEntity}\nmodal: ${2:forms_new}\noperation: ${3:edit}",
+      open_page: "type: open_page\nentity: ${1:MyEntity}\nview: ${2:pages_info}\noperation: ${3:create}",
+      open_list: "type: open_list\nview: ${1:lists_my}\ncontextPin: false\npage: current",
+      open_tree: "type: open_tree\nview: ${1:trees_my}",
+      remove: "type: remove\nentity: ${1:MyEntity}",
+      bulk: "type: bulk\nentity: ${1:MyEntity}\noperation: remove",
+      automation: "type: automation\nentity: ${1:MyEntity}\nautomation:\n  id: ${2:00000000-0000-0000-0000-000000000000}",
+      scenario: "type: scenario\nentity: ${1:MyEntity}\nscenario: ${2:my_scenario}\nworkerTag: ${3:default}"
+    };
+    actionSkeletonWidget = {
+      id: "action-skeleton",
+      title: "\u0422\u0438\u043F action",
+      priority: 85,
+      getActions(ctx2) {
+        if (ctx2.section !== "actions")
+          return [];
+        if (ctx2.fieldName && ctx2.fieldName !== "id")
+          return [];
+        const hasType = ctx2.blockLines.some(
+          (ln) => /^\s*type\s*:/.test(ctx2.model.getLineContent(ln))
+        );
+        if (hasType)
+          return [];
+        const fieldIndent = ctx2.currentIndent + "  ";
+        return Object.entries(SKELETONS).map(([t, sk]) => ({
+          id: "act-" + t,
+          label: t,
+          icon: "bolt",
+          run: (c, ed, m) => insertBlock(ed, m, { ...c, currentIndent: c.currentIndent + "  " }, sk)
+        }));
+      }
+    };
+  }
+});
+
+// src/web/lib/monaco/widgets/defs/fix-missing-fqid.ts
+function findCandidates(ctx2, field, value) {
+  const idx = ctx2.index;
+  if (!idx)
+    return [];
+  const lower = value.toLowerCase();
+  const cur = ctx2.currentDomain.toLowerCase();
+  const out = [];
+  if (field === "linkage") {
+    for (const l of idx.entityLinkages || []) {
+      if (l.domainId.toLowerCase() === cur)
+        continue;
+      if (l.id.toLowerCase() !== lower)
+        continue;
+      out.push({ fqid: `${l.domainId}/${l.id}`, domain: l.domainId });
+    }
+  } else {
+    for (const key of Object.keys(idx.entitiesByFqid || {})) {
+      const e = idx.entitiesByFqid[key];
+      if (e.domainId.toLowerCase() === cur)
+        continue;
+      if (e.entityId.toLowerCase() !== lower)
+        continue;
+      out.push({ fqid: e.fqid, domain: e.domainId });
+    }
+  }
+  return out;
+}
+function valueExistsLocally(ctx2, field, value) {
+  if (value.includes("/"))
+    return true;
+  const idx = ctx2.index;
+  if (!idx)
+    return true;
+  const local = `${ctx2.currentDomain}/${value}`.toLowerCase();
+  if (field === "linkage") {
+    return idx.entityLinkages.some(
+      (l) => `${l.domainId}/${l.id}`.toLowerCase() === local
+    );
+  }
+  return !!idx.entitiesByFqid[local];
+}
+var REF_FIELDS3, fixMissingFqidWidget;
+var init_fix_missing_fqid = __esm({
+  "src/web/lib/monaco/widgets/defs/fix-missing-fqid.ts"() {
+    "use strict";
+    init_insert();
+    REF_FIELDS3 = /* @__PURE__ */ new Set(["entity", "inherits", "side1", "side2", "linkage"]);
+    fixMissingFqidWidget = {
+      id: "fix-missing-fqid",
+      title: "\u041E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0449\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430",
+      priority: 95,
+      getActions(ctx2) {
+        if (!ctx2.fieldName || !REF_FIELDS3.has(ctx2.fieldName))
+          return [];
+        const value = (ctx2.fieldValue || "").trim().replace(/^["']|["']$/g, "");
+        if (!value || value.includes("/"))
+          return [];
+        if (valueExistsLocally(ctx2, ctx2.fieldName, value))
+          return [];
+        const candidates = findCandidates(ctx2, ctx2.fieldName, value);
+        if (candidates.length === 0)
+          return [];
+        return candidates.slice(0, 4).map((c) => ({
+          id: "fix-" + c.fqid,
+          label: "\u2192 " + c.domain.split(".")[0] + "/\u2026",
+          icon: "travel_explore",
+          hint: `\u0417\u0430\u043C\u0435\u043D\u0438\u0442\u044C \u043D\u0430 ${c.fqid}`,
+          run: (cc, ed, m) => {
+            replaceValueInLine(ed, m, cc.currentLine, value, c.fqid);
+          }
+        }));
+      }
+    };
+  }
+});
+
+// src/web/lib/monaco/widgets/defs/entityview-skeleton.ts
+function buildSkeleton(entityId, withModal, withPage) {
+  const parts = [];
+  parts.push("widgets:");
+  parts.push("  - id: editors_id");
+  parts.push("    type: attribute");
+  parts.push("    attribute: id");
+  parts.push("  - id: editors_name");
+  parts.push("    type: attribute");
+  parts.push("    attribute: name");
+  parts.push("groups:");
+  parts.push("  - id: blocks_main");
+  parts.push("    type: block");
+  parts.push("    layout:");
+  parts.push("      direction: column");
+  parts.push("    components:");
+  parts.push("      - widget: editors_id");
+  parts.push("      - widget: editors_name");
+  parts.push("  - id: tabs_main");
+  parts.push("    type: tab");
+  parts.push("    label: ${1:\u041E\u0441\u043D\u043E\u0432\u043D\u043E\u0435}");
+  parts.push("    components:");
+  parts.push("      - block: blocks_main");
+  parts.push("views:");
+  parts.push("  - id: panels_info");
+  parts.push("    type: panel");
+  parts.push("    tabs:");
+  parts.push("      - tab: tabs_main");
+  if (withModal) {
+    parts.push("  - id: forms_new");
+    parts.push("    type: modal");
+    parts.push("    form: blocks_main");
+    parts.push("    label: ${2:\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435}");
+  }
+  if (withPage) {
+    parts.push("  - id: pages_info");
+    parts.push("    type: page");
+    parts.push("    actionPanel: []");
+    parts.push("    tabs:");
+    parts.push("      - tab: tabs_main");
+  }
+  return parts.join("\n");
+}
+function pickEntityId(ctx2) {
+  const m = ctx2.model.getLineContent(ctx2.currentLine);
+  for (const ln of ctx2.blockLines) {
+    const t = ctx2.model.getLineContent(ln);
+    const mm = t.match(/^\s*entity\s*:\s*["']?([^\s"'#]+)["']?/);
+    if (mm)
+      return mm[1];
+  }
+  return "${1:MyEntity}";
+}
+var entityviewSkeletonWidget;
+var init_entityview_skeleton = __esm({
+  "src/web/lib/monaco/widgets/defs/entityview-skeleton.ts"() {
+    "use strict";
+    init_insert();
+    entityviewSkeletonWidget = {
+      id: "entityview-skeleton",
+      title: "\u0421\u043A\u0435\u043B\u0435\u0442 entity-view",
+      priority: 82,
+      getActions(ctx2) {
+        if (ctx2.section !== "views")
+          return [];
+        if (ctx2.fieldName !== "id")
+          return [];
+        const blockText = ctx2.blockLines.map((ln) => ctx2.model.getLineContent(ln)).join("\n");
+        const typeM = blockText.match(/^\s*type\s*:\s*(\w+)/m);
+        if (!typeM || typeM[1] !== "entity")
+          return [];
+        if (/^\s*(?:widgets|groups|views)\s*:/m.test(blockText))
+          return [];
+        const entityId = pickEntityId(ctx2);
+        const lastLine = ctx2.blockLines[ctx2.blockLines.length - 1];
+        const indent = ctx2.currentIndent + "  ";
+        return [
+          {
+            id: "sk-full",
+            label: "+ \u043F\u0430\u043D\u0435\u043B\u044C+\u043C\u043E\u0434\u0430\u043B\u043A\u0430+\u0432\u043A\u043B\u0430\u0434\u043A\u0438",
+            icon: "dashboard_customize",
+            run: (_c, ed, m) => insertRawAt(
+              ed,
+              m,
+              lastLine,
+              indent,
+              buildSkeleton(entityId, true, false)
+            )
+          },
+          {
+            id: "sk-page",
+            label: "+ \u043F\u043E\u043B\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430",
+            icon: "web",
+            run: (_c, ed, m) => insertRawAt(
+              ed,
+              m,
+              lastLine,
+              indent,
+              buildSkeleton(entityId, true, true)
+            )
+          }
+        ];
+      }
+    };
+  }
+});
+
+// src/web/lib/monaco/widgets/defs/bulk-wizard.ts
+var bulkWizardWidget;
+var init_bulk_wizard = __esm({
+  "src/web/lib/monaco/widgets/defs/bulk-wizard.ts"() {
+    "use strict";
+    init_insert();
+    bulkWizardWidget = {
+      id: "bulk-wizard",
+      title: "Bulk action",
+      priority: 84,
+      getActions(ctx2) {
+        if (ctx2.section !== "actions")
+          return [];
+        const lines = ctx2.blockLines.map((ln) => ctx2.model.getLineContent(ln));
+        const typeLine = lines.find((l) => /^\s*type\s*:/.test(l));
+        if (!typeLine || !/type\s*:\s*bulk\b/.test(typeLine))
+          return [];
+        const hasAttrs = lines.some((l) => /^\s*attributes\s*:/.test(l));
+        const hasLinkages = lines.some((l) => /^\s*linkages\s*:/.test(l));
+        const lastLine = ctx2.blockLines[ctx2.blockLines.length - 1];
+        const indent = ctx2.currentIndent + "  ";
+        const actions2 = [];
+        if (!hasAttrs) {
+          actions2.push({
+            id: "bulk-attrs",
+            label: "+ attributes (specific)",
+            icon: "list",
+            run: (_c, ed, m) => {
+              const text = [
+                "attributes:",
+                "  type: specific",
+                "  use:",
+                "    - attribute: ${1:myAttr}"
+              ].join("\n");
+              insertRawAt(ed, m, lastLine, indent, text);
+            }
+          });
+        }
+        if (!hasLinkages) {
+          actions2.push({
+            id: "bulk-lnk",
+            label: "+ linkages (specific)",
+            icon: "link",
+            run: (_c, ed, m) => {
+              const text = [
+                "linkages:",
+                "  type: specific",
+                "  use:",
+                "    - widget: ${1:editors_myLinkage}"
+              ].join("\n");
+              insertRawAt(ed, m, lastLine, indent, text);
+            }
+          });
+        }
+        return actions2;
+      }
+    };
+  }
+});
+
+// src/web/lib/monaco/widgets/defs/template-builder.ts
+function getTemplateValueRange(lineText) {
+  const m = lineText.match(/^\s*(?:-\s+)?template\s*:\s*/);
+  if (!m)
+    return null;
+  const valueStart = m[0].length;
+  const firstChar = lineText.charAt(valueStart);
+  if (firstChar === '"' || firstChar === "'") {
+    let end2 = -1;
+    for (let i = valueStart + 1; i < lineText.length; i++) {
+      if (lineText.charAt(i) === firstChar) {
+        end2 = i;
+        break;
+      }
+    }
+    if (end2 < 0) {
+      return { start: valueStart + 1, end: lineText.length, quote: firstChar };
+    }
+    return { start: valueStart + 1, end: end2, quote: firstChar };
+  }
+  let end = lineText.length;
+  const hashIdx = lineText.indexOf(" #", valueStart);
+  if (hashIdx > 0)
+    end = hashIdx;
+  while (end > valueStart && lineText.charAt(end - 1) === " ")
+    end--;
+  return { start: valueStart, end, quote: null };
+}
+function insertPlaceholder(editor, monaco, placeholder) {
+  const model = editor.getModel();
+  const pos = editor.getPosition();
+  if (!model || !pos)
+    return;
+  const lineText = model.getLineContent(pos.lineNumber);
+  const range = getTemplateValueRange(lineText);
+  if (!range) {
+    editor.executeEdits("template-widget", [
+      {
+        range: new monaco.Range(
+          pos.lineNumber,
+          pos.column,
+          pos.lineNumber,
+          pos.column
+        ),
+        text: placeholder
+      }
+    ]);
+    editor.setPosition({
+      lineNumber: pos.lineNumber,
+      column: pos.column + placeholder.length
+    });
+    editor.focus();
+    return;
+  }
+  const cursor0 = pos.column - 1;
+  if (!range.quote) {
+    const currentValue = lineText.slice(range.start, range.end);
+    const cursorInValue = cursor0 >= range.start && cursor0 <= range.end;
+    const offset = cursorInValue ? cursor0 - range.start : currentValue.length;
+    const newValue = currentValue.slice(0, offset) + placeholder + currentValue.slice(offset);
+    editor.executeEdits("template-widget", [
+      {
+        range: new monaco.Range(
+          pos.lineNumber,
+          range.start + 1,
+          pos.lineNumber,
+          range.end + 1
+        ),
+        text: `"${newValue}"`
+      }
+    ]);
+    editor.setPosition({
+      lineNumber: pos.lineNumber,
+      column: range.start + 1 + offset + placeholder.length
+    });
+    editor.focus();
+    return;
+  }
+  const isClosed = range.end < lineText.length && lineText.charAt(range.end) === range.quote;
+  let insertCol1Based;
+  if (cursor0 < range.start || cursor0 > range.end) {
+    insertCol1Based = range.end + 1;
+  } else {
+    insertCol1Based = pos.column;
+  }
+  editor.executeEdits("template-widget", [
+    {
+      range: new monaco.Range(
+        pos.lineNumber,
+        insertCol1Based,
+        pos.lineNumber,
+        insertCol1Based
+      ),
+      text: placeholder
+    }
+  ]);
+  if (!isClosed) {
+  }
+  editor.setPosition({
+    lineNumber: pos.lineNumber,
+    column: insertCol1Based + placeholder.length
+  });
+  editor.focus();
+}
+function generateSample(attr) {
+  const now = /* @__PURE__ */ new Date();
+  const prefix = attr.defaultPrefix || "ID";
+  const inc = attr.incrementTemplate || "0000";
+  let s = attr.template || "{@prefix}-{@inc}";
+  s = s.replace(/\{@prefix\}/g, prefix).replace(/\{@YYYY\}/g, String(now.getFullYear())).replace(/\{@YY\}/g, String(now.getFullYear()).slice(-2)).replace(/\{@MM\}/g, String(now.getMonth() + 1).padStart(2, "0")).replace(/\{@DD\}/g, String(now.getDate()).padStart(2, "0")).replace(/\{@inc\}/g, "1".padStart(inc.length || 1, "0"));
+  return s;
+}
+var PLACEHOLDERS, templateBuilderWidget;
+var init_template_builder = __esm({
+  "src/web/lib/monaco/widgets/defs/template-builder.ts"() {
+    "use strict";
+    init_useGraphStore();
+    PLACEHOLDERS = [
+      { id: "prefix", label: "@prefix", hint: "\u041D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u043C\u044B\u0439 \u043F\u0440\u0435\u0444\u0438\u043A\u0441" },
+      { id: "YYYY", label: "@YYYY", hint: "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 4 \u0446\u0438\u0444\u0440\u044B" },
+      { id: "YY", label: "@YY", hint: "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 2 \u0446\u0438\u0444\u0440\u044B" },
+      { id: "MM", label: "@MM", hint: "\u041C\u0435\u0441\u044F\u0446, 01\u201312" },
+      { id: "DD", label: "@DD", hint: "\u0414\u0435\u043D\u044C, 01\u201331" },
+      { id: "inc", label: "@inc", hint: "\u0418\u043D\u043A\u0440\u0435\u043C\u0435\u043D\u0442\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0447\u0451\u0442\u0447\u0438\u043A" }
+    ];
+    templateBuilderWidget = {
+      id: "template-builder",
+      title: "\u0428\u0430\u0431\u043B\u043E\u043D Identifier",
+      priority: 87,
+      getActions(ctx2) {
+        if (!ctx2.attribute)
+          return [];
+        if (ctx2.attribute.dataType !== "Identifier")
+          return [];
+        const currentLineText = ctx2.model.getLineContent(ctx2.currentLine);
+        const isTemplateLine = /^\s*(?:-\s+)?template\s*:/.test(currentLineText);
+        if (ctx2.fieldName !== "template" && !isTemplateLine)
+          return [];
+        const actions2 = [];
+        for (const ph of PLACEHOLDERS) {
+          actions2.push({
+            id: "ph-" + ph.id,
+            label: "{" + ph.label + "}",
+            icon: "data_object",
+            hint: ph.hint + " \xB7 \u0432\u0441\u0442\u0430\u0432\u043A\u0430 \u0432 \u043F\u043E\u0437\u0438\u0446\u0438\u044E \u043A\u0443\u0440\u0441\u043E\u0440\u0430",
+            run: (_c, ed, m) => {
+              insertPlaceholder(ed, m, `{@${ph.id}}`);
+            }
+          });
+        }
+        const sample = generateSample(ctx2.attribute);
+        actions2.push({
+          id: "preview",
+          label: sample,
+          icon: "content_copy",
+          hint: `\u041F\u0440\u0438\u043C\u0435\u0440: ${sample}. \u041A\u043B\u0438\u043A \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C`,
+          run: () => {
+            navigator.clipboard.writeText(sample).then(() => {
+              useGraphStore.getState().showSnackbar(`\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E: ${sample}`);
+            }).catch(() => {
+            });
+          }
+        });
+        return actions2;
+      }
+    };
+  }
+});
+
+// src/web/lib/monaco/widgets/registry.ts
+var ALL_WIDGETS;
+var init_registry = __esm({
+  "src/web/lib/monaco/widgets/registry.ts"() {
+    "use strict";
+    init_action_skeleton();
+    init_fix_missing_fqid();
+    init_entityview_skeleton();
+    init_bulk_wizard();
+    init_template_builder();
+    ALL_WIDGETS = [
+      //missingRequiredWidget, // 100
+      fixMissingFqidWidget,
+      // 95
+      //controlPickerWidget, // 90
+      //identifierPreviewWidget, // 88
+      templateBuilderWidget,
+      // 87
+      actionSkeletonWidget,
+      // 85
+      bulkWizardWidget,
+      // 84
+      entityviewSkeletonWidget
+      // 82
+      //constraintTemplatesWidget, // 80
+      //dataruleGeneratorWidget, // 78
+      //widgetGeneratorWidget, // 75
+      //missingMenuWidget, // 72
+      //entityFieldPickerWidget, // 70
+      //copyAttributeWidget, // 50
+    ];
+  }
+});
+
+// src/web/lib/monaco/paste-align.ts
+function alignPastedText(editor, insertedText, startLine, startColumn) {
+  const model = editor.getModel();
+  if (!model)
+    return insertedText;
+  const lines = insertedText.split("\n");
+  if (lines.length < 2)
+    return insertedText;
+  const lineText = model.getLineContent(startLine);
+  let lineIndentStr = lineText.match(/^(\s*)/)?.[1] || "";
+  const beforeCursor = lineText.slice(0, startColumn - 1);
+  const isInsertInsideLine = startColumn > 1 && beforeCursor.trim() !== "";
+  if (!isInsertInsideLine && !lineText.trim() && lineIndentStr === "") {
+    for (let i = startLine - 1; i >= 1; i--) {
+      const pt = model.getLineContent(i);
+      if (!pt.trim() || pt.trim().startsWith("#"))
+        continue;
+      const pi = pt.match(/^(\s*)/)?.[1] || "";
+      if (/^\s*-\s/.test(pt) || /:\s*(?:#.*)?$/.test(pt.trim())) {
+        lineIndentStr = pi + "  ";
+      } else {
+        lineIndentStr = pi;
+      }
+      break;
+    }
+  }
+  let baseIndent = lineIndentStr;
+  if (isInsertInsideLine) {
+    baseIndent = lineIndentStr + "  ";
+  }
+  const stack = [];
+  return lines.map((line, i) => {
+    if (!line.trim())
+      return line;
+    const rawIndentStr = line.match(/^(\s*)/)?.[1] || "";
+    const rawIndent = rawIndentStr.length;
+    const trimmed = line.trim();
+    let canHaveChildren = false;
+    if (trimmed.startsWith("-"))
+      canHaveChildren = true;
+    else if (trimmed.endsWith(":"))
+      canHaveChildren = true;
+    else if (/:\s*[|>][+\-]?\s*$/.test(trimmed))
+      canHaveChildren = true;
+    while (stack.length > 0 && (stack[stack.length - 1].rawIndent >= rawIndent || !stack[stack.length - 1].canHaveChildren)) {
+      stack.pop();
+    }
+    const level = stack.length;
+    let prefix = "";
+    if (i > 0 || startColumn === 1) {
+      prefix = baseIndent + " ".repeat(level * 2);
+    }
+    stack.push({ rawIndent, level, canHaveChildren });
+    return prefix + line.slice(rawIndentStr.length);
+  }).join("\n");
+}
+var init_paste_align = __esm({
+  "src/web/lib/monaco/paste-align.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/lib/monaco/semantic-validator.ts
+function findTopSection(lines, key) {
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^([a-zA-Z_][\w]*)\s*:/);
+    if (m && m[1] === key) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx < 0)
+    return null;
+  let endIdx = lines.length;
+  for (let j = startIdx + 1; j < lines.length; j++) {
+    if (/^[a-zA-Z_]/.test(lines[j])) {
+      endIdx = j;
+      break;
+    }
+  }
+  return { startIdx, endIdx };
+}
+function unquote2(raw) {
+  let v = raw.trim();
+  if (v.startsWith('"') && v.endsWith('"') || v.startsWith("'") && v.endsWith("'")) {
+    v = v.slice(1, -1);
+  }
+  return v;
+}
+function collectItems(lines, sec, startIdx, endIdx) {
+  const from = startIdx ?? sec.startIdx + 1;
+  const to = endIdx ?? sec.endIdx;
+  const items = [];
+  let dashIndent = -1;
+  let current = null;
+  const close = (end) => {
+    if (current) {
+      current.endIdx = end;
+      items.push(current);
+      current = null;
+    }
+  };
+  for (let i = from; i < to; i++) {
+    const line = lines[i];
+    if (!line.trim())
+      continue;
+    const m = line.match(/^(\s*)-\s+id\s*:\s*["']?([^\s"'#]+)["']?/);
+    if (m) {
+      if (dashIndent < 0)
+        dashIndent = m[1].length;
+      if (m[1].length === dashIndent) {
+        close(i);
+        current = {
+          id: m[2],
+          startIdx: i,
+          endIdx: to,
+          dashIndent,
+          fields: /* @__PURE__ */ new Map()
+        };
+        continue;
+      }
+    }
+    if (!current)
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === current.dashIndent + 2) {
+      const fm = line.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(.*?)\s*(?:#.*)?$/);
+      if (fm) {
+        const field = fm[1];
+        if (!current.fields.has(field)) {
+          current.fields.set(field, { value: unquote2(fm[2]), lineIdx: i });
+        }
+      }
+    }
+  }
+  close(to);
+  return items;
+}
+function findContainerIdx(lines, item, key) {
+  const fieldIndent = item.dashIndent + 2;
+  for (let i = item.startIdx; i < item.endIdx; i++) {
+    const ind = (lines[i].match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind !== fieldIndent)
+      continue;
+    if (new RegExp(`^(?:-\\s+)?${key}\\s*:`).test(lines[i].trim()))
+      return i;
+  }
+  return -1;
+}
+function collectNestedItems(lines, parent, container) {
+  const containerIdx = findContainerIdx(lines, parent, container);
+  if (containerIdx < 0)
+    return [];
+  const fieldIndent = parent.dashIndent + 2;
+  return collectItems(
+    lines,
+    { startIdx: containerIdx, endIdx: parent.endIdx },
+    containerIdx + 1,
+    parent.endIdx
+  );
+}
+function checkAttribute(_lines, attr, emit2) {
+  const dataType = attr.fields.get("dataType")?.value;
+  const entity = attr.fields.get("entity");
+  const seq2 = attr.fields.get("sequence");
+  const tmpl = attr.fields.get("template");
+  const defPrefix = attr.fields.get("defaultPrefix");
+  const hasPrefixRules = attr.fields.has("prefixRules");
+  if (dataType === "Reference" && !entity) {
+    emit2(
+      `dataType: Reference \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043F\u043E\u043B\u0435 entity: (\u043D\u0430 \u043A\u0430\u043A\u0443\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442)`,
+      attr.startIdx + 1,
+      "attribute/reference-without-entity",
+      "warning"
+    );
+  }
+  if (dataType === "Identifier" && seq2 && tmpl) {
+    emit2(
+      `dataType: Identifier \u2014 \u043F\u043E\u043B\u044F sequence: \u0438 template: \u0432\u0437\u0430\u0438\u043C\u043E\u0438\u0441\u043A\u043B\u044E\u0447\u0430\u044E\u0449\u0438\u0435`,
+      tmpl.lineIdx + 1,
+      "attribute/identifier-conflict",
+      "error"
+    );
+  }
+  if (!tmpl)
+    return;
+  const t = tmpl.value;
+  if (dataType === "Identifier" && !t.includes("{@inc}")) {
+    emit2(
+      `template: \u043D\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 {@inc} \u2014 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D \u0434\u043B\u044F Identifier`,
+      tmpl.lineIdx + 1,
+      "attribute/template-missing-inc",
+      "error"
+    );
+  }
+  for (const tok of ["{@YYYY}", "{@YY}", "{@MM}", "{@DD}"]) {
+    const c = t.split(tok).length - 1;
+    if (c > 1) {
+      emit2(
+        `\u0412 template ${tok} \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F ${c} \u0440\u0430\u0437 \u2014 \u043B\u0438\u0442\u0435\u0440\u0430\u043B\u044B \u0434\u0430\u0442\u044B \u043E\u0431\u044B\u0447\u043D\u043E \u043D\u0435 \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0442\u0441\u044F`,
+        tmpl.lineIdx + 1,
+        "attribute/template-duplicate-date",
+        "warning"
+      );
+    }
+  }
+  if (t.includes("{@prefix}") && !defPrefix && !hasPrefixRules) {
+    emit2(
+      `template: \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 {@prefix}, \u043D\u043E \u043D\u0435\u0442 defaultPrefix: \u0438 \u043D\u0435\u0442 prefixRules: \u2014 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 \u0431\u0443\u0434\u0435\u0442 \u043F\u0443\u0441\u0442\u044B\u043C`,
+      tmpl.lineIdx + 1,
+      "attribute/prefix-not-configured",
+      "warning"
+    );
+  }
+  if (defPrefix && defPrefix.value && !t.includes("{@prefix}")) {
+    emit2(
+      `defaultPrefix: \u0437\u0430\u0434\u0430\u043D, \u043D\u043E \u0432 template \u043D\u0435\u0442 {@prefix} \u2014 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F`,
+      defPrefix.lineIdx + 1,
+      "attribute/prefix-not-used",
+      "warning"
+    );
+  }
+}
+function checkAllAttributes(lines, emit2) {
+  const sec = findTopSection(lines, "entities");
+  if (!sec)
+    return;
+  const entities2 = collectItems(lines, sec);
+  for (const entity of entities2) {
+    const attrs = collectNestedItems(lines, entity, "attributes");
+    for (const attr of attrs)
+      checkAttribute(lines, attr, emit2);
+  }
+}
+function checkLinkages(lines, emit2) {
+  const sec = findTopSection(lines, "linkages");
+  if (!sec)
+    return;
+  const linkages2 = collectItems(lines, sec);
+  for (const lk of linkages2) {
+    const useForSearch = lk.fields.get("useForSearch")?.value === "true";
+    const excludeOnGraph = lk.fields.get("excludeOnGraph")?.value;
+    if (!useForSearch) {
+      const attrs = collectNestedItems(lines, lk, "attributes");
+      for (const a of attrs) {
+        const searchable = a.fields.get("searchable");
+        if (searchable && searchable.value === "true") {
+          emit2(
+            `searchable: true \u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \xAB${a.id}\xBB, \u043D\u043E useForSearch: false \u0443 \u0441\u0432\u044F\u0437\u0438 \u2014 searchable \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F`,
+            searchable.lineIdx + 1,
+            "linkage/searchable-ignored",
+            "warning"
+          );
+        }
+      }
+    }
+    if (excludeOnGraph === "off") {
+      emit2(
+        `excludeOnGraph: off \u2014 \u0441\u0432\u044F\u0437\u044C \u043D\u0435\u0432\u0438\u0434\u0438\u043C\u0430 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435, \u043F\u043E\u043A\u0430 \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u0444\u0438\u043B\u044C\u0442\u0440`,
+        lk.fields.get("excludeOnGraph").lineIdx + 1,
+        "linkage/exclude-on-graph-off",
+        "info"
+      );
+    }
+  }
+}
+function checkActions2(lines, emit2, index, domainId) {
+  const sec = findTopSection(lines, "actions");
+  if (!sec)
+    return;
+  const actions2 = collectItems(lines, sec);
+  for (const a of actions2) {
+    const type2 = a.fields.get("type")?.value;
+    const operation = a.fields.get("operation");
+    const view = a.fields.get("view");
+    const pageView = a.fields.get("pageView");
+    const entity = a.fields.get("entity");
+    if (type2 === "open_page" && operation?.value === "create" && !view && !pageView) {
+      emit2(
+        `open_page \u0441 operation: create \u0442\u0440\u0435\u0431\u0443\u0435\u0442 view: (\u0438\u043B\u0438 pageView:)`,
+        operation.lineIdx + 1,
+        "action/open-page-create-without-view",
+        "error"
+      );
+    }
+    if (type2 === "open_list") {
+      const hasAttr = a.fields.has("attribute");
+      const hasLinkage = a.fields.has("linkage");
+      const hasJoin = a.fields.has("join");
+      const hasWidget = a.fields.has("widgetId");
+      const hasPin = a.fields.has("contextPin");
+      if (!hasAttr && !hasLinkage && !hasJoin && !hasWidget && !hasPin) {
+        emit2(
+          `open_list \u0431\u0435\u0437 attribute / linkage / join / widgetId / contextPin \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u043F\u0438\u0441\u043E\u043A \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430`,
+          a.startIdx + 1,
+          "action/open-list-without-context",
+          "info"
+        );
+      }
+      if (hasAttr && hasLinkage) {
+        emit2(
+          `open_list: attribute: \u0438 linkage: \u0432\u0437\u0430\u0438\u043C\u043E\u0438\u0441\u043A\u043B\u044E\u0447\u0430\u044E\u0449\u0438\u0435`,
+          a.fields.get("linkage").lineIdx + 1,
+          "action/open-list-attr-linkage-conflict",
+          "error"
+        );
+      }
+    }
+    if (type2 === "bulk") {
+      if (operation?.value === "edit") {
+        if (!a.fields.has("attributes") && !a.fields.has("linkages")) {
+          emit2(
+            `bulk \u0441 operation: edit \u0442\u0440\u0435\u0431\u0443\u0435\u0442 attributes: \u0438\u043B\u0438 linkages:`,
+            operation.lineIdx + 1,
+            "action/bulk-edit-without-target",
+            "warning"
+          );
+        }
+      }
+      if (operation?.value === "edit_attribute") {
+        if (!a.fields.has("values")) {
+          emit2(
+            `bulk \u0441 operation: edit_attribute \u0442\u0440\u0435\u0431\u0443\u0435\u0442 values: \u0441 \u043F\u043E\u043B\u044F\u043C\u0438 attribute + value`,
+            operation.lineIdx + 1,
+            "action/bulk-edit-attr-without-values",
+            "error"
+          );
+        }
+        if (entity && index) {
+          const fqid = entity.value.includes("/") ? entity.value.toLowerCase() : `${domainId}/${entity.value}`.toLowerCase();
+          const entityRec = index.entitiesByFqid[fqid];
+          if (entityRec) {
+            for (let i = a.startIdx; i < a.endIdx; i++) {
+              const m = lines[i].match(
+                /^\s*-\s+attribute\s*:\s*["']?([^\s"'#]+)["']?/
+              );
+              if (!m)
+                continue;
+              const attrId = m[1];
+              const attr = entityRec.attributes.find(
+                (x) => x.id === attrId
+              );
+              if (!attr)
+                continue;
+              const isBool = attr.dataType === "Bool";
+              const isWorkflow = attr.dataTypeKind === "custom" && index.dataTypes?.some(
+                (d) => d.domainId === domainId && d.id === attr.dataType && d.kind === "Workflow"
+              );
+              if (!isBool && !isWorkflow) {
+                emit2(
+                  `operation: edit_attribute \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E Bool \u0438\u043B\u0438 Workflow. \u0410\u0442\u0440\u0438\u0431\u0443\u0442 \xAB${attrId}\xBB \u2014 ${attr.dataType}`,
+                  i + 1,
+                  "action/bulk-edit-attr-wrong-type",
+                  "warning"
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+function checkDataRules2(lines, emit2) {
+  const sec = findTopSection(lines, "dataRules");
+  if (!sec)
+    return;
+  const rules = collectItems(lines, sec);
+  for (const rule of rules) {
+    const target = rule.fields.get("target")?.value;
+    const nestedIdx = findContainerIdx(lines, rule, "nested");
+    if (target === "entityAttribute" && nestedIdx < 0) {
+      emit2(
+        `target: entityAttribute \u0442\u0440\u0435\u0431\u0443\u0435\u0442 nested: (type: table \u0438\u043B\u0438 type: array)`,
+        rule.startIdx + 1,
+        "datarule/entityAttribute-without-nested",
+        "error"
+      );
+      continue;
+    }
+    if (nestedIdx < 0)
+      continue;
+    const nestedIndent = (lines[nestedIdx].match(/^(\s*)/) || ["", ""])[1].length;
+    let nestedType = "";
+    let hasItems = false;
+    let hasAttributes = false;
+    for (let i = nestedIdx + 1; i < rule.endIdx; i++) {
+      const line = lines[i];
+      if (!line.trim())
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind <= nestedIndent)
+        break;
+      const m = line.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(.*?)\s*(?:#.*)?$/);
+      if (!m)
+        continue;
+      if (m[1] === "type" && ind === nestedIndent + 2)
+        nestedType = unquote2(m[2]);
+      if (m[1] === "items")
+        hasItems = true;
+      if (m[1] === "attributes")
+        hasAttributes = true;
+    }
+    if (nestedType === "array" && !hasItems) {
+      emit2(
+        `nested.type: array \u0442\u0440\u0435\u0431\u0443\u0435\u0442 nested.items: (\u0438\u043D\u0434\u0435\u043A\u0441\u044B \u0438\u043B\u0438 '*')`,
+        nestedIdx + 1,
+        "datarule/nested-array-without-items",
+        "error"
+      );
+    }
+    if (nestedType === "table" && !hasAttributes) {
+      emit2(
+        `nested.type: table \u0442\u0440\u0435\u0431\u0443\u0435\u0442 nested.attributes: (\u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B)`,
+        nestedIdx + 1,
+        "datarule/nested-table-without-attributes",
+        "error"
+      );
+    }
+  }
+}
+function checkDataRuleConflicts(lines, emit2, domainId) {
+  const sec = findTopSection(lines, "dataRules");
+  if (!sec)
+    return;
+  const rules = collectItems(lines, sec);
+  const map2 = /* @__PURE__ */ new Map();
+  for (const rule of rules) {
+    const entity = rule.fields.get("entity")?.value;
+    const effect = rule.fields.get("effect")?.value;
+    if (!entity || !effect)
+      continue;
+    const fqid = entity.includes("/") ? entity.toLowerCase() : `${domainId}/${entity}`.toLowerCase();
+    const ruleIdx = findContainerIdx(lines, rule, "rule");
+    if (ruleIdx < 0)
+      continue;
+    const attrsContainerIdx = (() => {
+      for (let i = ruleIdx + 1; i < rule.endIdx; i++) {
+        const ind = (lines[i].match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= (lines[ruleIdx].match(/^(\s*)/) || ["", ""])[1].length)
+          break;
+        if (/^\s*attributes\s*:/.test(lines[i]))
+          return i;
+      }
+      return -1;
+    })();
+    if (attrsContainerIdx < 0)
+      continue;
+    for (let i = attrsContainerIdx + 1; i < rule.endIdx; i++) {
+      const line = lines[i];
+      if (!line.trim())
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind <= (lines[attrsContainerIdx].match(/^(\s*)/) || ["", ""])[1].length)
+        break;
+      const m = line.match(/^\s*-\s+attribute\s*:\s*["']?([^\s"'#]+)["']?/);
+      if (!m)
+        continue;
+      const key = `${fqid}#${m[1]}`;
+      let e = map2.get(key);
+      if (!e) {
+        e = {};
+        map2.set(key, e);
+      }
+      if (effect === "hidden")
+        e.hidden = i + 1;
+      else if (effect === "readonly")
+        e.readonly = i + 1;
+      else if (effect === "required")
+        e.required = i + 1;
+    }
+  }
+  for (const [, e] of map2) {
+    if (e.hidden && e.readonly) {
+      emit2(
+        `\u26A0 \u0426\u0438\u043A\u043B\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C: \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E hidden \u0438 readonly \u0432 \u0440\u0430\u0437\u043D\u044B\u0445 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445`,
+        e.hidden,
+        "datarule/conflict-hidden-readonly",
+        "warning"
+      );
+    }
+    if (e.hidden && e.required) {
+      emit2(
+        `\u26A0 \u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442: \u0430\u0442\u0440\u0438\u0431\u0443\u0442 required \u0438 hidden \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u2014 \u043E\u0431\u044A\u0435\u043A\u0442 \u043D\u0435\u043B\u044C\u0437\u044F \u0431\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u0442\u044C`,
+        e.required,
+        "datarule/conflict-required-hidden",
+        "error"
+      );
+    }
+  }
+}
+function checkWorkflows(lines, emit2) {
+  const sec = findTopSection(lines, "dataTypes");
+  if (!sec)
+    return;
+  const dts = collectItems(lines, sec);
+  for (const dt of dts) {
+    if (dt.fields.get("dataType")?.value !== "Workflow")
+      continue;
+    const statusesIdx = findContainerIdx(lines, dt, "statuses");
+    const statuses = /* @__PURE__ */ new Set();
+    if (statusesIdx >= 0) {
+      const si = (lines[statusesIdx].match(/^(\s*)/) || ["", ""])[1].length;
+      for (let i = statusesIdx + 1; i < dt.endIdx; i++) {
+        const line = lines[i];
+        if (!line.trim())
+          continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind <= si)
+          break;
+        const m = line.match(/^\s*-\s+id\s*:\s*["']?([^\s"'#]+)["']?/);
+        if (m)
+          statuses.add(m[1]);
+      }
+    }
+    const initial = dt.fields.get("initial");
+    if (initial?.value) {
+      if (!statuses.has(initial.value)) {
+        emit2(
+          `initial: \xAB${initial.value}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 statuses[]`,
+          initial.lineIdx + 1,
+          "datatype/workflow-initial-unknown",
+          "error"
+        );
+      } else {
+        const trIdx = findContainerIdx(lines, dt, "transitions");
+        if (trIdx >= 0) {
+          const ti = (lines[trIdx].match(/^(\s*)/) || ["", ""])[1].length;
+          let hasFromInitial = false;
+          for (let i = trIdx + 1; i < dt.endIdx; i++) {
+            const line = lines[i];
+            if (!line.trim())
+              continue;
+            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+            if (ind <= ti)
+              break;
+            const m = line.match(
+              /^\s*(?:-\s+)?from\s*:\s*["']?([^\s"'#]+)["']?/
+            );
+            if (m && (m[1] === initial.value || m[1] === "*")) {
+              hasFromInitial = true;
+              break;
+            }
+          }
+          if (!hasFromInitial) {
+            emit2(
+              `\u041D\u0435\u0442 transition \u0438\u0437 initial \xAB${initial.value}\xBB \u2014 \u0441\u0442\u0430\u0442\u0443\u0441 \u043D\u0435\u043B\u044C\u0437\u044F \u043F\u043E\u043A\u0438\u043D\u0443\u0442\u044C`,
+              initial.lineIdx + 1,
+              "datatype/workflow-initial-stuck",
+              "warning"
+            );
+          }
+        }
+      }
+    }
+  }
+}
+function checkMenus2(lines, emit2) {
+  const sec = findTopSection(lines, "menus");
+  if (!sec)
+    return;
+  const menus2 = collectItems(lines, sec);
+  for (const menu of menus2) {
+    const priority = menu.fields.get("priority");
+    const type2 = menu.fields.get("type")?.value;
+    if (priority) {
+      const p = parseInt(priority.value, 10);
+      if (!isNaN(p) && p < 1e3) {
+        emit2(
+          `priority: ${p} \u2014 \u0434\u043E\u043B\u0436\u043D\u043E \u0431\u044B\u0442\u044C \u2265 1000`,
+          priority.lineIdx + 1,
+          "menu/priority-too-low",
+          "warning"
+        );
+      }
+    }
+    if (type2 === "root_menu" && menu.fields.has("items")) {
+      emit2(
+        `items: \u0443 root_menu \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F (\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 root_group)`,
+        menu.fields.get("items").lineIdx + 1,
+        "menu/root-menu-with-items",
+        "warning"
+      );
+    }
+  }
+  const routeLines = /* @__PURE__ */ new Map();
+  for (let i = sec.startIdx; i < sec.endIdx; i++) {
+    const m = lines[i].match(/^\s*(?:-\s+)?route\s*:\s*["']?([^\s"'#]+)["']?/);
+    if (!m)
+      continue;
+    if (!routeLines.has(m[1]))
+      routeLines.set(m[1], []);
+    routeLines.get(m[1]).push(i + 1);
+  }
+  for (const [route, ls] of routeLines) {
+    if (ls.length < 2)
+      continue;
+    for (const ln of ls) {
+      emit2(
+        `Route \xAB${route}\xBB \u0434\u0443\u0431\u043B\u0438\u0440\u0443\u0435\u0442\u0441\u044F (\u0441\u0442\u0440\u043E\u043A\u0438 ${ls.join(", ")})`,
+        ln,
+        "menu/route-duplicate",
+        "error"
+      );
+    }
+  }
+}
+function checkLabels(lines, emit2, index, domainId) {
+  const sec = findTopSection(lines, "entities");
+  if (!sec)
+    return;
+  const entities2 = collectItems(lines, sec);
+  for (const entity of entities2) {
+    const label = entity.fields.get("label");
+    if (!label)
+      continue;
+    const attrIds = new Set(SYSTEM_ATTRS4);
+    collectNestedItems(lines, entity, "attributes").forEach(
+      (a) => attrIds.add(a.id)
+    );
+    if (index) {
+      const fqid = `${domainId}/${entity.id}`.toLowerCase();
+      let e = index.entitiesByFqid[fqid];
+      const seen = /* @__PURE__ */ new Set();
+      while (e && !seen.has(e.fqid)) {
+        seen.add(e.fqid);
+        for (const a of e.attributes)
+          attrIds.add(a.id);
+        e = e.inherits ? index.entitiesByFqid[e.inherits] : void 0;
+      }
+    }
+    const re = /\{([a-zA-Z_][\w]*)\}/g;
+    let m;
+    while ((m = re.exec(label.value)) !== null) {
+      if (!attrIds.has(m[1])) {
+        emit2(
+          `label: \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u043D\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043D\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \xAB${m[1]}\xBB`,
+          label.lineIdx + 1,
+          "entity/label-unknown-attribute",
+          "warning"
+        );
+      }
+    }
+  }
+}
+function applySemanticValidators(monaco, model, lines, index, domainId) {
+  const markers = [];
+  const sevMap = {
+    error: monaco.MarkerSeverity.Error,
+    warning: monaco.MarkerSeverity.Warning,
+    info: monaco.MarkerSeverity.Info
+  };
+  const emit2 = (msg, line, code, severity) => {
+    if (!line || line < 1 || line > lines.length)
+      return;
+    markers.push({
+      severity: sevMap[severity],
+      message: msg,
+      startLineNumber: line,
+      startColumn: 1,
+      endLineNumber: line,
+      endColumn: 1e6,
+      source: "semantic-validator",
+      code
+    });
+  };
+  try {
+    checkAllAttributes(lines, emit2);
+  } catch (e) {
+    console.warn("[sem/attr]", e);
+  }
+  try {
+    checkLinkages(lines, emit2);
+  } catch (e) {
+    console.warn("[sem/link]", e);
+  }
+  try {
+    checkActions2(lines, emit2, index, domainId);
+  } catch (e) {
+    console.warn("[sem/act]", e);
+  }
+  try {
+    checkDataRules2(lines, emit2);
+  } catch (e) {
+    console.warn("[sem/dr]", e);
+  }
+  try {
+    checkDataRuleConflicts(lines, emit2, domainId);
+  } catch (e) {
+    console.warn("[sem/drc]", e);
+  }
+  try {
+    checkWorkflows(lines, emit2);
+  } catch (e) {
+    console.warn("[sem/wf]", e);
+  }
+  try {
+    checkMenus2(lines, emit2);
+  } catch (e) {
+    console.warn("[sem/menu]", e);
+  }
+  try {
+    checkLabels(lines, emit2, index, domainId);
+  } catch (e) {
+    console.warn("[sem/lbl]", e);
+  }
+  monaco.editor.setModelMarkers(model, "semantic-validator", markers);
+}
+var SYSTEM_ATTRS4;
+var init_semantic_validator = __esm({
+  "src/web/lib/monaco/semantic-validator.ts"() {
+    "use strict";
+    SYSTEM_ATTRS4 = /* @__PURE__ */ new Set([
+      "id",
+      "label",
+      "createdAt",
+      "createdBy",
+      "updatedAt",
+      "updatedBy",
+      "organizationId",
+      "domainId",
+      "entityId",
+      "tenantId",
+      "version"
+    ]);
   }
 });
 
@@ -102994,9 +106991,60 @@ function YamlViewerModal() {
   useEffect58(() => {
     if (!editorCreated || !editorRef.current)
       return;
-    const handler = () => {
+    const handler = (e) => {
       if (isProgrammaticChange.current)
         return;
+      if (e && !e.isFlush && Array.isArray(e.changes) && e.changes.length === 1) {
+        const ch = e.changes[0];
+        const isInsert = ch.rangeLength === 0 && ch.text.length > 0;
+        if (isInsert && ch.text.includes("\n")) {
+          const startLine = ch.range.startLineNumber;
+          const startCol = ch.range.startColumn;
+          window.setTimeout(() => {
+            const ed = editorRef.current;
+            if (!ed)
+              return;
+            if (isProgrammaticChange.current)
+              return;
+            if (isLockedRef.current)
+              return;
+            const m = window.monaco;
+            const model = ed.getModel();
+            if (!model || !m)
+              return;
+            const lineText = model.getLineContent(startLine);
+            const expectedFirst = ch.text.split("\n")[0];
+            if (!lineText.slice(startCol - 1).startsWith(expectedFirst))
+              return;
+            const lines = ch.text.split("\n");
+            const endLine = startLine + lines.length - 1;
+            const lastLen = lines[lines.length - 1].length;
+            const endCol = lines.length === 1 ? startCol + ch.text.length : lastLen + 1;
+            const range = new m.Range(startLine, startCol, endLine, endCol);
+            const actualText = model.getValueInRange(range);
+            if (!actualText || !actualText.includes("\n"))
+              return;
+            const normalized = alignPastedText(ed, actualText, startLine, startCol);
+            console.log("[paste-align]", {
+              startLine,
+              startCol,
+              before: actualText.split("\n").slice(0, 3),
+              after: normalized.split("\n").slice(0, 3),
+              changed: normalized !== actualText
+            });
+            if (normalized === actualText)
+              return;
+            isProgrammaticChange.current = true;
+            try {
+              ed.pushUndoStop();
+              ed.executeEdits("paste-align", [{ range, text: normalized }]);
+              ed.pushUndoStop();
+            } finally {
+              isProgrammaticChange.current = false;
+            }
+          }, 0);
+        }
+      }
       if (yamlSyntaxIssue !== null) {
         const model = editorRef.current?.getModel();
         const m = window.monaco;
@@ -103098,6 +107146,7 @@ function YamlViewerModal() {
   const focusDecorationsRef = useRef36(null);
   const saveAbortRef = useRef36(null);
   const editorTopLineRef = useRef36(1);
+  const [contentReadyForPath, setContentReadyForPath] = useState57(null);
   const tabs = useGraphStore((s) => s.editorTabs);
   const addTab = useGraphStore((s) => s.addEditorTab);
   const removeTab = useGraphStore((s) => s.removeEditorTab);
@@ -103142,6 +107191,7 @@ function YamlViewerModal() {
       return;
     useGraphStore.getState().setYamlViewerDirty(false);
     useGraphStore.getState().setYamlViewerPendingManifest(null);
+    setContentReadyForPath(null);
   }, [open]);
   useEffect58(() => {
     isLockedRef.current = isLocked;
@@ -104025,7 +108075,14 @@ ${body}`;
       m.editor.defineTheme("dg-dark", {
         base: "vs-dark",
         inherit: true,
-        rules: [],
+        rules: [
+          { token: "rqlKeyword", foreground: "569CD6", fontStyle: "bold" },
+          { token: "rqlFunction", foreground: "DCDCAA" },
+          { token: "rqlAlias", foreground: "4EC9B0" },
+          { token: "rqlString", foreground: "CE9178" },
+          { token: "rqlNumber", foreground: "B5CEA8" },
+          { token: "rqlOperator", foreground: "D4D4D4" }
+        ],
         colors: {
           "editor.background": "#0d1424",
           "editor.foreground": "#e2e8f0",
@@ -104044,7 +108101,14 @@ ${body}`;
       m.editor.defineTheme("dg-light", {
         base: "vs",
         inherit: true,
-        rules: [],
+        rules: [
+          { token: "rqlKeyword", foreground: "0000FF", fontStyle: "bold" },
+          { token: "rqlFunction", foreground: "795E26" },
+          { token: "rqlAlias", foreground: "267F99" },
+          { token: "rqlString", foreground: "A31515" },
+          { token: "rqlNumber", foreground: "098658" },
+          { token: "rqlOperator", foreground: "333333" }
+        ],
         colors: {
           "editor.background": "#ffffff",
           "editor.foreground": "#0f172a",
@@ -104069,6 +108133,7 @@ ${body}`;
     let disposeRegexTester = null;
     let disposeIconWidgets = null;
     let disposeQuickInsert = null;
+    let disposeWidgetHost = null;
     try {
       isProgrammaticChange.current = true;
       editor = m.editor.create(containerRef.current, {
@@ -104112,7 +108177,8 @@ ${body}`;
         quickSuggestions: false,
         suggestOnTriggerCharacters: true,
         acceptSuggestionOnEnter: "off",
-        tabCompletion: "on"
+        tabCompletion: "on",
+        "semanticHighlighting.enabled": true
       }, {
         storageService: {
           get: () => null,
@@ -104131,6 +108197,15 @@ ${body}`;
       });
       editorRef.current = editor;
       pendingJumpLineRef.current = null;
+      try {
+        disposeWidgetHost = setupWidgetHost(editor, m, ALL_WIDGETS, {
+          getIndex: () => indexRef.current,
+          getLineMap: () => lineMapRef.current,
+          getDomain: () => useGraphStore.getState().yamlViewerDomainId || ""
+        });
+      } catch (err) {
+        console.warn("[yaml-viewer] widget-host init failed", err);
+      }
       try {
         disposeIconWidgets = setupIconWidgets(editor, m, () => ({
           modelIndex: indexRef.current
@@ -104226,7 +108301,7 @@ ${body}`;
               } else if (ARRAY_TEMPLATES[key]) {
                 template = ARRAY_TEMPLATES[key];
               } else {
-                template = ["- "];
+                template = [];
               }
               if (template) {
                 const newIndent = indent + "  ";
@@ -104512,6 +108587,10 @@ ${newIndent}` : "\n" + template.map((line) => newIndent + line).join("\n");
       } catch {
       }
       try {
+        disposeWidgetHost?.();
+      } catch {
+      }
+      try {
         if (editor.getValue().length > 0) {
           const pos = editor.getPosition();
           if (pos && filePath) {
@@ -104586,9 +108665,9 @@ ${newIndent}` : "\n" + template.map((line) => newIndent + line).join("\n");
     if (!open)
       return;
     const handler = (e) => {
-      if (e.key !== "Tab" || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) {
+      const isModP = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.code === "KeyP" || e.key === "p" || e.key === "P");
+      if (!isModP)
         return;
-      }
       e.preventDefault();
       e.stopPropagation();
       if (quickJumpOpenRef.current) {
@@ -104964,6 +109043,11 @@ ${newIndent}` : "\n" + template.map((line) => newIndent + line).join("\n");
       } catch {
       }
       try {
+        applySemanticValidators(m, model, lines, index, domainId);
+      } catch (err) {
+        console.warn("[semantic-validator]", err);
+      }
+      try {
         const severityMap = {
           [m.MarkerSeverity.Error]: "error",
           [m.MarkerSeverity.Warning]: "warning",
@@ -105145,8 +109229,17 @@ ${label.message}` : ""),
   }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent, idleContent]);
   const pendingJumpLineRef = useRef36(null);
   const restoreScrollRef = useRef36(null);
+  const jumpTimersRef = useRef36([]);
+  const jumpRafRef = useRef36(null);
   const jumpTo = useCallback37(
     (line, opts) => {
+      for (const t of jumpTimersRef.current)
+        clearTimeout(t);
+      jumpTimersRef.current = [];
+      if (jumpRafRef.current != null) {
+        cancelAnimationFrame(jumpRafRef.current);
+        jumpRafRef.current = null;
+      }
       pendingJumpLineRef.current = line;
       restoreScrollRef.current = null;
       const apply = () => {
@@ -105173,16 +109266,18 @@ ${label.message}` : ""),
         }
       };
       apply();
-      requestAnimationFrame(() => {
+      jumpRafRef.current = requestAnimationFrame(() => {
+        jumpRafRef.current = null;
         apply();
-        setTimeout(apply, 50);
-        setTimeout(apply, 150);
-        setTimeout(() => {
+        const t1 = setTimeout(apply, 50);
+        const t2 = setTimeout(apply, 150);
+        const t3 = setTimeout(() => {
           apply();
           if (pendingJumpLineRef.current === line) {
             pendingJumpLineRef.current = null;
           }
         }, 1200);
+        jumpTimersRef.current.push(t1, t2, t3);
       });
     },
     []
@@ -106151,6 +110246,43 @@ ${draftInfo.hint}` : "";
     }
     return applyInlineDiffDecorations(editorRef.current, m, diffMarks);
   }, [editorCreated, diffMarks]);
+  const diffBlocks = useMemo54(() => {
+    if (!diffMarks)
+      return [];
+    const all = Array.from(
+      /* @__PURE__ */ new Set([...diffMarks.added, ...diffMarks.modified])
+    ).sort((a, b) => a - b);
+    if (all.length === 0)
+      return [];
+    const blocks = [];
+    let cur = { start: all[0], end: all[0] };
+    for (let i = 1; i < all.length; i++) {
+      if (all[i] === cur.end + 1)
+        cur.end = all[i];
+      else {
+        blocks.push(cur);
+        cur = { start: all[i], end: all[i] };
+      }
+    }
+    blocks.push(cur);
+    return blocks;
+  }, [diffMarks]);
+  const goToDiff = useCallback37((dir) => {
+    if (diffBlocks.length === 0)
+      return;
+    const ed = editorRef.current;
+    if (!ed)
+      return;
+    const cur = ed.getPosition()?.lineNumber ?? 1;
+    if (dir === 1) {
+      const next = diffBlocks.find((b) => b.start > cur) ?? diffBlocks[0];
+      jumpTo(next.start);
+    } else {
+      const reversed = [...diffBlocks].reverse();
+      const prev = reversed.find((b) => b.end < cur) ?? diffBlocks[diffBlocks.length - 1];
+      jumpTo(prev.start);
+    }
+  }, [diffBlocks, jumpTo]);
   useEffect58(() => {
     if (!open)
       return;
@@ -106991,7 +111123,13 @@ ${draftInfo.hint}` : "";
       return;
     const contentToSet = backupContent ?? fetchedContent;
     setContent(contentToSet);
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    setIdleContent(contentToSet);
     setSavedContent(fetchedContent);
+    setContentReadyForPath(filePath);
     if (backupContent) {
       useGraphStore.getState().setYamlViewerDirty(true);
       setLiveVersion((v) => v + 1);
@@ -107347,6 +111485,8 @@ ${publishInfo.hint}` : "";
     const warns = filteredIssues.filter((i) => i.severity === "warning").length;
     return { errs, warns };
   }, [filteredIssues]);
+  const isContentReady = !!filePath && contentReadyForPath === filePath;
+  const showLoader = !loadError && (loading || !isContentReady);
   if (!open)
     return null;
   return /* @__PURE__ */ jsxs212(
@@ -107999,7 +112139,7 @@ ${publishInfo.hint}` : "";
                 saveError,
                 /* @__PURE__ */ jsx406("button", { onClick: () => setSaveError(null), children: "\u2715" })
               ] }),
-              /* @__PURE__ */ jsxs212("div", { className: "yaml-viewer-body", children: [
+              /* @__PURE__ */ jsxs212("div", { className: "yaml-viewer-body", style: { position: "relative" }, children: [
                 /* @__PURE__ */ jsxs212(
                   "div",
                   {
@@ -108549,6 +112689,54 @@ ${publishInfo.hint}` : "";
                           children: /* @__PURE__ */ jsx406(MIcon, { name: "my_location", size: "sm" })
                         }
                       ) }),
+                      isDirty && diffBlocks.length > 0 && /* @__PURE__ */ jsxs212(
+                        "div",
+                        {
+                          className: "yaml-viewer-diff-nav",
+                          style: {
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 1,
+                            marginRight: 4
+                          },
+                          title: `\u0418\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u043E\u0432: ${diffBlocks.length}` + (diffMarks ? ` (+${diffMarks.added.length} / ~${diffMarks.modified.length} \u0441\u0442\u0440\u043E\u043A)` : ""),
+                          children: [
+                            /* @__PURE__ */ jsx406(
+                              "button",
+                              {
+                                type: "button",
+                                className: "yaml-viewer-fold-btn",
+                                onClick: () => goToDiff(-1),
+                                title: "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A",
+                                children: /* @__PURE__ */ jsx406(MIcon, { name: "keyboard_arrow_up", size: "sm" })
+                              }
+                            ),
+                            /* @__PURE__ */ jsx406(
+                              "span",
+                              {
+                                style: {
+                                  fontSize: 11,
+                                  minWidth: 18,
+                                  textAlign: "center",
+                                  color: "var(--text-400)",
+                                  fontFamily: "JetBrains Mono, monospace"
+                                },
+                                children: diffBlocks.length
+                              }
+                            ),
+                            /* @__PURE__ */ jsx406(
+                              "button",
+                              {
+                                type: "button",
+                                className: "yaml-viewer-fold-btn",
+                                onClick: () => goToDiff(1),
+                                title: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A",
+                                children: /* @__PURE__ */ jsx406(MIcon, { name: "keyboard_arrow_down", size: "sm" })
+                              }
+                            )
+                          ]
+                        }
+                      ),
                       /* @__PURE__ */ jsxs212("div", { className: "yaml-viewer-fold-controls", children: [
                         [1, 2, 3, 4, 5].map((lvl) => /* @__PURE__ */ jsx406(Hint, { info: HINTS.fold, children: /* @__PURE__ */ jsx406(
                           "button",
@@ -108898,7 +113086,7 @@ ${publishInfo.hint}` : "";
                           title: "\u0420\u0435\u0436\u0438\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F",
                           children: [
                             /* @__PURE__ */ jsx406(MIcon, { name: "lock_open", size: "sm" }),
-                            "editing"
+                            "\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435"
                           ]
                         }
                       ),
@@ -109109,7 +113297,38 @@ ${publishInfo.hint}` : "";
                       /* @__PURE__ */ jsx406("div", { style: { padding: "8px 12px", textAlign: "center" }, children: /* @__PURE__ */ jsx406("button", { className: "btn", onClick: handleServerValidate, children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u043D\u043E\u0432\u0430" }) })
                     ] })
                   ] })
-                ] })
+                ] }),
+                showLoader && /* @__PURE__ */ jsx406(
+                  "div",
+                  {
+                    style: {
+                      position: "absolute",
+                      inset: 0,
+                      background: "var(--bg-900, rgba(10,15,26,0.9))",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 100,
+                      backdropFilter: "blur(2px)"
+                    },
+                    children: /* @__PURE__ */ jsxs212(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: 16
+                        },
+                        children: [
+                          /* @__PURE__ */ jsx406("div", { className: "yaml-viewer-editor__spinner" }),
+                          /* @__PURE__ */ jsx406("div", { style: { color: "var(--text-300)", fontSize: 13 }, children: mode === "remote" ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u043E\u0439 \u0441\u0445\u0435\u043C\u044B \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E\u2026" }),
+                          filePath && /* @__PURE__ */ jsx406("div", { style: { color: "var(--text-500)", fontSize: 11 }, children: filePath.split(/[\\/]/).pop()?.replace(/\.ro$/i, "") })
+                        ]
+                      }
+                    )
+                  }
+                )
               ] })
             ]
           }
@@ -112339,6 +116558,10 @@ var init_YamlViewerModal = __esm({
     init_regex_tester();
     init_icon_widget();
     init_quick_insert_widget();
+    init_host();
+    init_registry();
+    init_paste_align();
+    init_semantic_validator();
     EMPTY_BOOKMARKS = [];
     INLINE_SOURCES = [
       "attribute-validator",
@@ -112352,7 +116575,8 @@ var init_YamlViewerModal = __esm({
       "rql-check",
       "workflow-status-validator",
       "tree-validator",
-      "transitive-validator"
+      "transitive-validator",
+      "semantic-validator"
     ];
     ARRAY_TEMPLATES = {
       entities: ["- id: ", "  name: ", "  attributes:"],
