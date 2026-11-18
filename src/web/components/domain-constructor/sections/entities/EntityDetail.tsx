@@ -1,108 +1,116 @@
-import { useState, type FC } from 'react';
-import { useEditorStore, selectSelectedEntity } from '../../store/editor-store';
-import { DetailCard } from '../../ui/DetailCard';
-import { InheritableField } from '../../ui/InheritableField';
-import { AttributesTab } from './AttributesTab';
-import { SortingTab } from './SortingTab';
-import { updateEntityField } from './entity-handlers';
-import { EntitySelect } from '../../ui/EntitySelect';
+import { useEffect, useState, type FC } from "react";
+import { useEditorStore, selectSelectedEntity } from "../../store/editor-store";
+import { duplicateEntity } from "./entity-handlers";
+import { EntityOverviewTab } from "./EntityOverviewTab";
+import { AttributesTab } from "./AttributesTab";
+import { SortingTab } from "./SortingTab";
+import { EmptyState } from "./ui";
+import { ENT_DELETE_EVENT } from "./EntitiesSection";
 
-
-type Tab = 'attributes' | 'sorting';
+type Tab = "overview" | "attributes" | "sorting";
 
 export const EntityDetail: FC = () => {
     const entity = useEditorStore(selectSelectedEntity);
     const schema = useEditorStore((s) => s.schema);
     const commit = useEditorStore((s) => s.commit);
+    const select = useEditorStore((s) => s.select);
     const isPublished = useEditorStore((s) => s.isPublished);
-    const [tab, setTab] = useState<Tab>('attributes');
+    const [tab, setTab] = useState<Tab>("attributes");
+
+    useEffect(() => {
+        setTab("attributes");
+    }, [entity?.id]);
 
     if (!entity) {
-        return <DetailCard title="" empty emptyText="Выберите сущность слева" children={null} />;
+        return (
+            <div className="ent-main__scroll ent-scroll">
+                <EmptyState
+                    icon="◈"
+                    title="Выберите сущность слева"
+                    hint="Или создайте новую: название на русском автоматически превратится в корректный Data ID, а атрибуты можно вставить прямо из таблицы ТЗ."
+                />
+            </div>
+        );
     }
 
-    const parentFqid = entity.inherits ? entity.inherits.toLowerCase() : null;
-    const parentLabel = parentFqid
-        ? (parentFqid.split('/')[1] ?? parentFqid)
+    const parentLabel = entity.inherits
+        ? entity.inherits.split("/").pop() ?? entity.inherits
         : null;
 
-    const badge = parentFqid ? (
-        <span className="dc-badge dc-badge--inherited">наследует {parentLabel}</span>
-    ) : undefined;
+    const linkagesCount = schema.linkages.filter((l) => {
+        const s1 = l.side1.split("/").pop()?.toLowerCase();
+        const s2 = l.side2.split("/").pop()?.toLowerCase();
+        const id = entity.id.toLowerCase();
+        return s1 === id || s2 === id;
+    }).length;
+
+    const handleDuplicate = () => {
+        let newId: string | null = null;
+        commit((doc) => {
+            newId = duplicateEntity(doc, entity.id);
+        });
+        if (newId) select(`entity:${newId}`);
+    };
 
     return (
-        <DetailCard
-            title={entity.name || entity.id}
-            subtitle={`ID: ${entity.id}`}
-            badge={badge}
-            tabs={[
-                { key: 'attributes', label: `Атрибуты (${entity.attributes.length})` },
-                { key: 'sorting', label: `Правила сортировки (${entity.sorting?.length ?? 0})` },
-            ]}
-            activeTab={tab}
-            onTabChange={(k) => setTab(k as Tab)}
-        >
-            {/* Шапка сущности */}
-            <div className="dc-entity-meta">
-                <div className="dc-entity-meta__row">
-                    <InheritableField
-                        label="ID"
-                        state={{ value: entity.id, origin: 'own' }}
-                        render={(v) => (
-                            <input
-                                className="dc-input"
-                                value={v}
-                                disabled  /* id после создания менять нельзя */
-                            />
-                        )}
-                    />
-                    <InheritableField
-                        label="Название"
-                        state={{ value: entity.name ?? '', origin: 'own' }}
-                        onChange={(v) =>
-                            commit((doc) => updateEntityField(doc, entity.id, 'name', v))
-                        }
-                    />
-                </div>
-                <InheritableField
-                    label="Описание"
-                    kind="textarea"
-                    state={{ value: entity.description ?? '', origin: 'own' }}
-                    onChange={(v) =>
-                        commit((doc) => updateEntityField(doc, entity.id, 'description', v))
-                    }
-                />
-                <InheritableField
-                    label="Лейбл"
-                    hint="Шаблон названия объекта. Например: {type}: {value}"
-                    state={{ value: entity.label ?? '', origin: 'own' }}
-                    onChange={(v) =>
-                        commit((doc) => updateEntityField(doc, entity.id, 'label', v))
-                    }
-                    placeholder="{id}"
-                />
-                {!isPublished && (
-                    <div className="dc-field">
-                        <div className="dc-field__label-row">
-                            <label className="dc-field__label">Родитель</label>
-                        </div>
-                        <EntitySelect
-                            value={entity.inherits ?? null}
-                            onChange={(fqid) =>
-                                commit((doc) => updateEntityField(doc, entity.id, 'inherits', fqid))
-                            }
-                            placeholder="— нет —"
-                        />
-                        <div className="dc-field__hint">
-                            Смена родителя удалит все данные бывшего родителя из текущей сущности.
+        <>
+            <header className="ent-header">
+                <div className="ent-header__top">
+                    <div className="ent-header__avatar">
+                        {(entity.name || entity.id).charAt(0).toUpperCase()}
+                    </div>
+                    <div className="ent-header__titles">
+                        <h2 className="ent-header__name">
+                            {entity.name || entity.id}
+                            {entity.kind && entity.kind !== "regular" && (
+                                <span className="ent-pill ent-pill--kind">{entity.kind}</span>
+                            )}
+                            {parentLabel && <span className="ent-pill">↳ {parentLabel}</span>}
+                            {isPublished && <span className="ent-pill ent-pill--warn">опубликована</span>}
+                        </h2>
+                        <div className="ent-header__sub">
+                            {entity.id} · {entity.attributes.length} атрибутов · {linkagesCount} связей
                         </div>
                     </div>
-                )}
-            </div>
+                    <div className="ent-header__actions">
+                        <button className="ent-btn ent-btn--sm" onClick={handleDuplicate} title="Создать копию сущности со всеми атрибутами">
+                            ⧉ Дублировать
+                        </button>
+                        <button
+                            className="ent-btn ent-btn--danger ent-btn--sm"
+                            disabled={isPublished}
+                            title={isPublished ? "Удаление опубликованной сущности несовместимо с предыдущей версией" : "Удалить сущность"}
+                            onClick={() => window.dispatchEvent(new CustomEvent(ENT_DELETE_EVENT, { detail: entity.id }))}
+                        >
+                            × Удалить
+                        </button>
+                    </div>
+                </div>
+                <nav className="ent-tabs">
+                    {(
+                        [
+                            { key: "attributes", label: "Атрибуты", count: entity.attributes.length },
+                            { key: "overview", label: "Обзор и настройки", count: null },
+                            { key: "sorting", label: "Сортировка", count: entity.sorting?.length ?? 0 },
+                        ] as Array<{ key: Tab; label: string; count: number | null }>
+                    ).map((t) => (
+                        <button
+                            key={t.key}
+                            className={"ent-tab" + (tab === t.key ? " ent-tab--active" : "")}
+                            onClick={() => setTab(t.key)}
+                        >
+                            {t.label}
+                            {t.count !== null && <span className="ent-tab__count">{t.count}</span>}
+                        </button>
+                    ))}
+                </nav>
+            </header>
 
-            {/* Вкладки */}
-            {tab === 'attributes' && <AttributesTab entity={entity} />}
-            {tab === 'sorting' && <SortingTab entity={entity} />}
-        </DetailCard>
+            <div className="ent-main__scroll ent-scroll">
+                {tab === "attributes" && <AttributesTab entity={entity} />}
+                {tab === "overview" && <EntityOverviewTab entity={entity} />}
+                {tab === "sorting" && <SortingTab entity={entity} />}
+            </div>
+        </>
     );
 };
