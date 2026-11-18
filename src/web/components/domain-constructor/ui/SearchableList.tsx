@@ -21,11 +21,13 @@ interface Props {
     title?: string;
     emptyText?: string;
     createLabel?: string;
+    filterSlot?: ReactNode;
 }
 
 export const SearchableList: FC<Props> = ({
     items, selectedKey, onSelect, onCreate, onDelete, onReorder,
     title, emptyText = 'Пусто', createLabel = 'Создать',
+    filterSlot,
 }) => {
     const [query, setQuery] = useState('');
     const deferredQuery = useDeferredValue(query);
@@ -59,6 +61,10 @@ export const SearchableList: FC<Props> = ({
                     </button>
                 )}
             </div>
+
+            {filterSlot && (
+                <div className="dc-list-panel__filter">{filterSlot}</div>
+            )}
 
             <ul className="dc-list">
                 {filtered.length === 0 && (

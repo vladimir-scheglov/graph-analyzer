@@ -14,21 +14,44 @@ export const DataTypesSection: FC = () => {
 
     const [addOpen, setAddOpen] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+    const [filterKind, setFilterKind] = useState<'all' | 'Enum' | 'Workflow' | 'Table'>('all');
 
-    const items = useMemo(
-        () =>
-            schema.dataTypes.map((d) => ({
-                key: `dataType:${d.id}`,
-                label: d.name || d.id,
-                hint: `${d.id} — ${labelForKind(d.kind)}`,
-                badge:
-                    d.kind === 'Enum'
-                        ? <span className="dc-badge">{d.values?.length ?? 0} значений</span>
-                        : d.kind === 'Workflow'
-                            ? <span className="dc-badge">{d.statuses?.length ?? 0} статусов</span>
-                            : <span className="dc-badge">{d.attributes?.length ?? 0} колонок</span>,
-            })),
-        [schema.dataTypes],
+    const counts = useMemo(() => {
+        const c = { all: schema.dataTypes.length, Enum: 0, Workflow: 0, Table: 0 };
+        for (const dt of schema.dataTypes) c[dt.kind]++;
+        return c;
+    }, [schema.dataTypes]);
+
+    const items = useMemo(() => {
+        return schema.dataTypes
+            .filter((d) => filterKind === 'all' || d.kind === filterKind)
+            .map((d) => {
+                const count = d.kind === 'Enum'
+                    ? (d.values?.length ?? 0)
+                    : d.kind === 'Workflow'
+                        ? (d.statuses?.length ?? 0)
+                        : (d.attributes?.length ?? 0);
+                return {
+                    key: `dataType:${d.id}`,
+                    label: d.name || d.id,
+                    hint: `${d.id} · ${count} ${unitFor(d.kind, count)}`,
+                    badge: <span className="dc-badge dc-badge--muted">{d.kind.toLowerCase()}</span>,
+                };
+            });
+    }, [schema.dataTypes, filterKind]);
+
+    const filterSlot = (
+        <select
+            className="dc-input dc-input--compact"
+            value={filterKind}
+            onChange={(e) => setFilterKind(e.target.value as any)}
+            style={{ width: '100%' }}
+        >
+            <option value="all">Все ({counts.all})</option>
+            <option value="Enum">Перечисления ({counts.Enum})</option>
+            <option value="Workflow">Workflow ({counts.Workflow})</option>
+            <option value="Table">Таблицы ({counts.Table})</option>
+        </select>
     );
 
     return (
@@ -38,10 +61,15 @@ export const DataTypesSection: FC = () => {
                 selectedKey={selectionKey}
                 onSelect={select}
                 onCreate={() => setAddOpen(true)}
-                onDelete={(key) => setPendingDelete(key.slice('dataType:'.length))}
-                title="Расширенные атрибуты"
+                onDelete={(k) => setPendingDelete(k.slice('dataType:'.length))}
+                title={`Расширенные атрибуты (${schema.dataTypes.length})`}
                 createLabel="Создать тип"
-                emptyText="Нет пользовательских типов"
+                emptyText={
+                    filterKind === 'all'
+                        ? 'Нет пользовательских типов'
+                        : `Нет типов вида ${filterKind}`
+                }
+                filterSlot={filterSlot}
             />
 
             <DataTypeDetail />
@@ -51,13 +79,7 @@ export const DataTypesSection: FC = () => {
             <ConfirmDialog
                 open={!!pendingDelete}
                 title={`Удалить тип «${pendingDelete}»?`}
-                description={
-                    <p>
-                        Все атрибуты сущностей, ссылающиеся на этот тип, станут битыми.
-                        Удаление невозможно, если тип используется — но клиентская
-                        проверка не всегда ловит такие случаи, финальная — на бэкенде.
-                    </p>
-                }
+                description={<p>Атрибуты сущностей, ссылающиеся на этот тип, станут битыми.</p>}
                 onCancel={() => setPendingDelete(null)}
                 onConfirm={() => {
                     if (!pendingDelete) return;
@@ -70,11 +92,8 @@ export const DataTypesSection: FC = () => {
     );
 };
 
-function labelForKind(kind: string): string {
-    switch (kind) {
-        case 'Enum': return 'перечисление';
-        case 'Workflow': return 'workflow';
-        case 'Table': return 'таблица';
-        default: return kind;
-    }
+function unitFor(kind: string, n: number): string {
+    if (kind === 'Enum') return n === 1 ? 'значение' : n < 5 ? 'значения' : 'значений';
+    if (kind === 'Workflow') return n === 1 ? 'статус' : n < 5 ? 'статуса' : 'статусов';
+    return n === 1 ? 'колонка' : n < 5 ? 'колонки' : 'колонок';
 }

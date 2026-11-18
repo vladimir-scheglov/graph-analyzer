@@ -1,4 +1,13 @@
-import { parseDocument, Document, Scalar, isSeq, isMap, isScalar } from "yaml";
+import {
+  parseDocument,
+  Document,
+  Scalar,
+  isSeq,
+  isMap,
+  isScalar,
+  isNode,
+  YAMLSeq,
+} from "yaml";
 import {
   normalizeRqlBlocks,
   preprocess,
@@ -54,14 +63,55 @@ export class YamlDocument {
     return this.doc.getIn(path, true);
   }
 
+  /**
+   * Точечная запись. Plain object / array / scalar оборачивается в YAML-узел,
+   * чтобы последующие setIn/deleteIn по вложенным путям не падали.
+   */
   set(path: YamlPath, value: unknown): void {
-    this.doc.setIn(path, value);
-    this.restoreRqlTypes();
+    if (path.length === 0) {
+      console.warn("[YamlDocument.set] empty path");
+      return;
+    }
+    try {
+      const node = isNode(value) ? value : this.doc.createNode(value);
+      this.doc.setIn(path, node);
+    } catch (e) {
+      console.error("[YamlDocument.set] failed", {
+        path,
+        value,
+        currentYaml: (() => {
+          try {
+            return this.doc.toString().slice(0, 300);
+          } catch {
+            return "—";
+          }
+        })(),
+        error: e,
+      });
+      throw e;
+    } finally {
+      this.restoreRqlTypes();
+    }
   }
 
+  /**
+   * Удаление с проверкой родителя — чтобы не падать, если путь невалиден.
+   */
   delete(path: YamlPath): void {
-    this.doc.deleteIn(path);
-    this.restoreRqlTypes();
+    if (path.length === 0) return;
+    const parent = this.doc.getIn(path.slice(0, -1) as any, true);
+    if (!isMap(parent) && !isSeq(parent)) {
+      console.warn("[YamlDocument.delete] parent is not a collection", path);
+      return;
+    }
+    try {
+      this.doc.deleteIn(path as any);
+    } catch (e) {
+      console.error("[YamlDocument.delete] failed", { path, error: e });
+      throw e;
+    } finally {
+      this.restoreRqlTypes();
+    }
   }
 
   getRange(path: YamlPath): [number, number] | null {
@@ -115,31 +165,36 @@ export class YamlDocument {
 
   /**
    * Append в seq по пути.
-   * - null / скаляр / map на месте массива заменяется на пустой seq;
-   * - item — значение ИЛИ фабрика (index) => value, если id зависит от индекса;
+   * - если по пути не YAMLSeq (undefined / скаляр / map) — создаём пустой YAMLSeq;
+   * - item — значение или фабрика (index) => value;
    * - возвращает индекс вставленного элемента.
-   *
-   * ВАЖНО: нормализуется только сам массив. Родительские узлы пути должны
-   * быть коллекциями — это гарантирует find*Location (поиск по сырым узлам).
    */
   appendToArray(path: YamlPath, item: unknown): number {
-    let seq = this.getNode(path);
-    if (seq !== undefined && !isSeq(seq)) {
-      this.doc.setIn(path, []);
-      seq = this.getNode(path);
+    let seq = this.doc.getIn(path, true);
+    if (!isSeq(seq)) {
+      try {
+        this.doc.setIn(path, this.doc.createNode([]));
+      } catch (e) {
+        console.error("[YamlDocument.appendToArray] cannot create seq", {
+          path,
+          error: e,
+        });
+        throw e;
+      }
+      seq = this.doc.getIn(path, true);
     }
-    const i = isSeq(seq) ? seq.items.length : 0;
+    const target = seq as YAMLSeq;
+    const i = target.items.length;
     const value =
       typeof item === "function"
         ? (item as (index: number) => unknown)(i)
         : item;
-    // если seq не было — setIn сам создаст YAMLSeq по числовому индексу
-    this.doc.setIn([...path, i], value);
+    const node = isNode(value) ? value : this.doc.createNode(value);
+    target.add(node);
     this.restoreRqlTypes();
     return i;
   }
 }
-
 // ============ YAML-узел → plain JS ============
 
 function toPlain(node: unknown): unknown {
