@@ -90,6 +90,7 @@ import { setupWidgetHost } from '../../../lib/monaco/widgets/host';
 import { ALL_WIDGETS } from '../../../lib/monaco/widgets/registry';
 import { alignPastedText } from '../../../lib/monaco/paste-align';
 import { applySemanticValidators } from '../../../lib/monaco/semantic-validator';
+import { DomainConstructor } from "../../domain-constructor/DomainConstructor";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -385,6 +386,7 @@ export function YamlViewerModal() {
     const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
     const [quickJumpOpen, setQuickJumpOpen] = useState(false);
     const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState<string | null>(null);
+    const [editorMode, setEditorMode] = useState<"code" | "constructor">("code");
     const indexRef = useRef(index);
     useEffect(() => {
         indexRef.current = index;
@@ -462,6 +464,24 @@ export function YamlViewerModal() {
         isDraggingLeft.current = true;
         document.body.style.cursor = 'col-resize';
     };
+
+    useEffect(() => {
+        setEditorMode("code");
+    }, [filePath]);
+
+    useEffect(() => {
+        if (editorMode !== "code") return;
+        if (!editorCreated || !editorRef.current) return;
+        const ed = editorRef.current;
+        if (ed.getValue() === content) return;
+        isProgrammaticChange.current = true;
+        try {
+            ed.setValue(content);
+        } finally {
+            isProgrammaticChange.current = false;
+        }
+        try { ed.layout(); } catch { /* ignore */ }
+    }, [editorMode, editorCreated, content]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -3818,6 +3838,54 @@ export function YamlViewerModal() {
         [filePath, savedContent],
     );
 
+    const handleConstructorChange = useCallback(
+        (newYaml: string) => {
+            const current = editorRef.current?.getValue() ?? content;
+            if (current === newYaml) return;
+
+            setContent(newYaml);
+            setLiveVersion((v) => v + 1);
+
+            // Немедленно обновляем idleContent, чтобы lineMap / nav / issues
+            // не показывали старые данные 1.5 сек (debounce).
+            if (idleTimerRef.current) {
+                clearTimeout(idleTimerRef.current);
+                idleTimerRef.current = null;
+            }
+            setIdleContent(newYaml);
+
+            // Monaco живёт всё время — обновляем в нём (сохраняем undo-стек)
+            if (editorRef.current) {
+                const ed = editorRef.current;
+                try { ed.pushUndoStop(); } catch { /* ignore */ }
+                isProgrammaticChange.current = true;
+                try { ed.setValue(newYaml); } finally { isProgrammaticChange.current = false; }
+                try { ed.pushUndoStop(); } catch { /* ignore */ }
+            }
+
+            if (filePath) {
+                void yamlBackups.put({
+                    filePath,
+                    content: newYaml,
+                    savedContentHash: hashPayload(normalizeEol(savedContent)),
+                    savedAt: Date.now(),
+                });
+            }
+        },
+        [filePath, savedContent, content],
+    );
+
+    useEffect(() => {
+        if (editorMode !== "code") return;
+        if (!editorCreated || !editorRef.current) return;
+        const timers = [0, 50, 150, 400].map((ms) =>
+            setTimeout(() => {
+                try { editorRef.current?.layout(); } catch { /* ignore */ }
+            }, ms),
+        );
+        return () => timers.forEach((t) => clearTimeout(t));
+    }, [editorMode, editorCreated]);
+
     // ============ Save ============
     const handleSave = useCallback(async () => {
         if (isLocked || isSaving || !editorRef.current) return;
@@ -5977,508 +6045,550 @@ export function YamlViewerModal() {
                         className="help-modal__actions"
                         style={{ gap: 6, alignItems: "center" }}
                     >
-                        {/* === PRIMARY: Save / Publish === */}
-                        <button
-                            className="btn btn--primary"
-                            onClick={handleSave}
-                            disabled={saveDisabled}
-                            style={dimStyle(saveDisabled)}
-                            title={
-                                isLocked
-                                    ? "Разблокируйте файл для сохранения (двойной Shift)"
-                                    : isSaving
-                                        ? "Сохранение уже выполняется"
-                                        : loading
-                                            ? "Загрузка схемы…"
-                                            : !isDirty
-                                                ? "Нет изменений для сохранения"
-                                                : mode === "remote"
-                                                    ? "Сохранить черновик на сервере (Ctrl+S)"
-                                                    : "Сохранить изменения (Ctrl+S)"
-                            }
+                        <div
+                            style={{
+                                display: "inline-flex",
+                                background: "var(--bg-750, #1e293b)",
+                                border: "1px solid var(--border, #334155)",
+                                borderRadius: 6,
+                                padding: 2,
+                                gap: 2,
+                                marginRight: 6,
+                            }}
                         >
-                            <MIcon
-                                name={
-                                    isSaving && saveStage === "writing" ? "hourglass" : "save"
-                                }
-                                size="sm"
-                            />
-                            <span>Сохранить</span>
-                        </button>
+                            {(["code", "constructor"] as const).map((m) => (
+                                <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setEditorMode(m)}
+                                    disabled={isSaving}
+                                    style={{
+                                        padding: "4px 12px",
+                                        fontSize: 12,
+                                        background:
+                                            editorMode === m ? "var(--bg-600, #334155)" : "transparent",
+                                        border: "none",
+                                        borderRadius: 4,
+                                        color:
+                                            editorMode === m
+                                                ? "var(--text-100, #f1f5f9)"
+                                                : "var(--text-400, #94a3b8)",
+                                        cursor: isSaving ? "not-allowed" : "pointer",
+                                        fontWeight: editorMode === m ? 600 : 400,
+                                        opacity: isSaving ? 0.5 : 1,
+                                        transition: "background 0.15s, color 0.15s",
+                                        whiteSpace: "nowrap",
+                                    }}
+                                >
+                                    {m === "code" ? "Код" : "Конструктор"}
+                                </button>
+                            ))}
+                        </div>
+                        {editorMode === "code" && (
+                            <>
+                                {/* === PRIMARY: Save / Publish === */}
+                                <button
+                                    className="btn btn--primary"
+                                    onClick={handleSave}
+                                    disabled={saveDisabled}
+                                    style={dimStyle(saveDisabled)}
+                                    title={
+                                        isLocked
+                                            ? "Разблокируйте файл для сохранения (двойной Shift)"
+                                            : isSaving
+                                                ? "Сохранение уже выполняется"
+                                                : loading
+                                                    ? "Загрузка схемы…"
+                                                    : !isDirty
+                                                        ? "Нет изменений для сохранения"
+                                                        : mode === "remote"
+                                                            ? "Сохранить черновик на сервере (Ctrl+S)"
+                                                            : "Сохранить изменения (Ctrl+S)"
+                                    }
+                                >
+                                    <MIcon
+                                        name={
+                                            isSaving && saveStage === "writing" ? "hourglass" : "save"
+                                        }
+                                        size="sm"
+                                    />
+                                    <span>Сохранить</span>
+                                </button>
 
-                        <button
-                            className="btn"
-                            onClick={handlePublish}
-                            disabled={publishDisabled}
-                            style={dimStyle(publishDisabled)}
-                            title={
-                                mode === "hybrid"
-                                    ? "Публикация недоступна в гибридном режиме (только локальное сохранение)"
-                                    : isLocked
-                                        ? "Разблокируйте файл для публикации"
-                                        : isSaving
-                                            ? "Дождитесь окончания текущего сохранения"
+                                <button
+                                    className="btn"
+                                    onClick={handlePublish}
+                                    disabled={publishDisabled}
+                                    style={dimStyle(publishDisabled)}
+                                    title={
+                                        mode === "hybrid"
+                                            ? "Публикация недоступна в гибридном режиме (только локальное сохранение)"
+                                            : isLocked
+                                                ? "Разблокируйте файл для публикации"
+                                                : isSaving
+                                                    ? "Дождитесь окончания текущего сохранения"
+                                                    : loading
+                                                        ? "Загрузка схемы…"
+                                                        : !isDirty && yamlContentSource === "draft"
+                                                            ? "Опубликовать черновик с сервера (Ctrl+Shift+S)"
+                                                            : !isDirty
+                                                                ? "Нет изменений для публикации"
+                                                                : mode === "remote"
+                                                                    ? "Опубликовать на сервере (Ctrl+Shift+S). Поднимает version."
+                                                                    : "Сохранить с повышением version (Ctrl+Shift+S)"
+                                    }
+                                >
+                                    <MIcon
+                                        name={
+                                            isSaving && saveStage === "publishing"
+                                                ? "hourglass"
+                                                : "cloud_upload"
+                                        }
+                                        size="sm"
+                                    />
+                                    <span>Опубликовать</span>
+                                </button>
+
+                                <span
+                                    style={{
+                                        width: 1,
+                                        height: 20,
+                                        background: "var(--border)",
+                                        margin: "0 4px",
+                                        display: "inline-block",
+                                    }}
+                                />
+
+                                {/* === STATE: Lock, Copy === */}
+                                <button
+                                    className={"help-modal__icon-btn" + (!isLocked ? " active" : "")}
+                                    onClick={handleToggleLock}
+                                    disabled={lockDisabled}
+                                    style={dimStyle(lockDisabled)}
+                                    title={
+                                        isSaving
+                                            ? "Дождитесь окончания сохранения"
                                             : loading
                                                 ? "Загрузка схемы…"
-                                                : !isDirty && yamlContentSource === "draft"
-                                                    ? "Опубликовать черновик с сервера (Ctrl+Shift+S)"
-                                                    : !isDirty
-                                                        ? "Нет изменений для публикации"
-                                                        : mode === "remote"
-                                                            ? "Опубликовать на сервере (Ctrl+Shift+S). Поднимает version."
-                                                            : "Сохранить с повышением version (Ctrl+Shift+S)"
-                            }
-                        >
-                            <MIcon
-                                name={
-                                    isSaving && saveStage === "publishing"
-                                        ? "hourglass"
-                                        : "cloud_upload"
-                                }
-                                size="sm"
-                            />
-                            <span>Опубликовать</span>
-                        </button>
-
-                        <span
-                            style={{
-                                width: 1,
-                                height: 20,
-                                background: "var(--border)",
-                                margin: "0 4px",
-                                display: "inline-block",
-                            }}
-                        />
-
-                        {/* === STATE: Lock, Copy === */}
-                        <button
-                            className={"help-modal__icon-btn" + (!isLocked ? " active" : "")}
-                            onClick={handleToggleLock}
-                            disabled={lockDisabled}
-                            style={dimStyle(lockDisabled)}
-                            title={
-                                isSaving
-                                    ? "Дождитесь окончания сохранения"
-                                    : loading
-                                        ? "Загрузка схемы…"
-                                        : isLocked
-                                            ? "Разблокировать для редактирования (двойной Shift)"
-                                            : "Заблокировать (сбросить изменения)"
-                            }
-                        >
-                            <MIcon name={isLocked ? "lock" : "lock_open"} />
-                        </button>
-
-                        <button
-                            className={"help-modal__icon-btn" + (copyFeedback ? " active" : "")}
-                            onClick={handleCopy}
-                            disabled={copyDisabled}
-                            style={dimStyle(copyDisabled)}
-                            title={
-                                loading
-                                    ? "Загрузка схемы…"
-                                    : "Копировать содержимое в буфер"
-                            }
-                        >
-                            <MIcon name={copyFeedback ? "check" : "content_copy"} />
-                        </button>
-
-                        {/* === VIEW: Diff previous / Diff published === */}
-                        {previousContent && (
-                            <button
-                                className={
-                                    "help-modal__icon-btn" +
-                                    (diffAgainst === "previous" ? " active" : "")
-                                }
-                                onClick={handleDiffPrevious}
-                                disabled={diffDisabled}
-                                style={dimStyle(diffDisabled)}
-                                title={
-                                    isSaving
-                                        ? "Дождитесь окончания сохранения"
-                                        : diffAgainst === "previous"
-                                            ? "Вернуться к редактору"
-                                            : "Diff с предыдущим сохранением на диске"
-                                }
-                            >
-                                <MIcon name="difference" />
-                            </button>
-                        )}
-
-                        {yamlContentSource === "draft" && (
-                            <button
-                                className={
-                                    "help-modal__icon-btn" +
-                                    (diffAgainst === "published" ? " active" : "")
-                                }
-                                onClick={handleDiffPublished}
-                                disabled={diffDisabled}
-                                style={dimStyle(diffDisabled)}
-                                title={
-                                    isSaving
-                                        ? "Дождитесь окончания сохранения"
-                                        : diffAgainst === "published"
-                                            ? "Вернуться к редактору"
-                                            : "Diff: черновик (в редакторе) ↔ опубликованная версия (на сервере)"
-                                }
-                            >
-                                <MIcon name="cloud_download" />
-                            </button>
-                        )}
-
-                        {mode === "remote" && (
-                            <button
-                                className={
-                                    "help-modal__icon-btn" + (historyOpen ? " active" : "")
-                                }
-                                onClick={() => setHistoryOpen((v) => !v)}
-                                disabled={isSaving || loading}
-                                style={dimStyle(isSaving || loading)}
-                                title={
-                                    isSaving
-                                        ? "Дождитесь окончания сохранения"
-                                        : loading
-                                            ? "Загрузка схемы…"
-                                            : "История версий схемы"
-                                }
-                            >
-                                <MIcon name="history" />
-                            </button>
-                        )}
-
-                        {/* === SERVER VALIDATE === */}
-                        {serverAvailable && (
-                            <button
-                                className={
-                                    "help-modal__icon-btn" +
-                                    (serverValidating ? " active" : "") +
-                                    (serverValidation && !serverValidating
-                                        ? serverValidation.isValid
-                                            ? " help-modal__icon-btn--success"
-                                            : " help-modal__icon-btn--error"
-                                        : "")
-                                }
-                                onClick={handleServerValidate}
-                                disabled={validateDisabled}
-                                style={dimStyle(validateDisabled)}
-                                title={
-                                    serverValidating
-                                        ? "Проверка на сервере..."
-                                        : isSaving
-                                            ? "Дождитесь окончания сохранения"
-                                            : serverValidation && !serverValidating
-                                                ? serverValidation.isValid
-                                                    ? "Сервер: схема валидна"
-                                                    : `Сервер: ${serverValidation.diagnostics?.length || "!"} ошибок`
-                                                : "Проверить на сервере"
-                                }
-                            >
-                                <MIcon
-                                    name={
-                                        serverValidating
-                                            ? "hourglass_top"
-                                            : serverValidation
-                                                ? serverValidation.isValid
-                                                    ? "cloud_done"
-                                                    : "cloud_off"
-                                                : "cloud_upload"
+                                                : isLocked
+                                                    ? "Разблокировать для редактирования (двойной Shift)"
+                                                    : "Заблокировать (сбросить изменения)"
                                     }
-                                />
-                            </button>
-                        )}
-
-                        <span
-                            style={{
-                                width: 1,
-                                height: 20,
-                                background: "var(--border)",
-                                margin: "0 4px",
-                                display: "inline-block",
-                            }}
-                        />
-
-                        {/* === MORE: dropdown со вторичными действиями === */}
-                        <Popover
-                            width={280}
-                            align="right"
-                            trigger={(open) => (
-                                <button
-                                    className={"help-modal__icon-btn" + (open ? " active" : "")}
-                                    title="Дополнительные действия"
                                 >
-                                    <MIcon name="more_horiz" />
+                                    <MIcon name={isLocked ? "lock" : "lock_open"} />
                                 </button>
-                            )}
-                        >
-                            {(close) => (
-                                <div className="menu">
-                                    {domainId && (
-                                        <button
-                                            className="menu__item"
-                                            disabled={moreDisabled}
-                                            style={dimStyle(moreDisabled)}
-                                            onClick={() => {
-                                                const st = useGraphStore.getState();
-                                                st.setDomainSchemaDomainId(domainId);
-                                                if (navQuery.trim())
-                                                    st.setDomainSchemaPrefillQuery(
-                                                        navQuery.trim(),
-                                                    );
-                                                if (onlyProblematic)
-                                                    st.setDomainSchemaPrefillOnlyProblematic(true);
-                                                st.setDomainSchemaOpen(true);
-                                                close();
-                                            }}
-                                            title={
-                                                moreDisabled
+
+                                <button
+                                    className={"help-modal__icon-btn" + (copyFeedback ? " active" : "")}
+                                    onClick={handleCopy}
+                                    disabled={copyDisabled}
+                                    style={dimStyle(copyDisabled)}
+                                    title={
+                                        loading
+                                            ? "Загрузка схемы…"
+                                            : "Копировать содержимое в буфер"
+                                    }
+                                >
+                                    <MIcon name={copyFeedback ? "check" : "content_copy"} />
+                                </button>
+
+                                {/* === VIEW: Diff previous / Diff published === */}
+                                {previousContent && (
+                                    <button
+                                        className={
+                                            "help-modal__icon-btn" +
+                                            (diffAgainst === "previous" ? " active" : "")
+                                        }
+                                        onClick={handleDiffPrevious}
+                                        disabled={diffDisabled}
+                                        style={dimStyle(diffDisabled)}
+                                        title={
+                                            isSaving
+                                                ? "Дождитесь окончания сохранения"
+                                                : diffAgainst === "previous"
+                                                    ? "Вернуться к редактору"
+                                                    : "Diff с предыдущим сохранением на диске"
+                                        }
+                                    >
+                                        <MIcon name="difference" />
+                                    </button>
+                                )}
+
+                                {yamlContentSource === "draft" && (
+                                    <button
+                                        className={
+                                            "help-modal__icon-btn" +
+                                            (diffAgainst === "published" ? " active" : "")
+                                        }
+                                        onClick={handleDiffPublished}
+                                        disabled={diffDisabled}
+                                        style={dimStyle(diffDisabled)}
+                                        title={
+                                            isSaving
+                                                ? "Дождитесь окончания сохранения"
+                                                : diffAgainst === "published"
+                                                    ? "Вернуться к редактору"
+                                                    : "Diff: черновик (в редакторе) ↔ опубликованная версия (на сервере)"
+                                        }
+                                    >
+                                        <MIcon name="cloud_download" />
+                                    </button>
+                                )}
+
+                                {mode === "remote" && (
+                                    <button
+                                        className={
+                                            "help-modal__icon-btn" + (historyOpen ? " active" : "")
+                                        }
+                                        onClick={() => setHistoryOpen((v) => !v)}
+                                        disabled={isSaving || loading}
+                                        style={dimStyle(isSaving || loading)}
+                                        title={
+                                            isSaving
+                                                ? "Дождитесь окончания сохранения"
+                                                : loading
+                                                    ? "Загрузка схемы…"
+                                                    : "История версий схемы"
+                                        }
+                                    >
+                                        <MIcon name="history" />
+                                    </button>
+                                )}
+
+                                {/* === SERVER VALIDATE === */}
+                                {serverAvailable && (
+                                    <button
+                                        className={
+                                            "help-modal__icon-btn" +
+                                            (serverValidating ? " active" : "") +
+                                            (serverValidation && !serverValidating
+                                                ? serverValidation.isValid
+                                                    ? " help-modal__icon-btn--success"
+                                                    : " help-modal__icon-btn--error"
+                                                : "")
+                                        }
+                                        onClick={handleServerValidate}
+                                        disabled={validateDisabled}
+                                        style={dimStyle(validateDisabled)}
+                                        title={
+                                            serverValidating
+                                                ? "Проверка на сервере..."
+                                                : isSaving
                                                     ? "Дождитесь окончания сохранения"
-                                                    : "Открыть структурированный обзор схемы"
+                                                    : serverValidation && !serverValidating
+                                                        ? serverValidation.isValid
+                                                            ? "Сервер: схема валидна"
+                                                            : `Сервер: ${serverValidation.diagnostics?.length || "!"} ошибок`
+                                                        : "Проверить на сервере"
+                                        }
+                                    >
+                                        <MIcon
+                                            name={
+                                                serverValidating
+                                                    ? "hourglass_top"
+                                                    : serverValidation
+                                                        ? serverValidation.isValid
+                                                            ? "cloud_done"
+                                                            : "cloud_off"
+                                                        : "cloud_upload"
                                             }
+                                        />
+                                    </button>
+                                )}
+
+                                <span
+                                    style={{
+                                        width: 1,
+                                        height: 20,
+                                        background: "var(--border)",
+                                        margin: "0 4px",
+                                        display: "inline-block",
+                                    }}
+                                />
+
+                                {/* === MORE: dropdown со вторичными действиями === */}
+                                <Popover
+                                    width={280}
+                                    align="right"
+                                    trigger={(open) => (
+                                        <button
+                                            className={"help-modal__icon-btn" + (open ? " active" : "")}
+                                            title="Дополнительные действия"
                                         >
-                                            <span className="menu__icon">
-                                                <MIcon name="menu_book" size="sm" />
-                                            </span>
-                                            <span className="menu__text">Схема домена</span>
+                                            <MIcon name="more_horiz" />
                                         </button>
                                     )}
+                                >
+                                    {(close) => (
+                                        <div className="menu">
+                                            {domainId && (
+                                                <button
+                                                    className="menu__item"
+                                                    disabled={moreDisabled}
+                                                    style={dimStyle(moreDisabled)}
+                                                    onClick={() => {
+                                                        const st = useGraphStore.getState();
+                                                        st.setDomainSchemaDomainId(domainId);
+                                                        if (navQuery.trim())
+                                                            st.setDomainSchemaPrefillQuery(
+                                                                navQuery.trim(),
+                                                            );
+                                                        if (onlyProblematic)
+                                                            st.setDomainSchemaPrefillOnlyProblematic(true);
+                                                        st.setDomainSchemaOpen(true);
+                                                        close();
+                                                    }}
+                                                    title={
+                                                        moreDisabled
+                                                            ? "Дождитесь окончания сохранения"
+                                                            : "Открыть структурированный обзор схемы"
+                                                    }
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="menu_book" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">Схема домена</span>
+                                                </button>
+                                            )}
 
-                                    {domainId && entityIdUnderCursor && (
-                                        <button
-                                            className="menu__item"
-                                            disabled={moreDisabled}
-                                            style={dimStyle(moreDisabled)}
-                                            onClick={() => {
-                                                const st = useGraphStore.getState();
-                                                st.setGenerateSchemaDomainId(domainId);
-                                                st.setGenerateSchemaEntityId(entityIdUnderCursor);
-                                                st.setGenerateSchemaOpen(true);
-                                                close();
-                                            }}
-                                            title={
-                                                moreDisabled
-                                                    ? "Дождитесь окончания сохранения"
-                                                    : `Сгенерировать типовой блок для «${entityIdUnderCursor}»`
-                                            }
-                                        >
-                                            <span className="menu__icon">
-                                                <MIcon name="auto_fix_high" size="sm" />
-                                            </span>
-                                            <span className="menu__text">
-                                                Сгенерировать для «{entityIdUnderCursor}»
-                                            </span>
-                                        </button>
-                                    )}
+                                            {domainId && entityIdUnderCursor && (
+                                                <button
+                                                    className="menu__item"
+                                                    disabled={moreDisabled}
+                                                    style={dimStyle(moreDisabled)}
+                                                    onClick={() => {
+                                                        const st = useGraphStore.getState();
+                                                        st.setGenerateSchemaDomainId(domainId);
+                                                        st.setGenerateSchemaEntityId(entityIdUnderCursor);
+                                                        st.setGenerateSchemaOpen(true);
+                                                        close();
+                                                    }}
+                                                    title={
+                                                        moreDisabled
+                                                            ? "Дождитесь окончания сохранения"
+                                                            : `Сгенерировать типовой блок для «${entityIdUnderCursor}»`
+                                                    }
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="auto_fix_high" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">
+                                                        Сгенерировать для «{entityIdUnderCursor}»
+                                                    </span>
+                                                </button>
+                                            )}
 
-                                    {domainId && (
-                                        <button
-                                            className="menu__item"
-                                            disabled={moreDisabled}
-                                            style={dimStyle(moreDisabled)}
-                                            onClick={() => {
-                                                const st = useGraphStore.getState();
-                                                st.setGenerateSchemaDomainId(domainId);
-                                                st.setGenerateSchemaEntityId(null);
-                                                st.setGenerateSchemaPrefillProfile("domain-extras");
-                                                st.setGenerateSchemaOpen(true);
-                                                close();
-                                            }}
-                                            title={
-                                                moreDisabled
-                                                    ? "Дождитесь окончания сохранения"
-                                                    : "Профили без сущности: меню и иконки, Enum/Workflow, цвета статусов, exchangeSettings, counterColorPatterns"
-                                            }
-                                        >
-                                            <span className="menu__icon">
-                                                <MIcon name="auto_awesome_motion" size="sm" />
-                                            </span>
-                                            <span className="menu__text">Сгенерировать для домена</span>
-                                        </button>
-                                    )}
+                                            {domainId && (
+                                                <button
+                                                    className="menu__item"
+                                                    disabled={moreDisabled}
+                                                    style={dimStyle(moreDisabled)}
+                                                    onClick={() => {
+                                                        const st = useGraphStore.getState();
+                                                        st.setGenerateSchemaDomainId(domainId);
+                                                        st.setGenerateSchemaEntityId(null);
+                                                        st.setGenerateSchemaPrefillProfile("domain-extras");
+                                                        st.setGenerateSchemaOpen(true);
+                                                        close();
+                                                    }}
+                                                    title={
+                                                        moreDisabled
+                                                            ? "Дождитесь окончания сохранения"
+                                                            : "Профили без сущности: меню и иконки, Enum/Workflow, цвета статусов, exchangeSettings, counterColorPatterns"
+                                                    }
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="auto_awesome_motion" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">Сгенерировать для домена</span>
+                                                </button>
+                                            )}
 
-                                    {index?.pii?.byDomain?.some(
-                                        (d: any) => d.domainId === domainId,
-                                    ) && (
+                                            {index?.pii?.byDomain?.some(
+                                                (d: any) => d.domainId === domainId,
+                                            ) && (
+                                                    <button
+                                                        className="menu__item"
+                                                        disabled={moreDisabled}
+                                                        style={dimStyle(moreDisabled)}
+                                                        onClick={() => {
+                                                            useGraphStore.getState().setYamlViewerOpen(false);
+                                                            useGraphStore.getState().setPiiOpen(true);
+                                                            close();
+                                                        }}
+                                                        title={
+                                                            moreDisabled
+                                                                ? "Дождитесь окончания сохранения"
+                                                                : "PII-атрибуты в домене"
+                                                        }
+                                                    >
+                                                        <span className="menu__icon">
+                                                            <MIcon name="shield_lock" size="sm" />
+                                                        </span>
+                                                        <span className="menu__text">
+                                                            PII-атрибуты в домене
+                                                        </span>
+                                                    </button>
+                                                )}
+
                                             <button
                                                 className="menu__item"
-                                                disabled={moreDisabled}
-                                                style={dimStyle(moreDisabled)}
+                                                disabled={isDirty || isSaving || loading}
+                                                style={dimStyle(isDirty || isSaving || loading)}
                                                 onClick={() => {
                                                     useGraphStore.getState().setYamlViewerOpen(false);
-                                                    useGraphStore.getState().setPiiOpen(true);
+                                                    useGraphStore
+                                                        .getState()
+                                                        .setDomainComparePrefillA(domainId);
+                                                    useGraphStore.getState().setDomainCompareOpen(true);
                                                     close();
                                                 }}
                                                 title={
-                                                    moreDisabled
-                                                        ? "Дождитесь окончания сохранения"
-                                                        : "PII-атрибуты в домене"
+                                                    isDirty
+                                                        ? "Сохраните или отмените изменения перед переходом"
+                                                        : isSaving
+                                                            ? "Дождитесь окончания сохранения"
+                                                            : undefined
                                                 }
                                             >
                                                 <span className="menu__icon">
-                                                    <MIcon name="shield_lock" size="sm" />
+                                                    <MIcon name="compare_arrows" size="sm" />
+                                                </span>
+                                                <span className="menu__text">Сравнить домены</span>
+                                            </button>
+
+                                            {domainId && (
+                                                <button
+                                                    className="menu__item"
+                                                    disabled={isDirty || isSaving || loading}
+                                                    style={dimStyle(isDirty || isSaving || loading)}
+                                                    onClick={() => {
+                                                        useGraphStore.getState().setYamlViewerOpen(false);
+                                                        gotoDomain(domainId);
+                                                        close();
+                                                    }}
+                                                    title={
+                                                        isDirty
+                                                            ? "Сохраните или отмените изменения перед переходом"
+                                                            : isSaving
+                                                                ? "Дождитесь окончания сохранения"
+                                                                : undefined
+                                                    }
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="my_location" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">
+                                                        Показать на графе
+                                                    </span>
+                                                </button>
+                                            )}
+
+                                            <div className="menu__divider" />
+
+                                            <button
+                                                className="menu__item"
+                                                onClick={() => {
+                                                    setLeftCollapsed(!leftCollapsed);
+                                                    close();
+                                                }}
+                                            >
+                                                <span className="menu__icon">
+                                                    <MIcon
+                                                        name={
+                                                            leftCollapsed ? "chevron_right" : "chevron_left"
+                                                        }
+                                                        size="sm"
+                                                    />
                                                 </span>
                                                 <span className="menu__text">
-                                                    PII-атрибуты в домене
+                                                    {leftCollapsed ? "Показать" : "Скрыть"} навигацию
                                                 </span>
                                             </button>
-                                        )}
 
-                                    <button
-                                        className="menu__item"
-                                        disabled={isDirty || isSaving || loading}
-                                        style={dimStyle(isDirty || isSaving || loading)}
-                                        onClick={() => {
-                                            useGraphStore.getState().setYamlViewerOpen(false);
-                                            useGraphStore
-                                                .getState()
-                                                .setDomainComparePrefillA(domainId);
-                                            useGraphStore.getState().setDomainCompareOpen(true);
-                                            close();
-                                        }}
-                                        title={
-                                            isDirty
-                                                ? "Сохраните или отмените изменения перед переходом"
-                                                : isSaving
-                                                    ? "Дождитесь окончания сохранения"
-                                                    : undefined
-                                        }
-                                    >
-                                        <span className="menu__icon">
-                                            <MIcon name="compare_arrows" size="sm" />
-                                        </span>
-                                        <span className="menu__text">Сравнить домены</span>
-                                    </button>
+                                            <button
+                                                className="menu__item"
+                                                onClick={() => {
+                                                    setRightCollapsed(!rightCollapsed);
+                                                    close();
+                                                }}
+                                            >
+                                                <span className="menu__icon">
+                                                    <MIcon
+                                                        name={
+                                                            rightCollapsed ? "chevron_left" : "chevron_right"
+                                                        }
+                                                        size="sm"
+                                                    />
+                                                </span>
+                                                <span className="menu__text">
+                                                    {rightCollapsed ? "Показать" : "Скрыть"} панель проблем
+                                                </span>
+                                            </button>
 
-                                    {domainId && (
-                                        <button
-                                            className="menu__item"
-                                            disabled={isDirty || isSaving || loading}
-                                            style={dimStyle(isDirty || isSaving || loading)}
-                                            onClick={() => {
-                                                useGraphStore.getState().setYamlViewerOpen(false);
-                                                gotoDomain(domainId);
-                                                close();
-                                            }}
-                                            title={
-                                                isDirty
-                                                    ? "Сохраните или отмените изменения перед переходом"
-                                                    : isSaving
-                                                        ? "Дождитесь окончания сохранения"
-                                                        : undefined
-                                            }
-                                        >
-                                            <span className="menu__icon">
-                                                <MIcon name="my_location" size="sm" />
-                                            </span>
-                                            <span className="menu__text">
-                                                Показать на графе
-                                            </span>
-                                        </button>
+                                            <button
+                                                className="menu__item"
+                                                onClick={() => {
+                                                    toggleChecks();
+                                                    close();
+                                                }}
+                                            >
+                                                <span className="menu__icon">
+                                                    <MIcon
+                                                        name={checksEnabled ? "rule" : "block"}
+                                                        size="sm"
+                                                    />
+                                                </span>
+                                                <span className="menu__text">
+                                                    {checksEnabled
+                                                        ? "Выключить проверки"
+                                                        : "Включить проверки"}
+                                                </span>
+                                            </button>
+
+                                            <button
+                                                className="menu__item"
+                                                onClick={() => {
+                                                    useGraphStore.getState().setYamlHighlightUnused(!yamlHighlightUnused);
+                                                    close();
+                                                }}
+                                            >
+                                                <span className="menu__icon">
+                                                    <MIcon
+                                                        name={
+                                                            yamlHighlightUnused
+                                                                ? "visibility"
+                                                                : "visibility_off"
+                                                        }
+                                                        size="sm"
+                                                    />
+                                                </span>
+                                                <span className="menu__text">
+                                                    {yamlHighlightUnused
+                                                        ? "Не затенять неиспользуемые"
+                                                        : "Затенять неиспользуемые"}
+                                                </span>
+                                            </button>
+
+                                            <div className="menu__divider" />
+
+                                            <button
+                                                className="menu__item"
+                                                onClick={() => {
+                                                    setShowHelp(true);
+                                                    close();
+                                                }}
+                                            >
+                                                <span className="menu__icon">
+                                                    <MIcon name="help" size="sm" />
+                                                </span>
+                                                <span className="menu__text">Справка по редактору</span>
+                                            </button>
+                                        </div>
                                     )}
-
-                                    <div className="menu__divider" />
-
-                                    <button
-                                        className="menu__item"
-                                        onClick={() => {
-                                            setLeftCollapsed(!leftCollapsed);
-                                            close();
-                                        }}
-                                    >
-                                        <span className="menu__icon">
-                                            <MIcon
-                                                name={
-                                                    leftCollapsed ? "chevron_right" : "chevron_left"
-                                                }
-                                                size="sm"
-                                            />
-                                        </span>
-                                        <span className="menu__text">
-                                            {leftCollapsed ? "Показать" : "Скрыть"} навигацию
-                                        </span>
-                                    </button>
-
-                                    <button
-                                        className="menu__item"
-                                        onClick={() => {
-                                            setRightCollapsed(!rightCollapsed);
-                                            close();
-                                        }}
-                                    >
-                                        <span className="menu__icon">
-                                            <MIcon
-                                                name={
-                                                    rightCollapsed ? "chevron_left" : "chevron_right"
-                                                }
-                                                size="sm"
-                                            />
-                                        </span>
-                                        <span className="menu__text">
-                                            {rightCollapsed ? "Показать" : "Скрыть"} панель проблем
-                                        </span>
-                                    </button>
-
-                                    <button
-                                        className="menu__item"
-                                        onClick={() => {
-                                            toggleChecks();
-                                            close();
-                                        }}
-                                    >
-                                        <span className="menu__icon">
-                                            <MIcon
-                                                name={checksEnabled ? "rule" : "block"}
-                                                size="sm"
-                                            />
-                                        </span>
-                                        <span className="menu__text">
-                                            {checksEnabled
-                                                ? "Выключить проверки"
-                                                : "Включить проверки"}
-                                        </span>
-                                    </button>
-
-                                    <button
-                                        className="menu__item"
-                                        onClick={() => {
-                                            useGraphStore.getState().setYamlHighlightUnused(!yamlHighlightUnused);
-                                            close();
-                                        }}
-                                    >
-                                        <span className="menu__icon">
-                                            <MIcon
-                                                name={
-                                                    yamlHighlightUnused
-                                                        ? "visibility"
-                                                        : "visibility_off"
-                                                }
-                                                size="sm"
-                                            />
-                                        </span>
-                                        <span className="menu__text">
-                                            {yamlHighlightUnused
-                                                ? "Не затенять неиспользуемые"
-                                                : "Затенять неиспользуемые"}
-                                        </span>
-                                    </button>
-
-                                    <div className="menu__divider" />
-
-                                    <button
-                                        className="menu__item"
-                                        onClick={() => {
-                                            setShowHelp(true);
-                                            close();
-                                        }}
-                                    >
-                                        <span className="menu__icon">
-                                            <MIcon name="help" size="sm" />
-                                        </span>
-                                        <span className="menu__text">Справка по редактору</span>
-                                    </button>
-                                </div>
-                            )}
-                        </Popover>
-
+                                </Popover>
+                            </>
+                        )}
                         <button
                             className="help-modal__close"
                             onClick={handleClose}
@@ -6495,1398 +6605,1497 @@ export function YamlViewerModal() {
                     </div>
                 </div>
 
-                {open && (
-                    <div className="yaml-viewer-tabs-bar">
-                        {tabs.map(tab => (
-                            <div
-                                key={tab}
-                                className={`yaml-viewer-tab-item ${tab === filePath ? 'active' : ''}`}
-                                onClick={async () => {
-                                    if (tab !== filePath) {
-                                        await openFileInEditor(tab);
-                                    }
-                                }}
-                            >
-                                {tab.split('/').pop()?.replace('.ro', '')}
-                                <button onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeTab(tab);
-                                    if (tab === filePath) {
-                                        // Открыть другой файл или закрыть модалку
-                                        const next = tabs.find(t => t !== tab);
-                                        if (next) openFileInEditor(next);
-                                        else handleClose();
-                                    }
-                                }}>✕</button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Счётчики домена */}
-                {counters && (
-                    <div className="yaml-viewer-info">
-                        <span className="yaml-viewer-info__item">
-                            <strong>{counters.entities}</strong> сущностей
-                        </span>
-                        <span className="yaml-viewer-info__item">
-                            <strong>{counters.attributes}</strong> атрибутов
-                        </span>
-                        <span className="yaml-viewer-info__item">
-                            <strong>{counters.linkages}</strong> связей
-                        </span>
-                        <span className="yaml-viewer-info__item">
-                            <strong>{counters.views}</strong> views
-                        </span>
-                        {crossDomainStats &&
-                            (crossDomainStats.incoming > 0 || crossDomainStats.outgoing > 0) && (
-                                <div className="yaml-viewer-info__crossdomain">
-                                    {crossDomainStats.outgoing > 0 && (
-                                        <CrossDomainBadge
-                                            direction="out"
-                                            count={crossDomainStats.outgoing}
-                                            domains={crossDomainStats.outgoingDomainList}
-                                            label="исх."
-                                            onDomainClick={(d) => {
-                                                useGraphStore
-                                                    .getState()
-                                                    .setDomainSchemaDomainId(d);
-                                                useGraphStore.getState().setDomainSchemaOpen(true);
-                                            }}
-                                        />
-                                    )}
-                                    {crossDomainStats.incoming > 0 && (
-                                        <CrossDomainBadge
-                                            direction="in"
-                                            count={crossDomainStats.incoming}
-                                            domains={crossDomainStats.incomingDomainList}
-                                            label="вх."
-                                            onDomainClick={(d) => {
-                                                useGraphStore
-                                                    .getState()
-                                                    .setDomainSchemaDomainId(d);
-                                                useGraphStore.getState().setDomainSchemaOpen(true);
-                                            }}
-                                        />
-                                    )}
-                                </div>
-                            )}
-                        {counters.sonar && (
-                            <button
-                                className={
-                                    "yaml-viewer-info__item yaml-viewer-info__item--sonar " +
-                                    "yaml-viewer-info__sonar-" + counters.sonar.grade.toLowerCase()
-                                }
-                                onClick={() => useGraphStore.getState().setLintOpen(true)}
-                                title="Sonar-оценка домена — открыть линтер"
-                            >
-                                <strong>{counters.sonar.score}</strong>
-                                <span className="yaml-viewer-info__sonar-grade">
-                                    {counters.sonar.grade}
-                                </span>
-                            </button>
-                        )}
-                        {counters.issues > 0 && (
-                            <button
-                                className="yaml-viewer-info__item yaml-viewer-info__item--issues"
-                                onClick={() => setRightTab("issues")}
-                                title="Открыть список проблем"
-                            >
-                                <MIcon name="warning" size="sm" />
-                                <strong>{counters.issues}</strong> проблем
-                            </button>
-                        )}
-                    </div>
-                )}
-
-                {focusTarget && (
-                    <FocusBar
-                        target={focusTarget}
-                        result={focusResult}
-                        includeDeps={focusIncludeDeps}
-                        onToggleDeps={setFocusIncludeDeps}
-                        onClear={() => {
-                            setFocusTarget(null);
-                            setFocusIncludeDeps(false);
-                        }}
-                    />
-                )}
-
-                {/* Save error */}
-                {saveError && (
-                    <div className="yaml-save-error">
-                        ❌ {saveError}
-                        <button onClick={() => setSaveError(null)}>✕</button>
-                    </div>
-                )}
-
-                {/* ============ BODY ============ */}
-                <div className="yaml-viewer-body" style={{ position: "relative" }}>
-                    {/* Nav */}
+                <div
+                    className="yaml-viewer-modal-body"
+                    style={{
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        minHeight: 0,
+                        position: "relative",
+                    }}
+                >
+                    {/* ───────── CODE MODE ───────── */}
                     <div
-                        className={"yaml-viewer-nav" + (leftCollapsed ? " yaml-viewer-nav--collapsed" : "")}
-                        style={{ width: leftCollapsed ? 0 : leftWidth }}
+                        style={{
+                            display: editorMode === "code" ? "flex" : "none",
+                            flex: 1,
+                            flexDirection: "column",
+                            minHeight: 0,
+                            overflow: "hidden",
+                        }}
                     >
-                        {loading && <div className="yaml-viewer-nav__loading">Загрузка...</div>}
-                        {lineMap && (
-                            <>
-                                <div className="yaml-viewer-nav__tabs">
-                                    <button
-                                        type="button"
-                                        className={
-                                            "yaml-viewer-nav__tab" +
-                                            (navTab === "navigation" ? " active" : "")
-                                        }
-                                        onClick={() => setNavTab("navigation")}
-                                    >
-                                        <MIcon name="account_tree" size="sm" />
-                                        Навигация
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={
-                                            "yaml-viewer-nav__tab" +
-                                            (navTab === "search" ? " active" : "")
-                                        }
-                                        onClick={() => {
-                                            setNavTab("search");
-                                            setTimeout(() => searchPanelRef.current?.focusInput(), 30);
+                        {open && (
+                            <div className="yaml-viewer-tabs-bar">
+                                {tabs.map((tab) => (
+                                    <div
+                                        key={tab}
+                                        className={`yaml-viewer-tab-item ${tab === filePath ? "active" : ""}`}
+                                        onClick={async () => {
+                                            if (tab !== filePath) {
+                                                await openFileInEditor(tab);
+                                            }
                                         }}
                                     >
-                                        <MIcon name="search" size="sm" />
-                                        Поиск
-                                        {searchResult && searchResult.totalMatches > 0 && (
-                                            <span className="yaml-viewer-nav__tab-badge">
-                                                {searchResult.totalMatches > 99 ? "99+" : searchResult.totalMatches}
-                                            </span>
-                                        )}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={
-                                            "yaml-viewer-nav__tab" +
-                                            (navTab === "bookmarks" ? " active" : "")
-                                        }
-                                        onClick={() => setNavTab("bookmarks")}
-                                        title="Закладки (F2 на строке)"
-                                    >
-                                        <MIcon name="star" size="sm" fill={fileBookmarks.length > 0} />
-                                        Закладки
-                                        {fileBookmarks.length > 0 && (
-                                            <span className="yaml-viewer-nav__tab-badge">
-                                                {fileBookmarks.length}
-                                            </span>
-                                        )}
-                                    </button>
-                                </div>
-
-                                <div
-                                    className="yaml-viewer-nav__pane"
-                                    style={navTab === "navigation" ? undefined : { display: "none" }}
-                                >
-                                    <div className="yaml-viewer-nav__header">
-                                        <span>Навигация</span>
+                                        {tab.split("/").pop()?.replace(".ro", "")}
                                         <button
-                                            className={
-                                                "yaml-viewer-nav__toggle" +
-                                                (onlyProblematic ? " active" : "")
-                                            }
-                                            style={{ marginLeft: "auto" }}
-                                            onClick={() => setOnlyProblematic(!onlyProblematic)}
-                                            title={
-                                                onlyProblematic
-                                                    ? "Показать все элементы"
-                                                    : "Показать только элементы с проблемами"
-                                            }
-                                            disabled={domainIssues.length === 0}
-                                        >
-                                            <MIcon name="warning" size="sm" />
-                                            {domainIssues.length}
-                                        </button>
-                                        <div className="yaml-viewer-nav__actions">
-                                            <button
-                                                className="yaml-viewer-nav__action"
-                                                onClick={expandAll}
-                                                title="Развернуть всё"
-                                            >⤢</button>
-                                            <button
-                                                className="yaml-viewer-nav__action"
-                                                onClick={collapseAll}
-                                                title="Свернуть всё"
-                                            >⤡</button>
-                                        </div>
-                                    </div>
-
-                                    <div className="yaml-viewer-nav__search">
-                                        <span className="yaml-viewer-nav__search-icon">🔍</span>
-                                        <input
-                                            type="text"
-                                            className="yaml-viewer-nav__search-input"
-                                            placeholder="id, #секция, type:enum, issues, unused"
-                                            value={navQuery}
-                                            onChange={(e) => {
-                                                setNavQuery(e.target.value);
-                                                setActiveNavIdx(-1);
-                                            }}
-                                            spellCheck={false}
-                                        />
-                                        <button
-                                            type="button"
-                                            className="yaml-viewer-nav__search-help"
-                                            onClick={() => {
-                                                useGraphStore.getState().showSnackbar(
-                                                    "#entities — фильтр по секции · type:enum — фильтр по типу · " +
-                                                    "issues — только с проблемами · unused — только неиспользуемые",
-                                                );
-                                            }}
-                                            title="Синтаксис поиска"
-                                        >
-                                            <MIcon name="help" size="sm" />
-                                        </button>
-                                        {navQuery && (
-                                            <button
-                                                className="yaml-viewer-nav__search-clear"
-                                                onClick={() => setNavQuery('')}
-                                            >✕</button>
-                                        )}
-                                    </div>
-
-                                    <div className="yaml-viewer-nav__quick-filters">
-                                        <button
-                                            type="button"
-                                            className={
-                                                "yaml-nav-quick-chip" +
-                                                (isEmptyParsedQuery(parsedQuery) && !onlyProblematic ? " active" : "")
-                                            }
-                                            onClick={() => {
-                                                setNavQuery("");
-                                                setOnlyProblematic(false);
-                                            }}
-                                            title="Сбросить фильтры"
-                                        >
-                                            Все
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className={
-                                                "yaml-nav-quick-chip" +
-                                                (onlyProblematic || parsedQuery.hasIssues === true ? " active" : "")
-                                            }
-                                            onClick={() => {
-                                                if (onlyProblematic) {
-                                                    setOnlyProblematic(false);
-                                                    setNavQuery("");
-                                                } else {
-                                                    setNavQuery("issues");
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                removeTab(tab);
+                                                if (tab === filePath) {
+                                                    const next = tabs.find((t) => t !== tab);
+                                                    if (next) openFileInEditor(next);
+                                                    else handleClose();
                                                 }
                                             }}
-                                            title="Только с проблемами"
                                         >
-                                            <MIcon name="warning" size="sm" />
-                                            С issues
+                                            ✕
                                         </button>
-                                        {unusedAnalysis && (
-                                            <button
-                                                type="button"
-                                                className={
-                                                    "yaml-nav-quick-chip" +
-                                                    (parsedQuery.unused === true ? " active" : "")
-                                                }
-                                                onClick={() => {
-                                                    setNavQuery(parsedQuery.unused === true ? "" : "unused");
-                                                }}
-                                                title="Неиспользуемые элементы"
-                                            >
-                                                <MIcon name="visibility_off" size="sm" />
-                                                Unused
-                                            </button>
-                                        )}
-                                        {sectionFilterKeys.length > 1 && (
-                                            <select
-                                                className="yaml-nav-section-select"
-                                                value={parsedQuery.sectionFilter || ""}
-                                                onChange={(e) => {
-                                                    const v = e.target.value;
-                                                    setNavQuery(v ? `#${v}` : "");
-                                                }}
-                                                title="Фильтр по секции"
-                                            >
-                                                <option value="">Секции</option>
-                                                {sectionFilterKeys.map((k) => (
-                                                    <option key={k.key} value={k.key}>
-                                                        {k.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
                                     </div>
+                                ))}
+                            </div>
+                        )}
 
-                                    <div className="yaml-viewer-nav__list" ref={navListRef}>
-                                        {!isEmptyParsedQuery(parsedQuery) || onlyProblematic ? (
-                                            <FilteredNavList
-                                                rows={filteredNavNodes}
-                                                activeKey={activeKey}
-                                                onJump={jumpTo}
-                                                onHover={setActiveNavIdx}
-                                                focusTarget={focusTarget}
-                                                onFocus={handleFocus}
-                                                onContextMenu={(node, sectionKey, x, y) =>
-                                                    setNavContextMenu({ node, sectionKey, x, y })
-                                                }
-                                                onOpenIssues={() => setRightTab("issues")}
-                                            />
-                                        ) : (
-                                            <>
-                                                {lineMap && lineMap.sections.length === 0 && (
-                                                    <div className="yaml-viewer-nav__empty">
-                                                        <MIcon name="warning" size="sm" />
-                                                        <span>
-                                                            Не удалось распознать секции YAML. Проверьте, что файл —
-                                                            корректный YAML-документ с верхнеуровневыми секциями
-                                                            (<code>entities:</code>, <code>views:</code>, …).
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {lineMap && lineMap.sections.length > 0 && (
-                                                    lineMap.sections.map((section) => (
-                                                        <SectionNavPanel
-                                                            key={section.key}
-                                                            section={section}
-                                                            sectionKey={section.key}
-                                                            expandedNodes={expandedNodes}
-                                                            onToggleNode={toggleNode}
-                                                            onJump={jumpTo}
-                                                            issues={allIssues}
-                                                            activeKey={activeKey}
-                                                            onSetActive={setActiveNavIdx}
-                                                            entityIssuesMap={entityIssuesMap}
-                                                            attrIssuesMap={attrIssuesMap}
-                                                            focusTarget={focusTarget}
-                                                            onFocus={handleFocus}
-                                                            onContextMenu={(node, sectionKey, x, y) =>
-                                                                setNavContextMenu({ node, sectionKey, x, y })
-                                                            }
-                                                            unusedAnalysis={unusedAnalysis}
-                                                            cursorEntityId={entityIdUnderCursor}
-                                                            cursorAttributeId={cursorAttributeId}
-                                                            onOpenIssues={() => setRightTab("issues")}
-                                                        />
-                                                    ))
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div
-                                    className="yaml-viewer-nav__pane"
-                                    style={navTab === "search" ? undefined : { display: "none" }}
-                                >
-                                    <YamlSearchPanel
-                                        ref={searchPanelRef}
-                                        content={content}
-                                        lineMap={lineMap}
-                                        query={searchQuery}
-                                        options={searchOptions}
-                                        onQueryChange={setSearchQuery}
-                                        onOptionsChange={setSearchOptions}
-                                        onResultChange={setSearchResult}
-                                        onActiveMatchChange={setActiveSearchMatch}
-                                        onEscape={() => setNavTab("navigation")}
-                                        onJump={(line) => jumpTo(line, { focus: false })}
-                                    />
-                                </div>
-
-                                <div
-                                    className="yaml-viewer-nav__pane"
-                                    style={navTab === "bookmarks" ? undefined : { display: "none" }}
-                                >
-                                    <div className="yaml-viewer-nav__header">
-                                        <span>Закладки</span>
-                                        <span className="yaml-viewer-nav__count">{fileBookmarks.length}</span>
-
-                                        {fileBookmarks.length > 0 && (
-                                            <div className="yaml-viewer-nav__actions">
-                                                <button
-                                                    className="yaml-viewer-nav__action"
-                                                    onClick={() => {
-                                                        if (!editorRef.current) return;
-                                                        const pos = editorRef.current.getPosition();
-                                                        if (!pos) return;
-                                                        const next =
-                                                            fileBookmarks.find((l) => l > pos.lineNumber) ??
-                                                            fileBookmarks[0];
-                                                        jumpTo(next, { focus: true });
+                        {/* Счётчики домена */}
+                        {counters && (
+                            <div className="yaml-viewer-info">
+                                <span className="yaml-viewer-info__item">
+                                    <strong>{counters.entities}</strong> сущностей
+                                </span>
+                                <span className="yaml-viewer-info__item">
+                                    <strong>{counters.attributes}</strong> атрибутов
+                                </span>
+                                <span className="yaml-viewer-info__item">
+                                    <strong>{counters.linkages}</strong> связей
+                                </span>
+                                <span className="yaml-viewer-info__item">
+                                    <strong>{counters.views}</strong> views
+                                </span>
+                                {crossDomainStats &&
+                                    (crossDomainStats.incoming > 0 || crossDomainStats.outgoing > 0) && (
+                                        <div className="yaml-viewer-info__crossdomain">
+                                            {crossDomainStats.outgoing > 0 && (
+                                                <CrossDomainBadge
+                                                    direction="out"
+                                                    count={crossDomainStats.outgoing}
+                                                    domains={crossDomainStats.outgoingDomainList}
+                                                    label="исх."
+                                                    onDomainClick={(d) => {
+                                                        useGraphStore
+                                                            .getState()
+                                                            .setDomainSchemaDomainId(d);
+                                                        useGraphStore.getState().setDomainSchemaOpen(true);
                                                     }}
-                                                    title="Следующая закладка (Shift+F2)"
-                                                >
-                                                    <MIcon name="expand_less" size="sm" />
-                                                </button>
-                                                <button
-                                                    className="yaml-viewer-nav__action"
-                                                    onClick={() => {
-                                                        if (!editorRef.current) return;
-                                                        const pos = editorRef.current.getPosition();
-                                                        if (!pos) return;
-                                                        const reversed = [...fileBookmarks].reverse();
-                                                        const prev =
-                                                            reversed.find((l) => l < pos.lineNumber) ??
-                                                            fileBookmarks[fileBookmarks.length - 1];
-                                                        jumpTo(prev, { focus: true });
+                                                />
+                                            )}
+                                            {crossDomainStats.incoming > 0 && (
+                                                <CrossDomainBadge
+                                                    direction="in"
+                                                    count={crossDomainStats.incoming}
+                                                    domains={crossDomainStats.incomingDomainList}
+                                                    label="вх."
+                                                    onDomainClick={(d) => {
+                                                        useGraphStore
+                                                            .getState()
+                                                            .setDomainSchemaDomainId(d);
+                                                        useGraphStore.getState().setDomainSchemaOpen(true);
                                                     }}
-                                                    title="Предыдущая закладка (Ctrl+Shift+F2)"
-                                                >
-                                                    <MIcon name="expand_more" size="sm" />
-                                                </button>
-                                                <button
-                                                    className="yaml-viewer-nav__action"
-                                                    onClick={async () => {
-                                                        const text = fileBookmarks
-                                                            .map((l) => `${filePath}:${l}`)
-                                                            .join("\n");
-                                                        try {
-                                                            await navigator.clipboard.writeText(text);
-                                                            useGraphStore
-                                                                .getState()
-                                                                .showSnackbar(
-                                                                    `Скопировано: ${fileBookmarks.length}`,
-                                                                );
-                                                        } catch {
-                                                            /* ignore */
-                                                        }
-                                                    }}
-                                                    title="Копировать все закладки"
-                                                >
-                                                    <MIcon name="content_copy" size="sm" />
-                                                </button>
-                                                <button
-                                                    className="yaml-viewer-nav__action"
-                                                    onClick={async () => {
-                                                        const ok = await confirmDialog(
-                                                            "Удалить все закладки?",
-                                                            {
-                                                                detail:
-                                                                    "Все закладки в этом файле будут удалены.",
-                                                                danger: true,
-                                                                confirmLabel: "Удалить",
-                                                            },
-                                                        );
-                                                        if (ok) setEditorBookmarks(filePath!, []);
-                                                    }}
-                                                    title="Удалить все закладки"
-                                                >
-                                                    <MIcon name="delete_sweep" size="sm" />
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Поиск по закладкам — только если их много */}
-                                    {fileBookmarks.length > 3 && (
-                                        <div className="yaml-viewer-bookmarks-search">
-                                            <MIcon name="search" size="sm" />
-                                            <input
-                                                type="text"
-                                                value={bookmarksQuery}
-                                                onChange={(e) => setBookmarksQuery(e.target.value)}
-                                                placeholder="Фильтр по тексту или номеру строки…"
-                                                spellCheck={false}
-                                            />
-                                            {bookmarksQuery && (
-                                                <button
-                                                    type="button"
-                                                    className="yaml-viewer-bookmarks-search__clear"
-                                                    onClick={() => setBookmarksQuery("")}
-                                                    title="Очистить"
-                                                >
-                                                    ✕
-                                                </button>
+                                                />
                                             )}
                                         </div>
                                     )}
-
-                                    <div className="yaml-viewer-nav__list">
-                                        {bookmarkDetails.length === 0 ? (
-                                            <div className="yaml-viewer-bookmarks-empty">
-                                                <MIcon name="star_border" size="lg" />
-                                                <div className="yaml-viewer-bookmarks-empty__title">
-                                                    Нет закладок
-                                                </div>
-                                                <div className="yaml-viewer-bookmarks-empty__hint">
-                                                    Поставьте курсор на нужную строку и нажмите <kbd>F2</kbd>,
-                                                    чтобы закрепить место.
-                                                </div>
-                                            </div>
-                                        ) : filteredBookmarks.length === 0 ? (
-                                            <div className="yaml-viewer-bookmarks-empty">
-                                                <MIcon name="search_off" size="lg" />
-                                                <div className="yaml-viewer-bookmarks-empty__title">
-                                                    Ничего не найдено
-                                                </div>
-                                                <div className="yaml-viewer-bookmarks-empty__hint">
-                                                    Попробуйте изменить запрос «{bookmarksQuery}»
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn--small"
-                                                    onClick={() => setBookmarksQuery("")}
-                                                    style={{ marginTop: 8 }}
-                                                >
-                                                    Сбросить фильтр
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <div className="yaml-viewer-bookmarks-list">
-                                                {filteredBookmarks.map((b) => (
-                                                    <div
-                                                        key={b.line}
-                                                        className="yaml-viewer-bookmark"
-                                                        onClick={() => jumpTo(b.line, { focus: true })}
-                                                        title={`Строка ${b.line}: ${b.raw.trim() || "(пустая строка)"}`}
-                                                    >
-                                                        <span className="yaml-viewer-bookmark__line">
-                                                            {b.line}
-                                                        </span>
-                                                        <span className="yaml-viewer-bookmark__text">
-                                                            {b.text || (
-                                                                <span className="yaml-viewer-bookmark__empty">
-                                                                    пустая строка
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                        <div className="yaml-viewer-bookmark__actions">
-                                                            <button
-                                                                type="button"
-                                                                className="yaml-viewer-bookmark__action"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    navigator.clipboard
-                                                                        .writeText(b.raw)
-                                                                        .then(() =>
-                                                                            useGraphStore
-                                                                                .getState()
-                                                                                .showSnackbar("Строка скопирована"),
-                                                                        )
-                                                                        .catch(() => {
-                                                                            /* ignore */
-                                                                        });
-                                                                }}
-                                                                title="Копировать строку"
-                                                            >
-                                                                <MIcon name="content_copy" size="sm" />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="yaml-viewer-bookmark__action"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    navigator.clipboard
-                                                                        .writeText(`${filePath}:${b.line}`)
-                                                                        .then(() =>
-                                                                            useGraphStore
-                                                                                .getState()
-                                                                                .showSnackbar(
-                                                                                    "Путь к строке скопирован",
-                                                                                ),
-                                                                        )
-                                                                        .catch(() => {
-                                                                            /* ignore */
-                                                                        });
-                                                                }}
-                                                                title="Копировать путь к строке"
-                                                            >
-                                                                <MIcon name="link" size="sm" />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="yaml-viewer-bookmark__action yaml-viewer-bookmark__action--danger"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    const next = fileBookmarks.filter(
-                                                                        (l) => l !== b.line,
-                                                                    );
-                                                                    setEditorBookmarks(filePath!, next);
-                                                                }}
-                                                                title="Удалить закладку"
-                                                            >
-                                                                <MIcon name="close" size="sm" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    {!leftCollapsed && (
-                        <div className="yaml-viewer-resizer" onMouseDown={startResizingLeft} />
-                    )}
-
-                    {/* Editor */}
-                    <div className="yaml-viewer-editor">
-                        {/* Новая панель: Breadcrumbs (слева) + Quick Jumps (справа) */}
-                        <div className="yaml-viewer-editor__toolbar">
-                            {/* Left: goto start/end */}
-                            <div className="yaml-viewer-goto-controls">
-                                <button onClick={gotoStart} title="В начало файла (Ctrl+Home)">
-                                    <MIcon name="vertical_align_top" size="sm" />
-                                </button>
-                                <button onClick={gotoEnd} title="В конец файла (Ctrl+End)">
-                                    <MIcon name="vertical_align_bottom" size="sm" />
-                                </button>
-                            </div>
-
-                            <div className="yaml-viewer-breadcrumbs">
-                                {currentContext && currentContext.breadcrumbs.length > 0 ? (
-                                    <>
-                                        {currentContext.breadcrumbs.map((item, idx) => (
-                                            <React.Fragment key={`bc-${idx}-${item.line}`}>
-                                                {idx > 0 && <span className="yaml-viewer-breadcrumbs__sep">›</span>}
-                                                <button
-                                                    type="button"
-                                                    className={`yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--${item.type}`}
-                                                    onClick={() => jumpTo(item.line)}
-                                                    title={`${item.type}: ${item.id} — строка ${item.line}`}
-                                                >
-                                                    {item.id}
-                                                </button>
-                                            </React.Fragment>
-                                        ))}
-                                        <span className="yaml-viewer-breadcrumbs__line">:{cursorLine}</span>
-                                        {domainId && (
-                                            <PinButton
-                                                target={`line:${domainId}:${cursorLine}`}
-                                                domainId={domainId}
-                                                kind="domain"
-                                                label={`${domainId} :${cursorLine}`}
-                                                annotationsOverride={pinByLine.get(cursorLine) || []}
-                                                onResolve={(id) => annotationsStore.update(id, { resolvedAt: Date.now() })}
-                                                onDelete={(id) => annotationsStore.remove(id)}
-                                            />
-                                        )}
-                                    </>
-                                ) : (
-                                    <span className="yaml-viewer-breadcrumbs__item">—</span>
-                                )}
-                            </div>
-
-                            {/* Right: quickjumps + fold controls */}
-                            <div className="yaml-viewer-toolbar-right">
-                                {/* Скрытие затенённых строк при фокусе */}
-                                {focusTarget && focusResult && dimmedCount > 0 && (
+                                {counters.sonar && (
                                     <button
-                                        type="button"
                                         className={
-                                            "yaml-viewer-fold-btn yaml-viewer-focus-hide-btn" +
-                                            (hideDimmed ? " yaml-viewer-fold-btn--active" : "")
+                                            "yaml-viewer-info__item yaml-viewer-info__item--sonar " +
+                                            "yaml-viewer-info__sonar-" + counters.sonar.grade.toLowerCase()
                                         }
-                                        onClick={() => setHideDimmed((v) => !v)}
-                                        title={
-                                            hideDimmed
-                                                ? "Показать все строки"
-                                                : `Скрыть ${dimmedCount} ${pluralFew(dimmedCount, "строку", "строки", "строк")} вне фокуса`
-                                        }
+                                        onClick={() => useGraphStore.getState().setLintOpen(true)}
+                                        title="Sonar-оценка домена — открыть линтер"
                                     >
-                                        <MIcon
-                                            name={hideDimmed ? "unfold_more" : "visibility_off"}
-                                            size="sm"
-                                        />
-                                        <span className="yaml-viewer-focus-hide-btn__count">
-                                            {dimmedCount}
+                                        <strong>{counters.sonar.score}</strong>
+                                        <span className="yaml-viewer-info__sonar-grade">
+                                            {counters.sonar.grade}
                                         </span>
                                     </button>
                                 )}
-
-                                <Hint info={HINTS.quickjump} className="yaml-viewer-quickjump-anchor">
+                                {counters.issues > 0 && (
                                     <button
-                                        type="button"
-                                        className="yaml-viewer-fold-btn yaml-viewer-quickjump-btn"
-                                        onClick={() => {
-                                            setQuickJumpInitialQuery(null);
-                                            setQuickJumpOpen(true);
-                                        }}
+                                        className="yaml-viewer-info__item yaml-viewer-info__item--issues"
+                                        onClick={() => setRightTab("issues")}
+                                        title="Открыть список проблем"
                                     >
-                                        <MIcon name="my_location" size="sm" />
+                                        <MIcon name="warning" size="sm" />
+                                        <strong>{counters.issues}</strong> проблем
                                     </button>
-                                </Hint>
-                                {isDirty && diffBlocks.length > 0 && (
-                                    <div
-                                        className="yaml-viewer-diff-nav"
-                                        style={{
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: 1,
-                                            marginRight: 4,
-                                        }}
-                                        title={
-                                            `Изменённых блоков: ${diffBlocks.length}` +
-                                            (diffMarks
-                                                ? ` (+${diffMarks.added.length} / ~${diffMarks.modified.length} строк)`
-                                                : "")
-                                        }
-                                    >
-                                        <button
-                                            type="button"
-                                            className="yaml-viewer-fold-btn"
-                                            onClick={() => goToDiff(-1)}
-                                            title="Предыдущий изменённый блок"
-                                        >
-                                            <MIcon name="keyboard_arrow_up" size="sm" />
-                                        </button>
-                                        <span
-                                            style={{
-                                                fontSize: 11,
-                                                minWidth: 18,
-                                                textAlign: "center",
-                                                color: "var(--text-400)",
-                                                fontFamily: "JetBrains Mono, monospace",
-                                            }}
-                                        >
-                                            {diffBlocks.length}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            className="yaml-viewer-fold-btn"
-                                            onClick={() => goToDiff(1)}
-                                            title="Следующий изменённый блок"
-                                        >
-                                            <MIcon name="keyboard_arrow_down" size="sm" />
-                                        </button>
-                                    </div>
                                 )}
-                                <div className="yaml-viewer-fold-controls">
-                                    {([1, 2, 3, 4, 5] as const).map((lvl) => (
-                                        <Hint key={lvl} info={HINTS.fold}>
+                            </div>
+                        )}
+
+
+                        {focusTarget && (
+                            <FocusBar
+                                target={focusTarget}
+                                result={focusResult}
+                                includeDeps={focusIncludeDeps}
+                                onToggleDeps={setFocusIncludeDeps}
+                                onClear={() => {
+                                    setFocusTarget(null);
+                                    setFocusIncludeDeps(false);
+                                }}
+                            />
+                        )}
+
+                        {saveError && (
+                            <div className="yaml-save-error">
+                                ❌ {saveError}
+                                <button onClick={() => setSaveError(null)}>✕</button>
+                            </div>
+                        )}
+
+                        {/* ============ BODY ============ */}
+                        <div className="yaml-viewer-body" style={{ position: "relative" }}>
+                            {/* Nav */}
+                            <div
+                                className={"yaml-viewer-nav" + (leftCollapsed ? " yaml-viewer-nav--collapsed" : "")}
+                                style={{ width: leftCollapsed ? 0 : leftWidth }}
+                            >
+                                {loading && <div className="yaml-viewer-nav__loading">Загрузка...</div>}
+                                {lineMap && (
+                                    <>
+                                        <div className="yaml-viewer-nav__tabs">
                                             <button
+                                                type="button"
                                                 className={
-                                                    "yaml-viewer-fold-btn" +
-                                                    (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : "")
+                                                    "yaml-viewer-nav__tab" +
+                                                    (navTab === "navigation" ? " active" : "")
+                                                }
+                                                onClick={() => setNavTab("navigation")}
+                                            >
+                                                <MIcon name="account_tree" size="sm" />
+                                                Навигация
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={
+                                                    "yaml-viewer-nav__tab" +
+                                                    (navTab === "search" ? " active" : "")
                                                 }
                                                 onClick={() => {
-                                                    if (activeFoldLevel === lvl) unfoldAll();
-                                                    else foldToLevel(lvl);
+                                                    setNavTab("search");
+                                                    setTimeout(() => searchPanelRef.current?.focusInput(), 30);
                                                 }}
                                             >
-                                                {lvl}
+                                                <MIcon name="search" size="sm" />
+                                                Поиск
+                                                {searchResult && searchResult.totalMatches > 0 && (
+                                                    <span className="yaml-viewer-nav__tab-badge">
+                                                        {searchResult.totalMatches > 99 ? "99+" : searchResult.totalMatches}
+                                                    </span>
+                                                )}
                                             </button>
-                                        </Hint>
-                                    ))}
-                                    <Hint info={HINTS["fold-unfold"]}>
-                                        <button className="yaml-viewer-fold-btn" onClick={unfoldAll}>
-                                            <MIcon name="unfold_more" size="sm" />
-                                        </button>
-                                    </Hint>
-                                    <Popover
-                                        align="right"
-                                        width={280}
-                                        trigger={(open) => (
-                                            <Hint info={HINTS["fold-more"]}>
+                                            <button
+                                                type="button"
+                                                className={
+                                                    "yaml-viewer-nav__tab" +
+                                                    (navTab === "bookmarks" ? " active" : "")
+                                                }
+                                                onClick={() => setNavTab("bookmarks")}
+                                                title="Закладки (F2 на строке)"
+                                            >
+                                                <MIcon name="star" size="sm" fill={fileBookmarks.length > 0} />
+                                                Закладки
+                                                {fileBookmarks.length > 0 && (
+                                                    <span className="yaml-viewer-nav__tab-badge">
+                                                        {fileBookmarks.length}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        <div
+                                            className="yaml-viewer-nav__pane"
+                                            style={navTab === "navigation" ? undefined : { display: "none" }}
+                                        >
+                                            <div className="yaml-viewer-nav__header">
+                                                <span>Навигация</span>
                                                 <button
                                                     className={
-                                                        "yaml-viewer-fold-btn" +
-                                                        (open ? " yaml-viewer-fold-btn--active" : "")
+                                                        "yaml-viewer-nav__toggle" +
+                                                        (onlyProblematic ? " active" : "")
                                                     }
+                                                    style={{ marginLeft: "auto" }}
+                                                    onClick={() => setOnlyProblematic(!onlyProblematic)}
+                                                    title={
+                                                        onlyProblematic
+                                                            ? "Показать все элементы"
+                                                            : "Показать только элементы с проблемами"
+                                                    }
+                                                    disabled={domainIssues.length === 0}
                                                 >
-                                                    <MIcon name="more_horiz" size="sm" />
+                                                    <MIcon name="warning" size="sm" />
+                                                    {domainIssues.length}
                                                 </button>
-                                            </Hint>
-                                        )}
-                                    >
-                                        {(close) => (
-                                            <div className="menu">
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { foldAll(); close(); }}
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="unfold_less" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">Свернуть всё</span>
-                                                </button>
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { unfoldAll(); close(); }}
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="unfold_more" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">Развернуть всё</span>
-                                                </button>
-                                                <div className="menu__divider" />
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { foldSiblings(); close(); }}
-                                                    title="Свернуть все элементы списка того же уровня, кроме текущего"
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="splitscreen" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">Свернуть сиблингов курсора</span>
-                                                </button>
-                                                <div className="menu__divider" />
-                                                <div className="menu__label">Свернуть все блоки</div>
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { foldBlocksByKey("attributes"); close(); }}
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="view_list" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">attributes</span>
-                                                </button>
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { foldBlocksByKey("widgets"); close(); }}
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="widgets" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">widgets</span>
-                                                </button>
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { foldBlocksByKey("groups"); close(); }}
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="view_module" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">groups</span>
-                                                </button>
-                                                <button
-                                                    className="menu__item"
-                                                    onClick={() => { foldBlocksByKey("views"); close(); }}
-                                                >
-                                                    <span className="menu__icon">
-                                                        <MIcon name="view_quilt" size="sm" />
-                                                    </span>
-                                                    <span className="menu__text">views</span>
-                                                </button>
-                                                <div className="menu__divider" />
-                                                <label className="menu__checkbox">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={!yamlQuickNavEnabled}
-                                                        onChange={() => setYamlQuickNavEnabled(!yamlQuickNavEnabled)}
-                                                    />
-                                                    <span className="menu__check" />
-                                                    <span className="menu__text">
-                                                        Скрыть оглавление при скролле
-                                                    </span>
-                                                </label>
+                                                <div className="yaml-viewer-nav__actions">
+                                                    <button
+                                                        className="yaml-viewer-nav__action"
+                                                        onClick={expandAll}
+                                                        title="Развернуть всё"
+                                                    >⤢</button>
+                                                    <button
+                                                        className="yaml-viewer-nav__action"
+                                                        onClick={collapseAll}
+                                                        title="Свернуть всё"
+                                                    >⤡</button>
+                                                </div>
                                             </div>
-                                        )}
-                                    </Popover>
-                                </div>
+
+                                            <div className="yaml-viewer-nav__search">
+                                                <span className="yaml-viewer-nav__search-icon">🔍</span>
+                                                <input
+                                                    type="text"
+                                                    className="yaml-viewer-nav__search-input"
+                                                    placeholder="id, #секция, type:enum, issues, unused"
+                                                    value={navQuery}
+                                                    onChange={(e) => {
+                                                        setNavQuery(e.target.value);
+                                                        setActiveNavIdx(-1);
+                                                    }}
+                                                    spellCheck={false}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="yaml-viewer-nav__search-help"
+                                                    onClick={() => {
+                                                        useGraphStore.getState().showSnackbar(
+                                                            "#entities — фильтр по секции · type:enum — фильтр по типу · " +
+                                                            "issues — только с проблемами · unused — только неиспользуемые",
+                                                        );
+                                                    }}
+                                                    title="Синтаксис поиска"
+                                                >
+                                                    <MIcon name="help" size="sm" />
+                                                </button>
+                                                {navQuery && (
+                                                    <button
+                                                        className="yaml-viewer-nav__search-clear"
+                                                        onClick={() => setNavQuery('')}
+                                                    >✕</button>
+                                                )}
+                                            </div>
+
+                                            <div className="yaml-viewer-nav__quick-filters">
+                                                <button
+                                                    type="button"
+                                                    className={
+                                                        "yaml-nav-quick-chip" +
+                                                        (isEmptyParsedQuery(parsedQuery) && !onlyProblematic ? " active" : "")
+                                                    }
+                                                    onClick={() => {
+                                                        setNavQuery("");
+                                                        setOnlyProblematic(false);
+                                                    }}
+                                                    title="Сбросить фильтры"
+                                                >
+                                                    Все
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={
+                                                        "yaml-nav-quick-chip" +
+                                                        (onlyProblematic || parsedQuery.hasIssues === true ? " active" : "")
+                                                    }
+                                                    onClick={() => {
+                                                        if (onlyProblematic) {
+                                                            setOnlyProblematic(false);
+                                                            setNavQuery("");
+                                                        } else {
+                                                            setNavQuery("issues");
+                                                        }
+                                                    }}
+                                                    title="Только с проблемами"
+                                                >
+                                                    <MIcon name="warning" size="sm" />
+                                                    С issues
+                                                </button>
+                                                {unusedAnalysis && (
+                                                    <button
+                                                        type="button"
+                                                        className={
+                                                            "yaml-nav-quick-chip" +
+                                                            (parsedQuery.unused === true ? " active" : "")
+                                                        }
+                                                        onClick={() => {
+                                                            setNavQuery(parsedQuery.unused === true ? "" : "unused");
+                                                        }}
+                                                        title="Неиспользуемые элементы"
+                                                    >
+                                                        <MIcon name="visibility_off" size="sm" />
+                                                        Unused
+                                                    </button>
+                                                )}
+                                                {sectionFilterKeys.length > 1 && (
+                                                    <select
+                                                        className="yaml-nav-section-select"
+                                                        value={parsedQuery.sectionFilter || ""}
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            setNavQuery(v ? `#${v}` : "");
+                                                        }}
+                                                        title="Фильтр по секции"
+                                                    >
+                                                        <option value="">Секции</option>
+                                                        {sectionFilterKeys.map((k) => (
+                                                            <option key={k.key} value={k.key}>
+                                                                {k.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                )}
+                                            </div>
+
+                                            <div className="yaml-viewer-nav__list" ref={navListRef}>
+                                                {!isEmptyParsedQuery(parsedQuery) || onlyProblematic ? (
+                                                    <FilteredNavList
+                                                        rows={filteredNavNodes}
+                                                        activeKey={activeKey}
+                                                        onJump={jumpTo}
+                                                        onHover={setActiveNavIdx}
+                                                        focusTarget={focusTarget}
+                                                        onFocus={handleFocus}
+                                                        onContextMenu={(node, sectionKey, x, y) =>
+                                                            setNavContextMenu({ node, sectionKey, x, y })
+                                                        }
+                                                        onOpenIssues={() => setRightTab("issues")}
+                                                    />
+                                                ) : (
+                                                    <>
+                                                        {lineMap && lineMap.sections.length === 0 && (
+                                                            <div className="yaml-viewer-nav__empty">
+                                                                <MIcon name="warning" size="sm" />
+                                                                <span>
+                                                                    Не удалось распознать секции YAML. Проверьте, что файл —
+                                                                    корректный YAML-документ с верхнеуровневыми секциями
+                                                                    (<code>entities:</code>, <code>views:</code>, …).
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        {lineMap && lineMap.sections.length > 0 && (
+                                                            lineMap.sections.map((section) => (
+                                                                <SectionNavPanel
+                                                                    key={section.key}
+                                                                    section={section}
+                                                                    sectionKey={section.key}
+                                                                    expandedNodes={expandedNodes}
+                                                                    onToggleNode={toggleNode}
+                                                                    onJump={jumpTo}
+                                                                    issues={allIssues}
+                                                                    activeKey={activeKey}
+                                                                    onSetActive={setActiveNavIdx}
+                                                                    entityIssuesMap={entityIssuesMap}
+                                                                    attrIssuesMap={attrIssuesMap}
+                                                                    focusTarget={focusTarget}
+                                                                    onFocus={handleFocus}
+                                                                    onContextMenu={(node, sectionKey, x, y) =>
+                                                                        setNavContextMenu({ node, sectionKey, x, y })
+                                                                    }
+                                                                    unusedAnalysis={unusedAnalysis}
+                                                                    cursorEntityId={entityIdUnderCursor}
+                                                                    cursorAttributeId={cursorAttributeId}
+                                                                    onOpenIssues={() => setRightTab("issues")}
+                                                                />
+                                                            ))
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div
+                                            className="yaml-viewer-nav__pane"
+                                            style={navTab === "search" ? undefined : { display: "none" }}
+                                        >
+                                            <YamlSearchPanel
+                                                ref={searchPanelRef}
+                                                content={content}
+                                                lineMap={lineMap}
+                                                query={searchQuery}
+                                                options={searchOptions}
+                                                onQueryChange={setSearchQuery}
+                                                onOptionsChange={setSearchOptions}
+                                                onResultChange={setSearchResult}
+                                                onActiveMatchChange={setActiveSearchMatch}
+                                                onEscape={() => setNavTab("navigation")}
+                                                onJump={(line) => jumpTo(line, { focus: false })}
+                                            />
+                                        </div>
+
+                                        <div
+                                            className="yaml-viewer-nav__pane"
+                                            style={navTab === "bookmarks" ? undefined : { display: "none" }}
+                                        >
+                                            <div className="yaml-viewer-nav__header">
+                                                <span>Закладки</span>
+                                                <span className="yaml-viewer-nav__count">{fileBookmarks.length}</span>
+
+                                                {fileBookmarks.length > 0 && (
+                                                    <div className="yaml-viewer-nav__actions">
+                                                        <button
+                                                            className="yaml-viewer-nav__action"
+                                                            onClick={() => {
+                                                                if (!editorRef.current) return;
+                                                                const pos = editorRef.current.getPosition();
+                                                                if (!pos) return;
+                                                                const next =
+                                                                    fileBookmarks.find((l) => l > pos.lineNumber) ??
+                                                                    fileBookmarks[0];
+                                                                jumpTo(next, { focus: true });
+                                                            }}
+                                                            title="Следующая закладка (Shift+F2)"
+                                                        >
+                                                            <MIcon name="expand_less" size="sm" />
+                                                        </button>
+                                                        <button
+                                                            className="yaml-viewer-nav__action"
+                                                            onClick={() => {
+                                                                if (!editorRef.current) return;
+                                                                const pos = editorRef.current.getPosition();
+                                                                if (!pos) return;
+                                                                const reversed = [...fileBookmarks].reverse();
+                                                                const prev =
+                                                                    reversed.find((l) => l < pos.lineNumber) ??
+                                                                    fileBookmarks[fileBookmarks.length - 1];
+                                                                jumpTo(prev, { focus: true });
+                                                            }}
+                                                            title="Предыдущая закладка (Ctrl+Shift+F2)"
+                                                        >
+                                                            <MIcon name="expand_more" size="sm" />
+                                                        </button>
+                                                        <button
+                                                            className="yaml-viewer-nav__action"
+                                                            onClick={async () => {
+                                                                const text = fileBookmarks
+                                                                    .map((l) => `${filePath}:${l}`)
+                                                                    .join("\n");
+                                                                try {
+                                                                    await navigator.clipboard.writeText(text);
+                                                                    useGraphStore
+                                                                        .getState()
+                                                                        .showSnackbar(
+                                                                            `Скопировано: ${fileBookmarks.length}`,
+                                                                        );
+                                                                } catch {
+                                                                    /* ignore */
+                                                                }
+                                                            }}
+                                                            title="Копировать все закладки"
+                                                        >
+                                                            <MIcon name="content_copy" size="sm" />
+                                                        </button>
+                                                        <button
+                                                            className="yaml-viewer-nav__action"
+                                                            onClick={async () => {
+                                                                const ok = await confirmDialog(
+                                                                    "Удалить все закладки?",
+                                                                    {
+                                                                        detail:
+                                                                            "Все закладки в этом файле будут удалены.",
+                                                                        danger: true,
+                                                                        confirmLabel: "Удалить",
+                                                                    },
+                                                                );
+                                                                if (ok) setEditorBookmarks(filePath!, []);
+                                                            }}
+                                                            title="Удалить все закладки"
+                                                        >
+                                                            <MIcon name="delete_sweep" size="sm" />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Поиск по закладкам — только если их много */}
+                                            {fileBookmarks.length > 3 && (
+                                                <div className="yaml-viewer-bookmarks-search">
+                                                    <MIcon name="search" size="sm" />
+                                                    <input
+                                                        type="text"
+                                                        value={bookmarksQuery}
+                                                        onChange={(e) => setBookmarksQuery(e.target.value)}
+                                                        placeholder="Фильтр по тексту или номеру строки…"
+                                                        spellCheck={false}
+                                                    />
+                                                    {bookmarksQuery && (
+                                                        <button
+                                                            type="button"
+                                                            className="yaml-viewer-bookmarks-search__clear"
+                                                            onClick={() => setBookmarksQuery("")}
+                                                            title="Очистить"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            <div className="yaml-viewer-nav__list">
+                                                {bookmarkDetails.length === 0 ? (
+                                                    <div className="yaml-viewer-bookmarks-empty">
+                                                        <MIcon name="star_border" size="lg" />
+                                                        <div className="yaml-viewer-bookmarks-empty__title">
+                                                            Нет закладок
+                                                        </div>
+                                                        <div className="yaml-viewer-bookmarks-empty__hint">
+                                                            Поставьте курсор на нужную строку и нажмите <kbd>F2</kbd>,
+                                                            чтобы закрепить место.
+                                                        </div>
+                                                    </div>
+                                                ) : filteredBookmarks.length === 0 ? (
+                                                    <div className="yaml-viewer-bookmarks-empty">
+                                                        <MIcon name="search_off" size="lg" />
+                                                        <div className="yaml-viewer-bookmarks-empty__title">
+                                                            Ничего не найдено
+                                                        </div>
+                                                        <div className="yaml-viewer-bookmarks-empty__hint">
+                                                            Попробуйте изменить запрос «{bookmarksQuery}»
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn--small"
+                                                            onClick={() => setBookmarksQuery("")}
+                                                            style={{ marginTop: 8 }}
+                                                        >
+                                                            Сбросить фильтр
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="yaml-viewer-bookmarks-list">
+                                                        {filteredBookmarks.map((b) => (
+                                                            <div
+                                                                key={b.line}
+                                                                className="yaml-viewer-bookmark"
+                                                                onClick={() => jumpTo(b.line, { focus: true })}
+                                                                title={`Строка ${b.line}: ${b.raw.trim() || "(пустая строка)"}`}
+                                                            >
+                                                                <span className="yaml-viewer-bookmark__line">
+                                                                    {b.line}
+                                                                </span>
+                                                                <span className="yaml-viewer-bookmark__text">
+                                                                    {b.text || (
+                                                                        <span className="yaml-viewer-bookmark__empty">
+                                                                            пустая строка
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                                <div className="yaml-viewer-bookmark__actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="yaml-viewer-bookmark__action"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            navigator.clipboard
+                                                                                .writeText(b.raw)
+                                                                                .then(() =>
+                                                                                    useGraphStore
+                                                                                        .getState()
+                                                                                        .showSnackbar("Строка скопирована"),
+                                                                                )
+                                                                                .catch(() => {
+                                                                                    /* ignore */
+                                                                                });
+                                                                        }}
+                                                                        title="Копировать строку"
+                                                                    >
+                                                                        <MIcon name="content_copy" size="sm" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="yaml-viewer-bookmark__action"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            navigator.clipboard
+                                                                                .writeText(`${filePath}:${b.line}`)
+                                                                                .then(() =>
+                                                                                    useGraphStore
+                                                                                        .getState()
+                                                                                        .showSnackbar(
+                                                                                            "Путь к строке скопирован",
+                                                                                        ),
+                                                                                )
+                                                                                .catch(() => {
+                                                                                    /* ignore */
+                                                                                });
+                                                                        }}
+                                                                        title="Копировать путь к строке"
+                                                                    >
+                                                                        <MIcon name="link" size="sm" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="yaml-viewer-bookmark__action yaml-viewer-bookmark__action--danger"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            const next = fileBookmarks.filter(
+                                                                                (l) => l !== b.line,
+                                                                            );
+                                                                            setEditorBookmarks(filePath!, next);
+                                                                        }}
+                                                                        title="Удалить закладку"
+                                                                    >
+                                                                        <MIcon name="close" size="sm" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
-                        </div>
 
-                        {/* Обертка для Monaco */}
-                        <div className="yaml-viewer-editor__canvas">
-                            <div
-                                key="monaco"
-                                ref={containerRef}
-                                style={{ width: '100%', height: '100%' }}
-                            />
-
-                            {/* Diff-контейнер — рендерится только в diff-режиме */}
-                            {diffAgainst !== null && (
-                                <div
-                                    ref={diffContainerRef}
-                                    style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0
-                                    }}
-                                />
+                            {!leftCollapsed && (
+                                <div className="yaml-viewer-resizer" onMouseDown={startResizingLeft} />
                             )}
 
-                            {loading && (
-                                <div className="yaml-viewer-editor__loading">
-                                    <div className="yaml-viewer-editor__loading-inner">
+                            {/* Editor */}
+                            <div className="yaml-viewer-editor">
+                                {/* Новая панель: Breadcrumbs (слева) + Quick Jumps (справа) */}
+                                <div className="yaml-viewer-editor__toolbar">
+                                    {/* Left: goto start/end */}
+                                    <div className="yaml-viewer-goto-controls">
+                                        <button onClick={gotoStart} title="В начало файла (Ctrl+Home)">
+                                            <MIcon name="vertical_align_top" size="sm" />
+                                        </button>
+                                        <button onClick={gotoEnd} title="В конец файла (Ctrl+End)">
+                                            <MIcon name="vertical_align_bottom" size="sm" />
+                                        </button>
+                                    </div>
+
+                                    <div className="yaml-viewer-breadcrumbs">
+                                        {currentContext && currentContext.breadcrumbs.length > 0 ? (
+                                            <>
+                                                {currentContext.breadcrumbs.map((item, idx) => (
+                                                    <React.Fragment key={`bc-${idx}-${item.line}`}>
+                                                        {idx > 0 && <span className="yaml-viewer-breadcrumbs__sep">›</span>}
+                                                        <button
+                                                            type="button"
+                                                            className={`yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--${item.type}`}
+                                                            onClick={() => jumpTo(item.line)}
+                                                            title={`${item.type}: ${item.id} — строка ${item.line}`}
+                                                        >
+                                                            {item.id}
+                                                        </button>
+                                                    </React.Fragment>
+                                                ))}
+                                                <span className="yaml-viewer-breadcrumbs__line">:{cursorLine}</span>
+                                                {domainId && (
+                                                    <PinButton
+                                                        target={`line:${domainId}:${cursorLine}`}
+                                                        domainId={domainId}
+                                                        kind="domain"
+                                                        label={`${domainId} :${cursorLine}`}
+                                                        annotationsOverride={pinByLine.get(cursorLine) || []}
+                                                        onResolve={(id) => annotationsStore.update(id, { resolvedAt: Date.now() })}
+                                                        onDelete={(id) => annotationsStore.remove(id)}
+                                                    />
+                                                )}
+                                            </>
+                                        ) : (
+                                            <span className="yaml-viewer-breadcrumbs__item">—</span>
+                                        )}
+                                    </div>
+
+                                    {/* Right: quickjumps + fold controls */}
+                                    <div className="yaml-viewer-toolbar-right">
+                                        {/* Скрытие затенённых строк при фокусе */}
+                                        {focusTarget && focusResult && dimmedCount > 0 && (
+                                            <button
+                                                type="button"
+                                                className={
+                                                    "yaml-viewer-fold-btn yaml-viewer-focus-hide-btn" +
+                                                    (hideDimmed ? " yaml-viewer-fold-btn--active" : "")
+                                                }
+                                                onClick={() => setHideDimmed((v) => !v)}
+                                                title={
+                                                    hideDimmed
+                                                        ? "Показать все строки"
+                                                        : `Скрыть ${dimmedCount} ${pluralFew(dimmedCount, "строку", "строки", "строк")} вне фокуса`
+                                                }
+                                            >
+                                                <MIcon
+                                                    name={hideDimmed ? "unfold_more" : "visibility_off"}
+                                                    size="sm"
+                                                />
+                                                <span className="yaml-viewer-focus-hide-btn__count">
+                                                    {dimmedCount}
+                                                </span>
+                                            </button>
+                                        )}
+
+                                        <Hint info={HINTS.quickjump} className="yaml-viewer-quickjump-anchor">
+                                            <button
+                                                type="button"
+                                                className="yaml-viewer-fold-btn yaml-viewer-quickjump-btn"
+                                                onClick={() => {
+                                                    setQuickJumpInitialQuery(null);
+                                                    setQuickJumpOpen(true);
+                                                }}
+                                            >
+                                                <MIcon name="my_location" size="sm" />
+                                            </button>
+                                        </Hint>
+                                        {isDirty && diffBlocks.length > 0 && (
+                                            <div
+                                                className="yaml-viewer-diff-nav"
+                                                style={{
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: 1,
+                                                    marginRight: 4,
+                                                }}
+                                                title={
+                                                    `Изменённых блоков: ${diffBlocks.length}` +
+                                                    (diffMarks
+                                                        ? ` (+${diffMarks.added.length} / ~${diffMarks.modified.length} строк)`
+                                                        : "")
+                                                }
+                                            >
+                                                <button
+                                                    type="button"
+                                                    className="yaml-viewer-fold-btn"
+                                                    onClick={() => goToDiff(-1)}
+                                                    title="Предыдущий изменённый блок"
+                                                >
+                                                    <MIcon name="keyboard_arrow_up" size="sm" />
+                                                </button>
+                                                <span
+                                                    style={{
+                                                        fontSize: 11,
+                                                        minWidth: 18,
+                                                        textAlign: "center",
+                                                        color: "var(--text-400)",
+                                                        fontFamily: "JetBrains Mono, monospace",
+                                                    }}
+                                                >
+                                                    {diffBlocks.length}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    className="yaml-viewer-fold-btn"
+                                                    onClick={() => goToDiff(1)}
+                                                    title="Следующий изменённый блок"
+                                                >
+                                                    <MIcon name="keyboard_arrow_down" size="sm" />
+                                                </button>
+                                            </div>
+                                        )}
+                                        <div className="yaml-viewer-fold-controls">
+                                            {([1, 2, 3, 4, 5] as const).map((lvl) => (
+                                                <Hint key={lvl} info={HINTS.fold}>
+                                                    <button
+                                                        className={
+                                                            "yaml-viewer-fold-btn" +
+                                                            (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : "")
+                                                        }
+                                                        onClick={() => {
+                                                            if (activeFoldLevel === lvl) unfoldAll();
+                                                            else foldToLevel(lvl);
+                                                        }}
+                                                    >
+                                                        {lvl}
+                                                    </button>
+                                                </Hint>
+                                            ))}
+                                            <Hint info={HINTS["fold-unfold"]}>
+                                                <button className="yaml-viewer-fold-btn" onClick={unfoldAll}>
+                                                    <MIcon name="unfold_more" size="sm" />
+                                                </button>
+                                            </Hint>
+                                            <Popover
+                                                align="right"
+                                                width={280}
+                                                trigger={(open) => (
+                                                    <Hint info={HINTS["fold-more"]}>
+                                                        <button
+                                                            className={
+                                                                "yaml-viewer-fold-btn" +
+                                                                (open ? " yaml-viewer-fold-btn--active" : "")
+                                                            }
+                                                        >
+                                                            <MIcon name="more_horiz" size="sm" />
+                                                        </button>
+                                                    </Hint>
+                                                )}
+                                            >
+                                                {(close) => (
+                                                    <div className="menu">
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { foldAll(); close(); }}
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="unfold_less" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">Свернуть всё</span>
+                                                        </button>
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { unfoldAll(); close(); }}
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="unfold_more" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">Развернуть всё</span>
+                                                        </button>
+                                                        <div className="menu__divider" />
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { foldSiblings(); close(); }}
+                                                            title="Свернуть все элементы списка того же уровня, кроме текущего"
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="splitscreen" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">Свернуть сиблингов курсора</span>
+                                                        </button>
+                                                        <div className="menu__divider" />
+                                                        <div className="menu__label">Свернуть все блоки</div>
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { foldBlocksByKey("attributes"); close(); }}
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="view_list" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">attributes</span>
+                                                        </button>
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { foldBlocksByKey("widgets"); close(); }}
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="widgets" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">widgets</span>
+                                                        </button>
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { foldBlocksByKey("groups"); close(); }}
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="view_module" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">groups</span>
+                                                        </button>
+                                                        <button
+                                                            className="menu__item"
+                                                            onClick={() => { foldBlocksByKey("views"); close(); }}
+                                                        >
+                                                            <span className="menu__icon">
+                                                                <MIcon name="view_quilt" size="sm" />
+                                                            </span>
+                                                            <span className="menu__text">views</span>
+                                                        </button>
+                                                        <div className="menu__divider" />
+                                                        <label className="menu__checkbox">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={!yamlQuickNavEnabled}
+                                                                onChange={() => setYamlQuickNavEnabled(!yamlQuickNavEnabled)}
+                                                            />
+                                                            <span className="menu__check" />
+                                                            <span className="menu__text">
+                                                                Скрыть оглавление при скролле
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                )}
+                                            </Popover>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Обертка для Monaco */}
+                                <div className="yaml-viewer-editor__canvas">
+                                    <div
+                                        key="monaco"
+                                        ref={containerRef}
+                                        style={{ width: '100%', height: '100%' }}
+                                    />
+
+                                    {/* Diff-контейнер — рендерится только в diff-режиме */}
+                                    {diffAgainst !== null && (
+                                        <div
+                                            ref={diffContainerRef}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                right: 0,
+                                                bottom: 0
+                                            }}
+                                        />
+                                    )}
+
+                                    {loading && (
+                                        <div className="yaml-viewer-editor__loading">
+                                            <div className="yaml-viewer-editor__loading-inner">
+                                                <div className="yaml-viewer-editor__spinner" />
+                                                <div className="yaml-viewer-editor__loading-text">
+                                                    {mode === "remote"
+                                                        ? "Загрузка актуальной схемы с сервера…"
+                                                        : "Загрузка содержимого…"}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {!loading && !monacoReady && !monacoError && (
+                                        <div className="yaml-viewer-editor__loading">
+                                            Загрузка Monaco…
+                                        </div>
+                                    )}
+
+                                    {loadError && (
+                                        <div className="yaml-viewer-editor__error">
+                                            Ошибка загрузки схемы: {loadError}
+                                            <div style={{ marginTop: 8 }}>
+                                                <button
+                                                    className="btn"
+                                                    onClick={() => setReloadKey((k) => k + 1)}
+                                                >
+                                                    Повторить
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {monacoError && (
+                                        <div className="yaml-viewer-editor__error">
+                                            Ошибка Monaco: {monacoError}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Карта секций */}
+                                {lineMap && (
+                                    <div className="yaml-section-minimap">
+                                        {lineMap.sections.map((s) => {
+                                            const totalLines = lineMap.sections.reduce((acc, curr) => acc + curr.linesCount, 0);
+                                            const heightPercent = (s.linesCount / totalLines) * 100;
+
+                                            // Используем filteredIssues, чтобы учитывать фильтр
+                                            const sectionIssues = filteredIssues.filter((i) => {
+                                                const line = findIssueLine(i, lineMap);
+                                                return line && line >= s.line && line <= s.line + s.linesCount;
+                                            });
+                                            const hasError = sectionIssues.some((i) => i.severity === "error");
+                                            const hasWarning = sectionIssues.some((i) => i.severity === "warning");
+
+                                            return (
+                                                <div
+                                                    key={s.key}
+                                                    className={
+                                                        "yaml-section-minimap__block " +
+                                                        (hasError ? "yaml-section-minimap__block--error" :
+                                                            hasWarning ? "yaml-section-minimap__block--warning" :
+                                                                "yaml-section-minimap__block--ok")
+                                                    }
+                                                    style={{ height: `${heightPercent}%` }}
+                                                    onClick={() => jumpTo(s.line)}
+                                                    title={`${s.label} (${s.count})${sectionIssues.length > 0 ? ` — ${sectionIssues.length} проблем` : ""}`}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {lineMap && (
+                                    <SectionQuickNav
+                                        lineMap={lineMap}
+                                        topLine={editorTopLine}
+                                        autoOpenSignal={scrollSignal}
+                                        onJump={jumpTo}
+                                        enabled={yamlQuickNavEnabled}
+                                    />
+                                )}
+
+                                {/* ═══════════ Footer / Status bar ═══════════ */}
+                                <div className="yaml-viewer-statusbar">
+                                    {/* ── Левая зона: контекст курсора ── */}
+                                    <div className="yaml-viewer-statusbar__left">
+                                        <span
+                                            className="yaml-viewer-statusbar__item"
+                                            title="Позиция курсора (строка, колонка)"
+                                        >
+                                            Ln {cursorLine}, Col {cursorColumn}
+                                        </span>
+
+                                        {selection && (
+                                            <span
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                                title="Выделенный фрагмент"
+                                            >
+                                                Выделено: {selection.chars}{" "}
+                                                {pluralFew(selection.chars, "символ", "символа", "символов")}
+                                                {selection.lines > 1 && ` · ${selection.lines} стр.`}
+                                            </span>
+                                        )}
+
+                                        {currentIndent && currentIndent.total > 0 && (
+                                            <span
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                                title="Отступ текущей строки"
+                                            >
+                                                {currentIndent.tabs > 0
+                                                    ? `Tabs: ${currentIndent.tabs}`
+                                                    : `Spaces: ${currentIndent.spaces}`}
+                                            </span>
+                                        )}
+
+                                        <span
+                                            className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                            title="Всего строк в файле"
+                                        >
+                                            {totalLines} {pluralFew(totalLines, "строка", "строки", "строк")}
+                                        </span>
+                                    </div>
+
+                                    {/* ── Центр: валидация ── */}
+                                    <div className="yaml-viewer-statusbar__center">
+                                        {yamlSyntaxIssue ? (
+                                            <button
+                                                type="button"
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--err yaml-viewer-statusbar__item--clickable"
+                                                onClick={() => {
+                                                    const ln = yamlSyntaxIssue.line || 1;
+                                                    jumpTo(ln);
+                                                }}
+                                                title="Перейти к ошибке YAML"
+                                            >
+                                                <MIcon name="error" size="sm" />
+                                                YAML: ошибка (стр. {yamlSyntaxIssue.line || "?"})
+                                            </button>
+                                        ) : (
+                                            <span className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--ok">
+                                                <MIcon name="check_circle" size="sm" />
+                                                YAML валиден
+                                            </span>
+                                        )}
+
+                                        {issueCount > 0 && (
+                                            <button
+                                                type="button"
+                                                className={
+                                                    "yaml-viewer-statusbar__item yaml-viewer-statusbar__item--clickable " +
+                                                    (lintBreakdown.errs > 0
+                                                        ? "yaml-viewer-statusbar__item--err"
+                                                        : "yaml-viewer-statusbar__item--warn")
+                                                }
+                                                onClick={() => setRightTab("issues")}
+                                                title="Открыть список проблем в правой панели"
+                                            >
+                                                <MIcon name="warning" size="sm" />
+                                                {lintBreakdown.errs > 0 && `${lintBreakdown.errs}E`}
+                                                {lintBreakdown.errs > 0 && lintBreakdown.warns > 0 && " · "}
+                                                {lintBreakdown.warns > 0 && `${lintBreakdown.warns}W`}
+                                                {lintBreakdown.errs === 0 && lintBreakdown.warns === 0 && `${issueCount}`}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* ── Правая зона: состояние + главная подсказка ── */}
+                                    <div className="yaml-viewer-statusbar__right">
+                                        {yamlContentSource === "draft" && (
+                                            <span
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--warn"
+                                                title="Открыт черновик с сервера (не опубликован)"
+                                            >
+                                                <MIcon name="edit_note" size="sm" />
+                                                черновик
+                                            </span>
+                                        )}
+
+                                        {isDirty && (
+                                            <span
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--warn"
+                                                title="Есть несохранённые изменения"
+                                            >
+                                                ● не сохранён
+                                            </span>
+                                        )}
+
+                                        {isLocked ? (
+                                            <span
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
+                                                title="Файл заблокирован (двойной Shift — разблокировать)"
+                                            >
+                                                <MIcon name="lock" size="sm" />
+                                                locked
+                                            </span>
+                                        ) : (
+                                            <span
+                                                className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--ok"
+                                                title="Режим редактирования"
+                                            >
+                                                <MIcon name="lock_open" size="sm" />
+                                                редактирование
+                                            </span>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            className="yaml-viewer-statusbar__hint"
+                                            onClick={() => {
+                                                const ed = editorRef.current;
+                                                if (!ed) return;
+                                                try {
+                                                    ed.trigger(
+                                                        "dg-force-suggest",
+                                                        "editor.action.triggerSuggest",
+                                                        null,
+                                                    );
+                                                } catch {
+                                                    /* ignore */
+                                                }
+                                            }}
+                                            title="Открыть автодополнение в текущей позиции (Shift+Esc)"
+                                        >
+                                            <kbd>Shift</kbd>
+                                            <span className="yaml-viewer-statusbar__hint-sep">+</span>
+                                            <kbd>Esc</kbd>
+                                            <span className="yaml-viewer-statusbar__hint-label">
+                                                автодополнение
+                                            </span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right panel with tabs */}
+                            <div className={"yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : "")}>
+                                <div className="yaml-viewer-tabs">
+                                    <Hint className='yaml-viewer-tab' info={HINTS["tab-issues"]} style={{ padding: 0 }}>
+                                        <button
+                                            className={"yaml-viewer-tab" + (rightTab === "issues" ? " active" : "")}
+                                            onClick={() => setRightTab("issues")}
+                                        >
+                                            <MIcon name="rule" size="sm" />
+                                            {issueCount > 0 && (
+                                                <span className="yaml-viewer-tab__badge">{issueCount}</span>
+                                            )}
+                                        </button>
+                                    </Hint>
+                                    <Hint className='yaml-viewer-tab' info={HINTS["tab-refs"]} style={{ padding: 0 }}>
+                                        <button
+                                            className={"yaml-viewer-tab" + (rightTab === "refs" ? " active" : "")}
+                                            onClick={() => setRightTab("refs")}
+                                        >
+                                            <MIcon name="link" size="sm" />
+                                            {refsCount > 0 && (
+                                                <span className="yaml-viewer-tab__badge">{refsCount}</span>
+                                            )}
+                                        </button>
+                                    </Hint>
+                                    <Hint className='yaml-viewer-tab' info={HINTS["tab-backlinks"]} style={{ padding: 0 }}>
+                                        <button
+                                            className={"yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : "")}
+                                            onClick={() => setRightTab("backlinks")}
+                                        >
+                                            <MIcon name="call_received" size="sm" />
+                                            {backlinks.entity.length + backlinks.attribute.length > 0 && (
+                                                <span className="yaml-viewer-tab__badge">
+                                                    {backlinks.entity.length + backlinks.attribute.length}
+                                                </span>
+                                            )}
+                                        </button>
+                                    </Hint>
+                                    {serverAvailable && (
+                                        <Hint className='yaml-viewer-tab' info={HINTS["tab-server"]} style={{ padding: 0 }}>
+                                            <button
+                                                className={
+                                                    "yaml-viewer-tab" +
+                                                    (rightTab === "server" ? " active" : "") +
+                                                    (serverValidation && !serverValidating
+                                                        ? serverValidation.isValid
+                                                            ? " yaml-viewer-tab--ok"
+                                                            : " yaml-viewer-tab--err"
+                                                        : "")
+                                                }
+                                                onClick={() => setRightTab("server")}
+                                            >
+                                                <MIcon
+                                                    name={
+                                                        serverValidating
+                                                            ? "hourglass_top"
+                                                            : serverValidation?.isValid
+                                                                ? "cloud_done"
+                                                                : serverValidation && !serverValidation.isValid
+                                                                    ? "cloud_off"
+                                                                    : "cloud"
+                                                    }
+                                                    size="sm"
+                                                />
+
+                                                {serverValidation && !serverValidation.isValid && (
+                                                    <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--err">
+                                                        {serverValidation.diagnostics?.length || "!"}
+                                                    </span>
+                                                )}
+                                                {serverValidation?.isValid && (
+                                                    <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--ok">
+                                                        ✓
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </Hint>
+                                    )}
+                                </div>
+
+                                {rightTab === 'issues' && (
+                                    <IssuesPanel
+                                        issues={filteredIssues}
+                                        allIssues={effectiveIssues}
+                                        onJump={jumpTo}
+                                        lineMap={lineMap}
+                                        severityFilter={severityFilter}
+                                        setSeverityFilter={setSeverityFilter}
+                                        domainId={domainId}
+                                    />
+                                )}
+                                {rightTab === 'refs' && (
+                                    <ExternalRefsPanel
+                                        groups={externalRefs.groups}
+                                        scenarioRefs={scenarioRefs}
+                                        onJump={jumpTo}
+                                        currentDomain={domainId || ''}
+                                    />
+                                )}
+                                {rightTab === "backlinks" && (
+                                    <BacklinksPanel
+                                        backlinks={backlinks}
+                                        onJump={jumpTo}
+                                        currentDomain={domainId}
+                                    />
+                                )}
+                                {rightTab === "server" && (
+                                    <div className="yaml-issues">
+                                        <div className="yaml-issues__header">
+                                            Серверная валидация
+                                        </div>
+
+                                        {!serverValidation && !serverValidating && (
+                                            <div className="yaml-issues-empty">
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>☁️</div>
+                                                <div style={{ fontSize: 12, color: "var(--text-400)", marginBottom: 12 }}>
+                                                    Нажмите кнопку в шапке, чтобы отправить текущую схему на проверку.
+                                                </div>
+                                                <button className="btn btn--primary" onClick={handleServerValidate}>
+                                                    <MIcon name="cloud_upload" size="sm" />
+                                                    <span style={{ marginLeft: 6 }}>Проверить на сервере</span>
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {serverValidating && (
+                                            <div className="yaml-issues-empty">
+                                                <MIcon name="hourglass" size="xl" />
+                                                <div>Проверка на сервере...</div>
+                                            </div>
+                                        )}
+
+                                        {!serverValidating && serverValidation?.error && (
+                                            <div className="yaml-issues-empty" style={{ color: "var(--danger)" }}>
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>❌</div>
+                                                <div style={{ fontSize: 12, marginBottom: 12 }}>
+                                                    {serverValidation.error}
+                                                </div>
+                                                <button className="btn" onClick={handleServerValidate}>
+                                                    Повторить
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {!serverValidating && serverValidation?.isValid && (
+                                            <div className="yaml-issues-empty">
+                                                <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                                                <div style={{ color: "var(--success)", fontSize: 13, marginBottom: 4 }}>
+                                                    Схема валидна
+                                                </div>
+                                                <div style={{ fontSize: 11, color: "var(--text-500)" }}>
+                                                    Проверено:{" "}
+                                                    {serverValidation.validatedAt
+                                                        ? new Date(serverValidation.validatedAt).toLocaleTimeString("ru-RU")
+                                                        : "только что"}
+                                                </div>
+                                                <button
+                                                    className="btn"
+                                                    onClick={handleServerValidate}
+                                                    style={{ marginTop: 12 }}
+                                                >
+                                                    Проверить снова
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {!serverValidating &&
+                                            serverValidation &&
+                                            !serverValidation.isValid &&
+                                            !serverValidation.error &&
+                                            (serverValidation.diagnostics?.length || 0) > 0 && (
+                                                <>
+                                                    <div className="yaml-issues__header">
+                                                        Ошибки сервера ({serverValidation.diagnostics!.length})
+                                                    </div>
+                                                    <div className="yaml-issues__list">
+                                                        {serverValidation.diagnostics!.map((d: any, i: number) => {
+                                                            const label =
+                                                                (d.labels || []).find((l: any) => l.primary) ||
+                                                                (d.labels || [])[0];
+                                                            const span = label?.span;
+                                                            const isError = d.severity === "ERROR";
+                                                            return (
+                                                                <button
+                                                                    key={i}
+                                                                    className={
+                                                                        "yaml-issue yaml-issue--" +
+                                                                        (isError ? "error" : "warning")
+                                                                    }
+                                                                    onClick={() => {
+                                                                        if (
+                                                                            span &&
+                                                                            typeof span.start === "number" &&
+                                                                            editorRef.current
+                                                                        ) {
+                                                                            const model = editorRef.current.getModel();
+                                                                            if (model) {
+                                                                                const pos = model.getPositionAt(span.start);
+                                                                                jumpTo(pos.lineNumber);
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <span
+                                                                        className={
+                                                                            "yaml-issue__dot yaml-issue__dot--" +
+                                                                            (isError ? "error" : "warning")
+                                                                        }
+                                                                    />
+                                                                    <span className="yaml-issue__text">
+                                                                        {d.message}
+                                                                        {label?.message && (
+                                                                            <span
+                                                                                style={{
+                                                                                    display: "block",
+                                                                                    fontSize: 10,
+                                                                                    color: "var(--text-500)",
+                                                                                    marginTop: 2,
+                                                                                }}
+                                                                            >
+                                                                                {label.message}
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                    {span &&
+                                                                        typeof span.start === "number" &&
+                                                                        editorRef.current?.getModel() && (
+                                                                            <span className="yaml-issue__line">
+                                                                                :{editorRef.current.getModel().getPositionAt(span.start).lineNumber}
+                                                                            </span>
+                                                                        )}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    <div style={{ padding: "8px 12px", textAlign: "center" }}>
+                                                        <button className="btn" onClick={handleServerValidate}>
+                                                            Проверить снова
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {showLoader && (
+                                <div
+                                    style={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        background: "var(--bg-900, rgba(10,15,26,0.9))",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        zIndex: 100,
+                                        backdropFilter: "blur(2px)",
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            alignItems: "center",
+                                            gap: 16,
+                                        }}
+                                    >
                                         <div className="yaml-viewer-editor__spinner" />
-                                        <div className="yaml-viewer-editor__loading-text">
+                                        <div style={{ color: "var(--text-300)", fontSize: 13 }}>
                                             {mode === "remote"
                                                 ? "Загрузка актуальной схемы с сервера…"
                                                 : "Загрузка содержимого…"}
                                         </div>
+                                        {filePath && (
+                                            <div style={{ color: "var(--text-500)", fontSize: 11 }}>
+                                                {filePath.split(/[\\/]/).pop()?.replace(/\.ro$/i, "")}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
-
-                            {!loading && !monacoReady && !monacoError && (
-                                <div className="yaml-viewer-editor__loading">
-                                    Загрузка Monaco…
-                                </div>
-                            )}
-
-                            {loadError && (
-                                <div className="yaml-viewer-editor__error">
-                                    Ошибка загрузки схемы: {loadError}
-                                    <div style={{ marginTop: 8 }}>
-                                        <button
-                                            className="btn"
-                                            onClick={() => setReloadKey((k) => k + 1)}
-                                        >
-                                            Повторить
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {monacoError && (
-                                <div className="yaml-viewer-editor__error">
-                                    Ошибка Monaco: {monacoError}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Карта секций */}
-                        {lineMap && (
-                            <div className="yaml-section-minimap">
-                                {lineMap.sections.map((s) => {
-                                    const totalLines = lineMap.sections.reduce((acc, curr) => acc + curr.linesCount, 0);
-                                    const heightPercent = (s.linesCount / totalLines) * 100;
-
-                                    // Используем filteredIssues, чтобы учитывать фильтр
-                                    const sectionIssues = filteredIssues.filter((i) => {
-                                        const line = findIssueLine(i, lineMap);
-                                        return line && line >= s.line && line <= s.line + s.linesCount;
-                                    });
-                                    const hasError = sectionIssues.some((i) => i.severity === "error");
-                                    const hasWarning = sectionIssues.some((i) => i.severity === "warning");
-
-                                    return (
-                                        <div
-                                            key={s.key}
-                                            className={
-                                                "yaml-section-minimap__block " +
-                                                (hasError ? "yaml-section-minimap__block--error" :
-                                                    hasWarning ? "yaml-section-minimap__block--warning" :
-                                                        "yaml-section-minimap__block--ok")
-                                            }
-                                            style={{ height: `${heightPercent}%` }}
-                                            onClick={() => jumpTo(s.line)}
-                                            title={`${s.label} (${s.count})${sectionIssues.length > 0 ? ` — ${sectionIssues.length} проблем` : ""}`}
-                                        />
-                                    );
-                                })}
-                            </div>
-                        )}
-
-                        {lineMap && (
-                            <SectionQuickNav
-                                lineMap={lineMap}
-                                topLine={editorTopLine}
-                                autoOpenSignal={scrollSignal}
-                                onJump={jumpTo}
-                                enabled={yamlQuickNavEnabled}
-                            />
-                        )}
-
-                        {/* ═══════════ Footer / Status bar ═══════════ */}
-                        <div className="yaml-viewer-statusbar">
-                            {/* ── Левая зона: контекст курсора ── */}
-                            <div className="yaml-viewer-statusbar__left">
-                                <span
-                                    className="yaml-viewer-statusbar__item"
-                                    title="Позиция курсора (строка, колонка)"
-                                >
-                                    Ln {cursorLine}, Col {cursorColumn}
-                                </span>
-
-                                {selection && (
-                                    <span
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
-                                        title="Выделенный фрагмент"
-                                    >
-                                        Выделено: {selection.chars}{" "}
-                                        {pluralFew(selection.chars, "символ", "символа", "символов")}
-                                        {selection.lines > 1 && ` · ${selection.lines} стр.`}
-                                    </span>
-                                )}
-
-                                {currentIndent && currentIndent.total > 0 && (
-                                    <span
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
-                                        title="Отступ текущей строки"
-                                    >
-                                        {currentIndent.tabs > 0
-                                            ? `Tabs: ${currentIndent.tabs}`
-                                            : `Spaces: ${currentIndent.spaces}`}
-                                    </span>
-                                )}
-
-                                <span
-                                    className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
-                                    title="Всего строк в файле"
-                                >
-                                    {totalLines} {pluralFew(totalLines, "строка", "строки", "строк")}
-                                </span>
-                            </div>
-
-                            {/* ── Центр: валидация ── */}
-                            <div className="yaml-viewer-statusbar__center">
-                                {yamlSyntaxIssue ? (
-                                    <button
-                                        type="button"
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--err yaml-viewer-statusbar__item--clickable"
-                                        onClick={() => {
-                                            const ln = yamlSyntaxIssue.line || 1;
-                                            jumpTo(ln);
-                                        }}
-                                        title="Перейти к ошибке YAML"
-                                    >
-                                        <MIcon name="error" size="sm" />
-                                        YAML: ошибка (стр. {yamlSyntaxIssue.line || "?"})
-                                    </button>
-                                ) : (
-                                    <span className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--ok">
-                                        <MIcon name="check_circle" size="sm" />
-                                        YAML валиден
-                                    </span>
-                                )}
-
-                                {issueCount > 0 && (
-                                    <button
-                                        type="button"
-                                        className={
-                                            "yaml-viewer-statusbar__item yaml-viewer-statusbar__item--clickable " +
-                                            (lintBreakdown.errs > 0
-                                                ? "yaml-viewer-statusbar__item--err"
-                                                : "yaml-viewer-statusbar__item--warn")
-                                        }
-                                        onClick={() => setRightTab("issues")}
-                                        title="Открыть список проблем в правой панели"
-                                    >
-                                        <MIcon name="warning" size="sm" />
-                                        {lintBreakdown.errs > 0 && `${lintBreakdown.errs}E`}
-                                        {lintBreakdown.errs > 0 && lintBreakdown.warns > 0 && " · "}
-                                        {lintBreakdown.warns > 0 && `${lintBreakdown.warns}W`}
-                                        {lintBreakdown.errs === 0 && lintBreakdown.warns === 0 && `${issueCount}`}
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* ── Правая зона: состояние + главная подсказка ── */}
-                            <div className="yaml-viewer-statusbar__right">
-                                {yamlContentSource === "draft" && (
-                                    <span
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--warn"
-                                        title="Открыт черновик с сервера (не опубликован)"
-                                    >
-                                        <MIcon name="edit_note" size="sm" />
-                                        черновик
-                                    </span>
-                                )}
-
-                                {isDirty && (
-                                    <span
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--warn"
-                                        title="Есть несохранённые изменения"
-                                    >
-                                        ● не сохранён
-                                    </span>
-                                )}
-
-                                {isLocked ? (
-                                    <span
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--muted"
-                                        title="Файл заблокирован (двойной Shift — разблокировать)"
-                                    >
-                                        <MIcon name="lock" size="sm" />
-                                        locked
-                                    </span>
-                                ) : (
-                                    <span
-                                        className="yaml-viewer-statusbar__item yaml-viewer-statusbar__item--ok"
-                                        title="Режим редактирования"
-                                    >
-                                        <MIcon name="lock_open" size="sm" />
-                                        редактирование
-                                    </span>
-                                )}
-
-                                <button
-                                    type="button"
-                                    className="yaml-viewer-statusbar__hint"
-                                    onClick={() => {
-                                        const ed = editorRef.current;
-                                        if (!ed) return;
-                                        try {
-                                            ed.trigger(
-                                                "dg-force-suggest",
-                                                "editor.action.triggerSuggest",
-                                                null,
-                                            );
-                                        } catch {
-                                            /* ignore */
-                                        }
-                                    }}
-                                    title="Открыть автодополнение в текущей позиции (Shift+Esc)"
-                                >
-                                    <kbd>Shift</kbd>
-                                    <span className="yaml-viewer-statusbar__hint-sep">+</span>
-                                    <kbd>Esc</kbd>
-                                    <span className="yaml-viewer-statusbar__hint-label">
-                                        автодополнение
-                                    </span>
-                                </button>
-                            </div>
                         </div>
                     </div>
 
-                    {/* Right panel with tabs */}
-                    <div className={"yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : "")}>
-                        <div className="yaml-viewer-tabs">
-                            <Hint className='yaml-viewer-tab' info={HINTS["tab-issues"]} style={{ padding: 0 }}>
-                                <button
-                                    className={"yaml-viewer-tab" + (rightTab === "issues" ? " active" : "")}
-                                    onClick={() => setRightTab("issues")}
-                                >
-                                    <MIcon name="rule" size="sm" />
-                                    {issueCount > 0 && (
-                                        <span className="yaml-viewer-tab__badge">{issueCount}</span>
-                                    )}
-                                </button>
-                            </Hint>
-                            <Hint className='yaml-viewer-tab' info={HINTS["tab-refs"]} style={{ padding: 0 }}>
-                                <button
-                                    className={"yaml-viewer-tab" + (rightTab === "refs" ? " active" : "")}
-                                    onClick={() => setRightTab("refs")}
-                                >
-                                    <MIcon name="link" size="sm" />
-                                    {refsCount > 0 && (
-                                        <span className="yaml-viewer-tab__badge">{refsCount}</span>
-                                    )}
-                                </button>
-                            </Hint>
-                            <Hint className='yaml-viewer-tab' info={HINTS["tab-backlinks"]} style={{ padding: 0 }}>
-                                <button
-                                    className={"yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : "")}
-                                    onClick={() => setRightTab("backlinks")}
-                                >
-                                    <MIcon name="call_received" size="sm" />
-                                    {backlinks.entity.length + backlinks.attribute.length > 0 && (
-                                        <span className="yaml-viewer-tab__badge">
-                                            {backlinks.entity.length + backlinks.attribute.length}
-                                        </span>
-                                    )}
-                                </button>
-                            </Hint>
-                            {serverAvailable && (
-                                <Hint className='yaml-viewer-tab' info={HINTS["tab-server"]} style={{ padding: 0 }}>
-                                    <button
-                                        className={
-                                            "yaml-viewer-tab" +
-                                            (rightTab === "server" ? " active" : "") +
-                                            (serverValidation && !serverValidating
-                                                ? serverValidation.isValid
-                                                    ? " yaml-viewer-tab--ok"
-                                                    : " yaml-viewer-tab--err"
-                                                : "")
-                                        }
-                                        onClick={() => setRightTab("server")}
-                                    >
-                                        <MIcon
-                                            name={
-                                                serverValidating
-                                                    ? "hourglass_top"
-                                                    : serverValidation?.isValid
-                                                        ? "cloud_done"
-                                                        : serverValidation && !serverValidation.isValid
-                                                            ? "cloud_off"
-                                                            : "cloud"
-                                            }
-                                            size="sm"
-                                        />
-
-                                        {serverValidation && !serverValidation.isValid && (
-                                            <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--err">
-                                                {serverValidation.diagnostics?.length || "!"}
-                                            </span>
-                                        )}
-                                        {serverValidation?.isValid && (
-                                            <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--ok">
-                                                ✓
-                                            </span>
-                                        )}
-                                    </button>
-                                </Hint>
-                            )}
-                        </div>
-
-                        {rightTab === 'issues' && (
-                            <IssuesPanel
-                                issues={filteredIssues}
-                                allIssues={effectiveIssues}
-                                onJump={jumpTo}
-                                lineMap={lineMap}
-                                severityFilter={severityFilter}
-                                setSeverityFilter={setSeverityFilter}
-                                domainId={domainId}
+                    {/* ───────── CONSTRUCTOR MODE ───────── */}
+                    <div
+                        style={{
+                            display: editorMode === "constructor" ? "flex" : "none",
+                            flex: 1,
+                            flexDirection: "column",
+                            minHeight: 0,
+                            overflow: "hidden",
+                        }}
+                    >
+                        {isContentReady && index ? (
+                            <DomainConstructor
+                                yaml={content}
+                                modelIndex={index}
+                                onChange={handleConstructorChange}
+                                isPublished={!!publishedVersion}
+                                className="yaml-viewer-constructor"
                             />
-                        )}
-                        {rightTab === 'refs' && (
-                            <ExternalRefsPanel
-                                groups={externalRefs.groups}
-                                scenarioRefs={scenarioRefs}
-                                onJump={jumpTo}
-                                currentDomain={domainId || ''}
-                            />
-                        )}
-                        {rightTab === "backlinks" && (
-                            <BacklinksPanel
-                                backlinks={backlinks}
-                                onJump={jumpTo}
-                                currentDomain={domainId}
-                            />
-                        )}
-                        {rightTab === "server" && (
-                            <div className="yaml-issues">
-                                <div className="yaml-issues__header">
-                                    Серверная валидация
-                                </div>
-
-                                {!serverValidation && !serverValidating && (
-                                    <div className="yaml-issues-empty">
-                                        <div style={{ fontSize: 32, marginBottom: 8 }}>☁️</div>
-                                        <div style={{ fontSize: 12, color: "var(--text-400)", marginBottom: 12 }}>
-                                            Нажмите кнопку в шапке, чтобы отправить текущую схему на проверку.
-                                        </div>
-                                        <button className="btn btn--primary" onClick={handleServerValidate}>
-                                            <MIcon name="cloud_upload" size="sm" />
-                                            <span style={{ marginLeft: 6 }}>Проверить на сервере</span>
-                                        </button>
-                                    </div>
-                                )}
-
-                                {serverValidating && (
-                                    <div className="yaml-issues-empty">
-                                        <MIcon name="hourglass" size="xl" />
-                                        <div>Проверка на сервере...</div>
-                                    </div>
-                                )}
-
-                                {!serverValidating && serverValidation?.error && (
-                                    <div className="yaml-issues-empty" style={{ color: "var(--danger)" }}>
-                                        <div style={{ fontSize: 32, marginBottom: 8 }}>❌</div>
-                                        <div style={{ fontSize: 12, marginBottom: 12 }}>
-                                            {serverValidation.error}
-                                        </div>
-                                        <button className="btn" onClick={handleServerValidate}>
-                                            Повторить
-                                        </button>
-                                    </div>
-                                )}
-
-                                {!serverValidating && serverValidation?.isValid && (
-                                    <div className="yaml-issues-empty">
-                                        <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-                                        <div style={{ color: "var(--success)", fontSize: 13, marginBottom: 4 }}>
-                                            Схема валидна
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "var(--text-500)" }}>
-                                            Проверено:{" "}
-                                            {serverValidation.validatedAt
-                                                ? new Date(serverValidation.validatedAt).toLocaleTimeString("ru-RU")
-                                                : "только что"}
-                                        </div>
-                                        <button
-                                            className="btn"
-                                            onClick={handleServerValidate}
-                                            style={{ marginTop: 12 }}
-                                        >
-                                            Проверить снова
-                                        </button>
-                                    </div>
-                                )}
-
-                                {!serverValidating &&
-                                    serverValidation &&
-                                    !serverValidation.isValid &&
-                                    !serverValidation.error &&
-                                    (serverValidation.diagnostics?.length || 0) > 0 && (
-                                        <>
-                                            <div className="yaml-issues__header">
-                                                Ошибки сервера ({serverValidation.diagnostics!.length})
-                                            </div>
-                                            <div className="yaml-issues__list">
-                                                {serverValidation.diagnostics!.map((d: any, i: number) => {
-                                                    const label =
-                                                        (d.labels || []).find((l: any) => l.primary) ||
-                                                        (d.labels || [])[0];
-                                                    const span = label?.span;
-                                                    const isError = d.severity === "ERROR";
-                                                    return (
-                                                        <button
-                                                            key={i}
-                                                            className={
-                                                                "yaml-issue yaml-issue--" +
-                                                                (isError ? "error" : "warning")
-                                                            }
-                                                            onClick={() => {
-                                                                if (
-                                                                    span &&
-                                                                    typeof span.start === "number" &&
-                                                                    editorRef.current
-                                                                ) {
-                                                                    const model = editorRef.current.getModel();
-                                                                    if (model) {
-                                                                        const pos = model.getPositionAt(span.start);
-                                                                        jumpTo(pos.lineNumber);
-                                                                    }
-                                                                }
-                                                            }}
-                                                        >
-                                                            <span
-                                                                className={
-                                                                    "yaml-issue__dot yaml-issue__dot--" +
-                                                                    (isError ? "error" : "warning")
-                                                                }
-                                                            />
-                                                            <span className="yaml-issue__text">
-                                                                {d.message}
-                                                                {label?.message && (
-                                                                    <span
-                                                                        style={{
-                                                                            display: "block",
-                                                                            fontSize: 10,
-                                                                            color: "var(--text-500)",
-                                                                            marginTop: 2,
-                                                                        }}
-                                                                    >
-                                                                        {label.message}
-                                                                    </span>
-                                                                )}
-                                                            </span>
-                                                            {span &&
-                                                                typeof span.start === "number" &&
-                                                                editorRef.current?.getModel() && (
-                                                                    <span className="yaml-issue__line">
-                                                                        :{editorRef.current.getModel().getPositionAt(span.start).lineNumber}
-                                                                    </span>
-                                                                )}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                            <div style={{ padding: "8px 12px", textAlign: "center" }}>
-                                                <button className="btn" onClick={handleServerValidate}>
-                                                    Проверить снова
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
+                        ) : (
+                            <div
+                                style={{
+                                    flex: 1,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    color: "var(--text-400)",
+                                }}
+                            >
+                                {!isContentReady
+                                    ? mode === "remote"
+                                        ? "Загрузка схемы с сервера…"
+                                        : "Загрузка содержимого…"
+                                    : "Загрузка модели домена…"}
                             </div>
                         )}
                     </div>
 
+                    {/* ───────── LOADER (общий, поверх обеих панелей) ───────── */}
                     {showLoader && (
                         <div
                             style={{
@@ -7900,19 +8109,10 @@ export function YamlViewerModal() {
                                 backdropFilter: "blur(2px)",
                             }}
                         >
-                            <div
-                                style={{
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    alignItems: "center",
-                                    gap: 16,
-                                }}
-                            >
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
                                 <div className="yaml-viewer-editor__spinner" />
                                 <div style={{ color: "var(--text-300)", fontSize: 13 }}>
-                                    {mode === "remote"
-                                        ? "Загрузка актуальной схемы с сервера…"
-                                        : "Загрузка содержимого…"}
+                                    {mode === "remote" ? "Загрузка актуальной схемы с сервера…" : "Загрузка содержимого…"}
                                 </div>
                                 {filePath && (
                                     <div style={{ color: "var(--text-500)", fontSize: 11 }}>
@@ -7925,7 +8125,7 @@ export function YamlViewerModal() {
                 </div>
             </div>
 
-            {quickJumpOpen && lineMap && (
+            {quickJumpOpen && lineMap && editorMode === "code" && (
                 <YamlQuickJump
                     lineMap={lineMap}
                     content={content}
@@ -7942,7 +8142,7 @@ export function YamlViewerModal() {
                 />
             )}
 
-            {navContextMenu && (
+            {navContextMenu && editorMode === "code" && (
                 <NavContextMenu
                     state={navContextMenu}
                     focusTarget={focusTarget}
@@ -7962,7 +8162,7 @@ export function YamlViewerModal() {
             {/* Help modal */}
             {showHelp && <YamlViewerHelp onClose={() => setShowHelp(false)} />}
 
-            {historyOpen && (
+            {historyOpen && editorMode === "code" && (
                 <SchemaHistoryModal
                     filePath={filePath}
                     currentContent={content}
